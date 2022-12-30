@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "clap/clap.h"
+#include "clap/ext/audio-ports.h"
 #include "param.h"
 #define GUI_WIDTH 300
 #define GUI_HEIGHT 200
@@ -64,17 +65,26 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
     }
 }
 
-static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end, float *outL, float *outR)
+float saturate(float x)
+{
+    return x / (1.f + fabsf(x));
+}
+
+static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end, const float *inL, const float *inR, float *outL, float *outR)
 {
     for (uint32_t index = start; index < end; ++index)
     {
-        outL[index] *= 6.f;
-        outL[index] = tanhf(outL[index]);
-        outL[index] /= 6.f;
+        float left = inL[index];
+        left *= 24.f;
+        left = saturate(left);
+        left /= 24.f;
+        outL[index] = left;
 
-        outR[index] *= 6.f;
-        outR[index] = tanhf(outR[index]);
-        outR[index] /= 6.f;
+        float right = inR[index];
+        right *= 24.f;
+        right = saturate(left);
+        right /= 24.f;
+        outR[index] = right;
     }
 }
 
@@ -241,17 +251,18 @@ static bool PluginSyncAudioToMain(MyPlugin *plugin)
 
 /* audio ports extension */
 uint32_t audioPortCount(const clap_plugin_t *plugin, bool isInput) {
-    return isInput ? 0 : 1;
+    return isInput ? 1 : 1;
 }
+
 bool audioPortGet(const clap_plugin_t *plugin, uint32_t index, bool isInput,
-         clap_audio_port_info_t *info) {
-    if (isInput || index)
+                  clap_audio_port_info_t *info) {
+    if (index)
         return false;
     info->id = 0;
     info->channel_count = 2;
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->port_type = CLAP_PORT_STEREO;
-    info->in_place_pair = CLAP_INVALID_ID;
+    info->port_type = CLAP_PORT_MONO;
+    info->in_place_pair = true;
     snprintf(info->name, sizeof(info->name), "%s", "Audio Output");
     return true;
 }
@@ -365,7 +376,7 @@ static const clap_plugin_descriptor_t pluginDescriptor = {
     .url = "https://arborealaudio.com",
     .version = "0.2",
     .description = "Vintage analog warmth",
-    .features = (const char *[]){"instrument", "synthesizer", "stereo", NULL},
+    .features = (const char *[]){"stereo", "audio-effect", NULL},
 };
 
 /* GUI shite */
@@ -373,7 +384,7 @@ static const clap_plugin_descriptor_t pluginDescriptor = {
 #if defined(_WIN32)
 #include "gui/gui_w32.cpp"
 #elif defined(__linux__)
-#include "gui/gui_x11.cpp"
+#include "gui/gui_x11.c"
 #elif defined(__APPLE__)
 #include "gui/gui_mac.c"
 #endif
@@ -388,99 +399,118 @@ static const clap_plugin_posix_fd_support_t extensionPOSIXFDSupport = {
     .on_fd = onPOSIXFD,
 };
 
-/* static const clap_plugin_gui_t extensionGUI = {
-    .is_api_supported = [](const clap_plugin_t *plugin, const char *api, bool isFloating) -> bool
-    {
-        // We'll define GUI_API in our platform specific code file.
-        return 0 == strcmp(api, GUI_API) && !isFloating;
-    },
+/* GUI extension */
 
-    .get_preferred_api = [](const clap_plugin_t *plugin, const char **api, bool *isFloating) -> bool
-    {
-        *api = GUI_API;
-        *isFloating = false;
-        return true;
-    },
+bool extGUIIsAPISupported(const clap_plugin_t *plugin, const char *api, bool isFloating)
+{
+    // We'll define GUI_API in our platform specific code file.
+    return 0 == strcmp(api, GUI_API) && !isFloating;
+}
 
-    .create = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool
-    {
-        if (!extensionGUI.is_api_supported(_plugin, api, isFloating))
-            return false;
-        // We'll define GUICreate in our platform specific code file.
-        GUICreate((MyPlugin *)_plugin->plugin_data);
-        return true;
-    },
+bool extGUIGetPreferredAPI(const clap_plugin_t *plugin, const char **api, bool *isFloating)
+{
+    *api = GUI_API;
+    *isFloating = false;
+    return true;
+}
 
-    .destroy = [](const clap_plugin_t *_plugin)
-    {
-        // We'll define GUIDestroy in our platform specific code file.
-        GUIDestroy((MyPlugin *) _plugin->plugin_data);
-    },
-
-    .set_scale = [](const clap_plugin_t *plugin, double scale) -> bool
-    {
+bool extGUICreate(const clap_plugin_t *_plugin, const char *api, bool isFloating)
+{
+    if (!extGUIIsAPISupported(_plugin, api, isFloating))
         return false;
-    },
+    // We'll define GUICreate in our platform specific code file.
+    GUICreate((MyPlugin *)_plugin->plugin_data);
+    return true;
+}
 
-    .get_size = [](const clap_plugin_t *plugin, uint32_t *width, uint32_t *height) -> bool
-    {
-        *width = GUI_WIDTH;
-        *height = GUI_HEIGHT;
-        return true;
-    },
+void extGUIDestroy(const clap_plugin_t *_plugin)
+{
+    // We'll define GUIDestroy in our platform specific code file.
+    GUIDestroy((MyPlugin *)_plugin->plugin_data);
+}
 
-    .can_resize = [](const clap_plugin_t *plugin) -> bool
-    {
-        return false;
-    },
+bool extGUISetScale(const clap_plugin_t *plugin, double scale)
+{
+    return false;
+}
 
-    .get_resize_hints = [](const clap_plugin_t *plugin, clap_gui_resize_hints_t *hints) -> bool
-    {
-        return false;
-    },
+bool extGUIGetSize(const clap_plugin_t *plugin, uint32_t *width, uint32_t *height)
+{
+    *width = GUI_WIDTH;
+    *height = GUI_HEIGHT;
+    return true;
+}
 
-    .adjust_size = [](const clap_plugin_t *plugin, uint32_t *width, uint32_t *height) -> bool
-    {
-        return extensionGUI.get_size(plugin, width, height);
-    },
+bool extGUICanResize(const clap_plugin_t *plugin)
+{
+    return false;
+}
 
-    .set_size = [](const clap_plugin_t *plugin, uint32_t width, uint32_t height) -> bool
-    {
-        return true;
-    },
+bool extGUIGetResizeHints(const clap_plugin_t *plugin, clap_gui_resize_hints_t *hints)
+{
+    return false;
+}
 
-    .set_parent = [](const clap_plugin_t *_plugin, const clap_window_t *window) -> bool
-    {
-        assert(0 == strcmp(window->api, GUI_API));
-        // We'll define GUISetParent in our platform specific code file.
-        GUISetParent((MyPlugin *)_plugin->plugin_data, window);
-        return true;
-    },
+bool extGUIAdjustSize(const clap_plugin_t *plugin, uint32_t *width, uint32_t *height)
+{
+    return extGUIGetSize(plugin, width, height);
+}
 
-    .set_transient = [](const clap_plugin_t *plugin, const clap_window_t *window) -> bool
-    {
-        return false;
-    },
+bool extGUISetSize(const clap_plugin_t *plugin, uint32_t width, uint32_t height)
+{
+    return true;
+}
 
-    .suggest_title = [](const clap_plugin_t *plugin, const char *title) {},
+bool extGUISetParent(const clap_plugin_t *_plugin, const clap_window_t *window)
+{
+    assert(0 == strcmp(window->api, GUI_API));
+    // We'll define GUISetParent in our platform specific code file.
+    GUISetParent((MyPlugin *)_plugin->plugin_data, window);
+    return true;
+}
 
-    .show = [](const clap_plugin_t *_plugin) -> bool
-    {
-        // We'll define GUISetVisible in our platform specific code file.
-        GUISetVisible((MyPlugin *)_plugin->plugin_data, true);
-        return true;
-    },
+bool extGUISetTransient(const clap_plugin_t *plugin, const clap_window_t *window)
+{
+    return false;
+}
 
-    .hide = [](const clap_plugin_t *_plugin) -> bool
-    {
-        GUISetVisible((MyPlugin *)_plugin->plugin_data, false);
-        return true;
-    },
-}; */
+void extGUISuggestTitle(const clap_plugin_t *plugin, const char *title) {}
+
+bool extGUIShow(const clap_plugin_t *_plugin)
+{
+    // We'll define GUISetVisible in our platform specific code file.
+    GUISetVisible((MyPlugin *)_plugin->plugin_data, true);
+    return true;
+}
+
+bool extGUIHide(const clap_plugin_t *_plugin)
+{
+    GUISetVisible((MyPlugin *)_plugin->plugin_data, false);
+    return true;
+}
+
+static const clap_plugin_gui_t extensionGUI = {
+    .is_api_supported = extGUIIsAPISupported,
+    .get_preferred_api = extGUIGetPreferredAPI,
+    .create = extGUICreate,
+    .destroy = extGUIDestroy,
+    .set_scale = extGUISetScale,
+    .get_size = extGUIGetSize,
+    .can_resize = extGUICanResize,
+    .get_resize_hints = extGUIGetResizeHints,
+    .adjust_size = extGUIAdjustSize,
+    .set_size = extGUISetSize,
+    .set_parent = extGUISetParent,
+    .set_transient = extGUISetTransient,
+    .suggest_title = extGUISuggestTitle,
+    .show = extGUIShow,
+    .hide = extGUIHide,
+};
 
 /* timer */
 
-void timerCallback(const clap_plugin_t *_plugin, clap_id timerID) {
+void timerCallback(const clap_plugin_t *_plugin, clap_id timerID)
+{
     MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
     if (plugin->gui && PluginSyncAudioToMain(plugin))
         GUIPaint(plugin, true);
@@ -492,7 +522,8 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 
 /* plugin class */
 
-bool pluginInit(const struct clap_plugin *_plugin) {
+bool pluginInit(const struct clap_plugin *_plugin)
+{
     MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
     (void)plugin;
 
@@ -506,7 +537,8 @@ bool pluginInit(const struct clap_plugin *_plugin) {
 
     MutexInitialise(plugin->syncParameters);
 
-    for (uint32_t i = 0; i < P_COUNT; ++i) {
+    for (uint32_t i = 0; i < P_COUNT; ++i)
+    {
         clap_param_info_t information = {};
         extensionParams.get_info(_plugin, i, &information);
         plugin->mainParameters[i] = plugin->parameters[i] =
@@ -523,7 +555,8 @@ bool pluginInit(const struct clap_plugin *_plugin) {
     return true;
 }
 
-void pluginDestroy(const struct clap_plugin *_plugin) {
+void pluginDestroy(const struct clap_plugin *_plugin)
+{
     MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
 
     if (plugin->hostTimerSupport && plugin->hostTimerSupport->register_timer)
@@ -535,54 +568,61 @@ void pluginDestroy(const struct clap_plugin *_plugin) {
 }
 
 bool pluginActivate(const struct clap_plugin *_plugin, double sampleRate,
-                    uint32_t minimumFramesCount, uint32_t maximumFramesCount) {
+                    uint32_t minimumFramesCount, uint32_t maximumFramesCount)
+{
     MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
     plugin->sampleRate = sampleRate;
     return true;
 }
+
 void pluginDeactivate(const struct clap_plugin *_plugin) {}
 
 bool pluginStartProcessing(const struct clap_plugin *_plugin) { return true; }
 
 void pluginStopProcessing(const struct clap_plugin *_plugin) {}
 
-void pluginReset(const struct clap_plugin *_plugin) {
+void pluginReset(const struct clap_plugin *_plugin)
+{
     MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
 }
 
 clap_process_status pluginProcess(const struct clap_plugin *_plugin,
-                                  const clap_process_t *process) {
+                                  const clap_process_t *process)
+{
     MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
     assert(process->audio_outputs_count == 1);
-    assert(process->audio_inputs_count == 0);
+    assert(process->audio_inputs_count == 1);
 
     PluginSyncMainToAudio(plugin, process->out_events);
 
     const uint32_t frameCount = process->frames_count;
-    const uint32_t inputEventCount =
-        process->in_events->size(process->in_events);
+    const uint32_t inputEventCount = process->in_events->size(process->in_events);
     uint32_t eventIndex = 0;
     uint32_t nextEventFrame = inputEventCount ? 0 : frameCount;
-    for (uint32_t i = 0; i < frameCount;) {
-        while (eventIndex < inputEventCount && nextEventFrame == i) {
+    for (uint32_t i = 0; i < frameCount;)
+    {
+        while (eventIndex < inputEventCount && nextEventFrame == i)
+        {
             const clap_event_header_t *event =
                 process->in_events->get(process->in_events, eventIndex);
 
-            if (event->time != i) {
-              nextEventFrame = event->time;
-              break;
+            if (event->time != i)
+            {
+                nextEventFrame = event->time;
+                break;
             }
 
             PluginProcessEvent(plugin, event);
             eventIndex++;
-            if (eventIndex == inputEventCount) {
-              nextEventFrame = frameCount;
-              break;
+            if (eventIndex == inputEventCount)
+            {
+                nextEventFrame = frameCount;
+                break;
             }
         }
 
         PluginRenderAudio(plugin, i, nextEventFrame,
-                          process->audio_outputs[0].data32[0],
+                          process->audio_inputs[0].data32[0], process->audio_inputs[0].data32[1], process->audio_outputs[0].data32[0],
                           process->audio_outputs[0].data32[1]);
         i = nextEventFrame;
     }
@@ -591,15 +631,16 @@ clap_process_status pluginProcess(const struct clap_plugin *_plugin,
 }
 
 const void *pluginGetExtension(const struct clap_plugin *plugin,
-                               const char *id) {
+                               const char *id)
+{
     if (0 == strcmp(id, CLAP_EXT_AUDIO_PORTS))
         return &extensionAudioPorts;
     if (0 == strcmp(id, CLAP_EXT_PARAMS))
         return &extensionParams;
     if (0 == strcmp(id, CLAP_EXT_STATE))
         return &extensionState;
-    // if (0 == strcmp(id, CLAP_EXT_GUI))
-    //     return &extensionGUI;
+    if (0 == strcmp(id, CLAP_EXT_GUI))
+        return &extensionGUI;
     if (0 == strcmp(id, CLAP_EXT_TIMER_SUPPORT))
         return &extensionTimerSupport;
     if (0 == strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))

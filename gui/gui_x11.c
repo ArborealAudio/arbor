@@ -18,7 +18,7 @@ struct GUI
 static void GUICreate(MyPlugin *plugin)
 {
     assert(!plugin->gui);
-    plugin->gui = (GUI *)calloc(1, sizeof(GUI));
+    plugin->gui = (struct GUI *)calloc(1, sizeof(struct GUI));
 
     plugin->gui->display = XOpenDisplay(NULL);
     XSetWindowAttributes attributes = {};
@@ -135,7 +135,7 @@ static void GUIDestroy(MyPlugin *plugin)
 
     // Free the GUI structure.
     free(plugin->gui);
-    plugin->gui = nullptr;
+    plugin->gui = NULL;
 }
 
 static void GUISetParent(MyPlugin *plugin, const clap_window_t *window)
