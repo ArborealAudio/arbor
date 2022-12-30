@@ -8,7 +8,7 @@
 typedef HANDLE Mutex;
 #define MutexAcquire(mutex) WaitForSingleObject(mutex, INFINITE)
 #define MutexRelease(mutex) ReleaseMutex(mutex)
-#define MutexInitialise(mutex) (mutex = CreateMutex(nullptr, FALSE, nullptr))
+#define MutexInitialise(mutex) (mutex = CreateMutex(NULL, FALSE, NULL))
 #define MutexDestroy(mutex) CloseHandle(mutex)
 #else
 #include <pthread.h>

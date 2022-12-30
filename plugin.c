@@ -19,10 +19,10 @@
 #define GUI_WIDTH 300
 #define GUI_HEIGHT 200
 
-typedef struct 
+typedef struct
 {
     uint32_t x, y, width, height;
-} Rectangle;
+} GUIRectangle;
 
 typedef struct 
 {
@@ -43,7 +43,7 @@ typedef struct
     struct GUI *gui;
     const clap_host_posix_fd_support_t *hostPOSIXFDSupport;
 
-    Rectangle paramBounds[P_COUNT]; // absolute bounds of a clickable parameter
+    GUIRectangle paramBounds[P_COUNT]; // absolute bounds of a clickable parameter
 
     const clap_host_timer_support_t *hostTimerSupport;
     clap_id timerID;
@@ -88,7 +88,7 @@ static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end, co
     }
 }
 
-static void PluginPaintRectangle(MyPlugin *plugin, uint32_t *bits, Rectangle rect, uint32_t border, uint32_t fill)
+static void PluginPaintRectangle(MyPlugin *plugin, uint32_t *bits, GUIRectangle rect, uint32_t border, uint32_t fill)
 {
     uint32_t r = rect.x + rect.width;
     uint32_t b = rect.y + rect.height;
@@ -104,7 +104,7 @@ static void PluginPaintRectangle(MyPlugin *plugin, uint32_t *bits, Rectangle rec
 static void PluginPaint(MyPlugin *plugin, uint32_t *bits)
 {
     // Draw the background.
-    PluginPaintRectangle(plugin, bits, (Rectangle){0, 0, GUI_WIDTH, GUI_HEIGHT}, 0xC0C0C0, 0xC0C0C0);
+    PluginPaintRectangle(plugin, bits, (GUIRectangle){0, 0, GUI_WIDTH, GUI_HEIGHT}, 0xC0C0C0, 0xC0C0C0);
 
     uint32_t centerX = GUI_WIDTH / 2;
     uint32_t centerY = GUI_HEIGHT / 2;
@@ -113,14 +113,14 @@ static void PluginPaint(MyPlugin *plugin, uint32_t *bits)
     uint32_t x = centerX - (width * 0.5f);
     uint32_t y = centerY - (height * 0.5f);
 
-    Rectangle bounds = {x, y, width, height, };
+    GUIRectangle bounds = {x, y, width, height, };
     plugin->paramBounds[P_VOLUME] = bounds;
 
     // Draw the parameter, using the parameter value owned by the main thread.
     PluginPaintRectangle(plugin, bits, bounds, 0x000000, 0xC0C0C0);
     float paramVal = 1.0f - plugin->mainParameters[P_VOLUME];
     int paramY = y + (height - y) * paramVal;
-    PluginPaintRectangle(plugin, bits, (Rectangle){x, paramY, width, height}, 0x000000, 0x000000);
+    PluginPaintRectangle(plugin, bits, (GUIRectangle){x, paramY, width, height}, 0x000000, 0x000000);
 }
 
 static void PluginProcessMouseDrag(MyPlugin *plugin, int32_t x, int32_t y)
@@ -382,7 +382,7 @@ static const clap_plugin_descriptor_t pluginDescriptor = {
 /* GUI shite */
 
 #if defined(_WIN32)
-#include "gui/gui_w32.cpp"
+#include "gui/gui_w32.c"
 #elif defined(__linux__)
 #include "gui/gui_x11.c"
 #elif defined(__APPLE__)
@@ -639,8 +639,8 @@ const void *pluginGetExtension(const struct clap_plugin *plugin,
         return &extensionParams;
     if (0 == strcmp(id, CLAP_EXT_STATE))
         return &extensionState;
-    if (0 == strcmp(id, CLAP_EXT_GUI))
-        return &extensionGUI;
+    // if (0 == strcmp(id, CLAP_EXT_GUI))
+    //     return &extensionGUI;
     if (0 == strcmp(id, CLAP_EXT_TIMER_SUPPORT))
         return &extensionTimerSupport;
     if (0 == strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))

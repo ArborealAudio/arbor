@@ -50,7 +50,7 @@ LRESULT CALLBACK GUIWindowProcedure(HWND window, UINT message, WPARAM wParam, LP
 static void GUICreate(MyPlugin *plugin)
 {
     assert(!plugin->gui);
-    plugin->gui = (GUI *) calloc(1, sizeof(GUI));
+    plugin->gui = (struct GUI *) calloc(1, sizeof(struct GUI));
 
     if (globalOpenGUICount++ == 0)
     {
@@ -75,7 +75,7 @@ static void GUIDestroy(MyPlugin *plugin)
     DestroyWindow(plugin->gui->window);
     free(plugin->gui->bits);
     free(plugin->gui);
-    plugin->gui = nullptr;
+    plugin->gui = NULL;
 
     if (--globalOpenGUICount == 0)
     {
