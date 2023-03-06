@@ -14,7 +14,6 @@
 #include <stdint.h>
 
 #include "clap/clap.h"
-#include "clap/ext/audio-ports.h"
 #include "param.h"
 #define GUI_WIDTH 300
 #define GUI_HEIGHT 200
@@ -639,8 +638,8 @@ const void *pluginGetExtension(const struct clap_plugin *plugin,
         return &extensionParams;
     if (0 == strcmp(id, CLAP_EXT_STATE))
         return &extensionState;
-    // if (0 == strcmp(id, CLAP_EXT_GUI))
-    //     return &extensionGUI;
+    if (0 == strcmp(id, CLAP_EXT_GUI))
+        return &extensionGUI;
     if (0 == strcmp(id, CLAP_EXT_TIMER_SUPPORT))
         return &extensionTimerSupport;
     if (0 == strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))
