@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
@@ -12,12 +12,14 @@ pub const clap = @cImport({
 const c_cast = std.zig.c_translation.cast;
 
 const PluginDesc = clap.clap_plugin_descriptor_t{
-    .clap_version = clap.CLAP_VERSION_INIT,
-    .id = "com.ArborealAudio.claptest",
+    .clap_version = clap.clap_version_t{ .major = clap.CLAP_VERSION_MAJOR, .minor = clap.CLAP_VERSION_MINOR, .revision = clap.CLAP_VERSION_REVISION },
+    .id = "com.ArborealAudio.clap",
     .name = "CLAP-raw",
     .vendor = "Arboreal Audio",
     .url = "https://arborealaudio.com",
-    .version = 0.1,
+    .manual_url = "",
+    .support_url = "",
+    .version = "0.1",
     .description = "Vintage analog warmth",
     .features = &[_][*c]const u8{ "stereo", "instrument", null },
 };
@@ -38,20 +40,20 @@ const AudioPorts = struct {
     fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
         _ = is_input;
         _ = plugin;
-        return 1;
+        return 2;
     }
 
     fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_audio_port_info_t) callconv(.C) bool {
         _ = is_input;
         _ = plugin;
-        if (index > 0)
+        if (index > 1)
             return false;
-        info.id = 0;
-        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.name});
-        info.channel_count = 2;
-        info.flags = clap.CLAP_AUDIO_PORT_IS_MAIN;
-        info.port_type = clap.CLAP_PORT_STEREO;
-        info.in_place_pair = clap.CLAP_INVALID_ID;
+        info.*.id = 0;
+        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.*.name});
+        info.*.channel_count = 2;
+        info.*.flags = clap.CLAP_AUDIO_PORT_IS_MAIN;
+        info.*.port_type = &clap.CLAP_PORT_STEREO;
+        info.*.in_place_pair = clap.CLAP_INVALID_ID;
         return true;
     }
 
@@ -65,7 +67,7 @@ const NotePorts = struct {
     fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
         _ = is_input;
         _ = plugin;
-        return 1;
+        return 0;
     }
 
     fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_note_port_info_t) callconv(.C) bool {
@@ -73,14 +75,14 @@ const NotePorts = struct {
         _ = plugin;
         if (index > 0)
             return false;
-        info.id = 0;
-        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.name});
-        info.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
-        info.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
+        info.*.id = 0;
+        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.*.name});
+        info.*.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
+        info.*.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
         return true;
     }
 
-    const Data = clap.clap_note_ports_t{
+    const Data = clap.clap_plugin_note_ports_t{
         .count = count,
         .get = get,
     };
@@ -89,7 +91,7 @@ const NotePorts = struct {
 // Latency
 pub const Latency = struct {
     fn getLatency(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {
-        const plug = plugin.plugin_data;
+        const plug = c_cast(*Plugin, plugin.*.plugin_data);
         return plug.latency;
     }
     const Data = clap.clap_plugin_latency_t{
@@ -140,7 +142,7 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
     {
         var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_STATE);
         if (ptr != null)
-            plug.*.host_latency = c_cast(*const clap.clap_host_state_t, ptr);
+            plug.*.host_state = c_cast(*const clap.clap_host_state_t, ptr);
     }
     return true;
 }
@@ -178,16 +180,17 @@ pub fn processEvent(plugin: *Plugin, header: [*c]const clap.clap_event_header_t)
 }
 
 pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.clap_process_t) callconv(.C) clap.clap_process_status {
-    var plug = plugin.*.plugin_data;
+    var plug = c_cast(*Plugin, plugin.*.plugin_data);
     const numFrames = processInfo.*.frames_count;
-    const numEvents = processInfo.*.in_events.*.size(process.*.in_events);
+    const numEvents = processInfo.*.in_events.*.size.?(processInfo.*.in_events);
     var eventIndex: u32 = 0;
     var nextEventFrame: u32 = if (numEvents > 0) 0 else numFrames;
 
-    for (numFrames) |i| {
+    var i: u32 = 0;
+    while (i < numFrames) {
         // handle all events at frame i
         while (eventIndex < numEvents and nextEventFrame == i) {
-            const header = processInfo.*.in_events.*.get(processInfo.*.in_events, eventIndex);
+            const header = processInfo.*.in_events.*.get.?(processInfo.*.in_events, eventIndex);
             if (header.*.time != i) {
                 nextEventFrame = header.*.time;
                 break;
@@ -209,27 +212,26 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
             const inR = processInfo.*.audio_inputs[0].data32[1][i];
 
             // ye olde tanh
-            var outL = std.math.tanh(inL);
-            var outR = std.math.tanh(inR);
+            var outL = std.math.tanh(inL * 10.0) / 10.0;
+            var outR = std.math.tanh(inR * 10.0) / 10.0;
 
             // write output
             processInfo.*.audio_outputs[0].data32[0][i] = outL;
             processInfo.*.audio_outputs[0].data32[1][i] = outR;
         }
-
-        return clap.CLAP_PROCESS_CONTINUE;
     }
+    return clap.CLAP_PROCESS_CONTINUE;
 }
 
-pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callconv(.C) [*c]const anyopaque {
+pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callconv(.C) ?*const anyopaque {
     _ = plugin;
-    if (std.cstr.cmp(id, clap.CLAP_EXT_LATENCY) == 0)
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_LATENCY) == 0)
         return &Latency.Data;
-    if (std.cst.cmp(id, clap.CLAP_EXT_AUDIO_PORTS) == 0)
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_AUDIO_PORTS) == 0)
         return &AudioPorts.Data;
-    if (std.cst.cmp(id, clap.CLAP_EXT_NOTE_PORTS) == 0)
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_NOTE_PORTS) == 0)
         return &NotePorts.Data;
-    if (std.cst.cmp(id, clap.CLAP_EXT_STATE) == 0)
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_STATE) == 0)
         return &State.Data;
     return null;
 }
@@ -274,7 +276,7 @@ const Factory = struct {
         return null;
     }
 
-    const data = clap.clap_plugin_factory_t{
+    const Data = clap.clap_plugin_factory_t{
         .get_plugin_count = Factory.getPluginCount,
         .get_plugin_descriptor = Factory.getPluginDescriptor,
         .create_plugin = Factory.createPlugin,
@@ -299,7 +301,7 @@ const Entry = struct {
 };
 
 export const clap_entry = clap.clap_plugin_entry_t{
-    .clap_version = clap.CLAP_VERSION_INIT,
+    .clap_version = clap.clap_version_t{ .major = clap.CLAP_VERSION_MAJOR, .minor = clap.CLAP_VERSION_MINOR, .revision = clap.CLAP_VERSION_REVISION },
     .init = &Entry.init,
     .deinit = &Entry.deinit,
     .get_factory = &Entry.get_factory,
