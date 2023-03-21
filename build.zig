@@ -20,11 +20,6 @@ pub fn build(b: *std.Build) void {
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/plugin.zig" },
-        .version = .{
-            .major = 0,
-            .minor = 1,
-            .patch = 0,
-        },
         .target = target,
         .optimize = optimize,
     });
@@ -81,7 +76,7 @@ pub const CreateCLAPStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
         if (self.artifact.target.isWindows()) {
             var dir = std.fs.cwd();
-            _ = try dir.updateFile("zig-out/lib/clap-raw.dll", dir, "zig-out/lib/clap-raw.clap", .{});
+            _ = try dir.updateFile("zig-out/lib/clap-raw.dll", dir, "zig-out/lib/clap-raw.clap/Contents/x86_64-windows/clap-raw.dll", .{});
         } else if (self.artifact.target.isDarwin()) {
             var cwd = std.fs.cwd();
             _ = try cwd.updateFile("zig-out/lib/libclap-raw.dylib", cwd, "zig-out/lib/clap-raw.clap/Contents/MacOS/clap-raw", .{});
