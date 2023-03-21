@@ -1,709 +1,306 @@
 //! plugin.zig
-//! where we define our plugin's properties
+//! starting point for our plugin
 
 const std = @import("std");
 
-const clap = @cImport({@cInclude("clap/clap.h");});
-const param = @import("param.zig");
-const GUI_WIDTH = 300;
-const GUI_HEIGHT  = 200;
+const gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-const Rect = struct
-{
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-};
+pub const clap = @cImport({
+    @cInclude("clap/clap.h");
+});
 
-const Plugin = struct 
-{
-    // clap_plugin_t plugin;
-    plugin: clap.clap_plugin_t,
-    // const clap_host_t *host;
-    host: *clap.clap_host_t,
-    sampleRate: f32,
-    parameters: [P_COUNT]f32,
-    mainParameters: [P_COUNT]f32,
-    changed: [P_COUNT]bool,
-    mainChanged: [P_COUNT]bool,
-    // const clap_host_params_t *hostParams;
-    hostParams: *clap.clap_host_params_t,
-    // Mutex syncParameters;
-    syncParameters: std.Thread.Mutex,
-    gestureStart: [P_COUNT] bool,
-    gestureEnd: [P_COUNT] bool,
+const c_cast = std.zig.c_translation.cast;
 
-    mouseDragging: bool,
-    mouseDraggingParameter: u32,
-    mouseDragOriginX: i32,
-    mouseDragOriginY: i32,
-    mouseDragOriginValue: f32,
-
-    gui: *GUI,
-    const hostPOSIXFDSupport: *clap.clap_host_posix_fd_support_t,
-
-    paramBounds: [P_COUNT] Rect, // absolute bounds of a clickable parameter
-
-    const hostTimerSupport: *clap.clap_host_timer_support_t,
-    timerID: clap.clap_id,
-};
-
-fn PluginProcessEvent(plugin: *Plugin, event: *clap.clap_event_header_t) void
-{
-    if (event.space_id == CLAP_CORE_EVENT_SPACE_ID)
-    {
-        if (event.type == CLAP_EVENT_PARAM_VALUE)
-        {
-            const clap_event_param_value_t *valueEvent = (const clap_event_param_value_t *)event;
-            uint32_t i = (uint32_t)valueEvent->param_id;
-            MutexAcquire(plugin->syncParameters);
-            plugin->parameters[i] = valueEvent->value;
-            plugin->changed[i] = true;
-            MutexRelease(plugin->syncParameters);
-        }
-    }
-}
-
-float saturate(float x)
-{
-    return x / (1.f + fabsf(x));
-}
-
-static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end, const float *inL, const float *inR, float *outL, float *outR)
-{
-    for (uint32_t index = start; index < end; ++index)
-    {
-        float left = inL[index];
-        left *= 24.f;
-        left = saturate(left);
-        left /= 24.f;
-        outL[index] = left;
-
-        float right = inR[index];
-        right *= 24.f;
-        right = saturate(left);
-        right /= 24.f;
-        outR[index] = right;
-    }
-}
-
-static void PluginPaintRectangle(MyPlugin *plugin, uint32_t *bits, GUIRectangle rect, uint32_t border, uint32_t fill)
-{
-    uint32_t r = rect.x + rect.width;
-    uint32_t b = rect.y + rect.height;
-    for (uint32_t y = rect.y; y < b; y++)
-    {
-        for (uint32_t x = rect.x; x < r; x++)
-        {
-            bits[y * GUI_WIDTH + x] = (y == rect.y || y == b - 1 || x == rect.x || x == r - 1) ? border : fill;
-        }
-    }
-}
-
-static void PluginPaint(MyPlugin *plugin, uint32_t *bits)
-{
-    // Draw the background.
-    PluginPaintRectangle(plugin, bits, (GUIRectangle){0, 0, GUI_WIDTH, GUI_HEIGHT}, 0xC0C0C0, 0xC0C0C0);
-
-    uint32_t centerX = GUI_WIDTH / 2;
-    uint32_t centerY = GUI_HEIGHT / 2;
-    uint32_t width = (float)GUI_WIDTH * 0.35f;
-    uint32_t height = (float)GUI_HEIGHT * 0.75f;
-    uint32_t x = centerX - (width * 0.5f);
-    uint32_t y = centerY - (height * 0.5f);
-
-    GUIRectangle bounds = {x, y, width, height, };
-    plugin->paramBounds[P_VOLUME] = bounds;
-
-    // Draw the parameter, using the parameter value owned by the main thread.
-    PluginPaintRectangle(plugin, bits, bounds, 0x000000, 0xC0C0C0);
-    float paramVal = 1.0f - plugin->mainParameters[P_VOLUME];
-    int paramY = y + (height - y) * paramVal;
-    PluginPaintRectangle(plugin, bits, (GUIRectangle){x, paramY, width, height}, 0x000000, 0x000000);
-}
-
-static void PluginProcessMouseDrag(MyPlugin *plugin, int32_t x, int32_t y)
-{
-    if (plugin->mouseDragging)
-    {
-        float newValue = FloatClamp01(plugin->mouseDragOriginValue + (plugin->mouseDragOriginY - y) * 0.01f);
-
-        MutexAcquire(plugin->syncParameters);
-        plugin->mainParameters[plugin->mouseDraggingParameter] = newValue;
-        plugin->mainChanged[plugin->mouseDraggingParameter] = true;
-        MutexRelease(plugin->syncParameters);
-
-        if (plugin->hostParams && plugin->hostParams->request_flush)
-            plugin->hostParams->request_flush(plugin->host);
-    }
-}
-
-static void PluginProcessMousePress(MyPlugin *plugin, int32_t x, int32_t y)
-{
-    if (x >= 10 && x < 40 && y >= 10 && y < 40)
-    {
-        plugin->mouseDragging = true;
-        plugin->mouseDraggingParameter = P_VOLUME;
-        plugin->mouseDragOriginX = x;
-        plugin->mouseDragOriginY = y;
-        plugin->mouseDragOriginValue = plugin->mainParameters[P_VOLUME];
-
-        MutexAcquire(plugin->syncParameters);
-        plugin->gestureStart[plugin->mouseDraggingParameter] = true;
-        MutexRelease(plugin->syncParameters);
-
-        if (plugin->hostParams && plugin->hostParams->request_flush)
-            plugin->hostParams->request_flush(plugin->host);
-    }
-}
-
-static void PluginProcessMouseRelease(MyPlugin *plugin)
-{
-    if (plugin->mouseDragging)
-    {
-        MutexAcquire(plugin->syncParameters);
-        plugin->gestureEnd[plugin->mouseDraggingParameter] = true;
-        MutexRelease(plugin->syncParameters);
-
-        if (plugin->hostParams && plugin->hostParams->request_flush)
-            plugin->hostParams->request_flush(plugin->host);
-
-        plugin->mouseDragging = false;
-    }
-}
-
-static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out)
-{
-    MutexAcquire(plugin->syncParameters);
-
-    for (uint32_t i = 0; i < P_COUNT; ++i)
-    {
-        if (plugin->gestureStart[i])
-        {
-            plugin->gestureStart[i] = false;
-            clap_event_param_gesture_t event = {};
-            event.header.size = sizeof(event);
-            event.header.time = 0;
-            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-            event.header.type = CLAP_EVENT_PARAM_GESTURE_BEGIN;
-            event.header.flags = 0;
-            event.param_id = i;
-            out->try_push(out, &event.header);
-        }
-
-        if (plugin->mainChanged[i])
-        {
-            plugin->parameters[i] = plugin->mainParameters[i];
-            plugin->mainChanged[i] = false;
-
-            clap_event_param_value_t event = {};
-            event.header.size = sizeof(event);
-            event.header.time = 0;
-            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-            event.header.type = CLAP_EVENT_PARAM_VALUE;
-            event.header.flags = 0;
-            event.param_id = i;
-            event.cookie = NULL;
-            event.note_id = -1;
-            event.port_index = -1;
-            event.channel = -1;
-            event.key = -1;
-            event.value = plugin->parameters[i];
-            out->try_push(out, &event.header);
-        }
-
-        if(plugin->gestureEnd[i])
-        {
-            plugin->gestureEnd[i] = false;
-
-            clap_event_param_gesture_t event = {};
-            event.header.size = sizeof(event);
-            event.header.time = 0;
-            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-            event.header.type = CLAP_EVENT_PARAM_GESTURE_END;
-            event.header.flags = 0;
-            event.param_id = i;
-            out->try_push(out, &event.header);
-        }
-    }
-
-    MutexRelease(plugin->syncParameters);
-}
-
-static bool PluginSyncAudioToMain(MyPlugin *plugin)
-{
-    bool anyChanged = false;
-    MutexAcquire(plugin->syncParameters);
-    for (uint32_t i = 0; i < P_COUNT; ++i)
-    {
-        if (plugin->changed[i])
-        {
-            plugin->mainParameters[i] = plugin->parameters[i];
-            plugin->changed[i] = false;
-            anyChanged = true;
-        }
-    }
-
-    MutexRelease(plugin->syncParameters);
-    return anyChanged;
-}
-
-/* audio ports extension */
-uint32_t audioPortCount(const clap_plugin_t *plugin, bool isInput) {
-    return isInput ? 1 : 1;
-}
-
-bool audioPortGet(const clap_plugin_t *plugin, uint32_t index, bool isInput,
-                  clap_audio_port_info_t *info) {
-    if (index)
-        return false;
-    info->id = 0;
-    info->channel_count = 2;
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->port_type = CLAP_PORT_MONO;
-    info->in_place_pair = true;
-    snprintf(info->name, sizeof(info->name), "%s", "Audio Output");
-    return true;
-}
-
-static const clap_plugin_audio_ports_t extensionAudioPorts = {
-    .count = audioPortCount,
-    .get = audioPortGet,
-};
-
-/* params extension */
-uint32_t paramCount(const clap_plugin_t *plugin) { return P_COUNT; }
-
-bool paramGetInfo(const clap_plugin_t *plugin, uint32_t index,
-                  clap_param_info_t *information) {
-    if (index == P_VOLUME) {
-        memset(information, 0, sizeof(clap_param_info_t));
-        information->id = index;
-        information->flags = CLAP_PARAM_IS_AUTOMATABLE |
-                             CLAP_PARAM_IS_MODULATABLE |
-                             CLAP_PARAM_IS_MODULATABLE_PER_NOTE_ID;
-        information->min_value = 0.f;
-        information->max_value = 1.f;
-        information->default_value = 0.5f;
-        strcpy(information->name, "Volume");
-        return true;
-    } else
-        return false;
-}
-
-bool paramGetValue(const clap_plugin_t *_plugin, clap_id id, double *value) {
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    uint32_t i = (uint32_t)id;
-    if (i >= P_COUNT)
-        return false;
-    MutexAcquire(plugin->syncParameters);
-    *value = plugin->mainChanged[i] ? plugin->mainParameters[i]
-                                    : plugin->parameters[i];
-    MutexRelease(plugin->syncParameters);
-    return true;
-}
-
-bool paramValueToText(const clap_plugin_t *_plugin, clap_id id, double value,
-                      char *display, uint32_t size) {
-    uint32_t i = (uint32_t)id;
-    if (i >= P_COUNT)
-        return false;
-    snprintf(display, size, "%f", value);
-    return true;
-}
-
-bool paramTextToValue(const clap_plugin_t *_plugin, clap_id param_id,
-                      const char *display, double *value) {
-    return false;
-}
-
-void paramsFlush(const clap_plugin_t *_plugin, const clap_input_events_t *in,
-                 const clap_output_events_t *out) {
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    const uint32_t eventCount = in->size(in);
-    PluginSyncMainToAudio(plugin, out);
-
-    for (uint32_t eventIndex = 0; eventIndex < eventCount; ++eventIndex)
-        PluginProcessEvent(plugin, in->get(in, eventIndex));
-}
-
-static const clap_plugin_params_t extensionParams = {
-    .count = paramCount,
-    .get_info = paramGetInfo,
-    .get_value = paramGetValue,
-    .value_to_text = paramValueToText,
-    .text_to_value = paramTextToValue,
-    .flush = paramsFlush,
-};
-
-/* state extension */
-
-bool stateSave(const clap_plugin_t *_plugin, const clap_ostream_t *stream) {
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    PluginSyncAudioToMain(plugin);
-    return sizeof(float) * P_COUNT == stream->write(stream,
-                                                    plugin->mainParameters,
-                                                    sizeof(float) * P_COUNT);
-}
-
-bool stateLoad(const clap_plugin_t *_plugin, const clap_istream_t *stream) {
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-
-    MutexAcquire(plugin->syncParameters);
-    bool success =
-        sizeof(float) * P_COUNT ==
-        stream->read(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
-    for (uint32_t i = 0; i < P_COUNT; ++i)
-        plugin->mainChanged[i] = true;
-
-    MutexRelease(plugin->syncParameters);
-    return success;
-}
-
-static const clap_plugin_state_t extensionState = {
-    .save = stateSave,
-    .load = stateLoad,
-};
-
-/* plugin descriptor */
-
-static const clap_plugin_descriptor_t pluginDescriptor = {
-    .clap_version = CLAP_VERSION_INIT,
-    .id = "strix.MyFirstCLAP",
+const PluginDesc = clap.clap_plugin_descriptor_t{
+    .clap_version = clap.CLAP_VERSION_INIT,
+    .id = "com.ArborealAudio.claptest",
     .name = "CLAP-raw",
     .vendor = "Arboreal Audio",
     .url = "https://arborealaudio.com",
-    .version = "0.2",
+    .version = 0.1,
     .description = "Vintage analog warmth",
-    .features = (const char *[]){"stereo", "audio-effect", NULL},
+    .features = &[_][*c]const u8{ "stereo", "instrument", null },
 };
 
-/* GUI shite */
+const Plugin = struct {
+    plugin: clap.clap_plugin_t,
 
-#if defined(_WIN32)
-#include "gui/gui_w32.c"
-#elif defined(__linux__)
-#include "gui/gui_x11.c"
-#elif defined(__APPLE__)
-#include "gui/gui_mac.c"
-#endif
+    host: [*c]const clap.clap_host_t,
+    host_latency: [*c]const clap.clap_host_latency_t,
+    host_log: ?*const clap.clap_host_log_t,
+    host_thread_check: [*c]const clap.clap_host_thread_check_t,
+    host_state: [*c]const clap.clap_host_state_t,
 
-void onPOSIXFD(const clap_plugin_t *_plugin, int fd,
-               clap_posix_fd_flags_t flags) {
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    GUIOnPOSIXFD(plugin);
-}
-
-static const clap_plugin_posix_fd_support_t extensionPOSIXFDSupport = {
-    .on_fd = onPOSIXFD,
+    latency: u32,
 };
 
-/* GUI extension */
-
-bool extGUIIsAPISupported(const clap_plugin_t *plugin, const char *api, bool isFloating)
-{
-    // We'll define GUI_API in our platform specific code file.
-    return 0 == strcmp(api, GUI_API) && !isFloating;
-}
-
-bool extGUIGetPreferredAPI(const clap_plugin_t *plugin, const char **api, bool *isFloating)
-{
-    *api = GUI_API;
-    *isFloating = false;
-    return true;
-}
-
-bool extGUICreate(const clap_plugin_t *_plugin, const char *api, bool isFloating)
-{
-    if (!extGUIIsAPISupported(_plugin, api, isFloating))
-        return false;
-    // We'll define GUICreate in our platform specific code file.
-    GUICreate((MyPlugin *)_plugin->plugin_data);
-    return true;
-}
-
-void extGUIDestroy(const clap_plugin_t *_plugin)
-{
-    // We'll define GUIDestroy in our platform specific code file.
-    GUIDestroy((MyPlugin *)_plugin->plugin_data);
-}
-
-bool extGUISetScale(const clap_plugin_t *plugin, double scale)
-{
-    return false;
-}
-
-bool extGUIGetSize(const clap_plugin_t *plugin, uint32_t *width, uint32_t *height)
-{
-    *width = GUI_WIDTH;
-    *height = GUI_HEIGHT;
-    return true;
-}
-
-bool extGUICanResize(const clap_plugin_t *plugin)
-{
-    return false;
-}
-
-bool extGUIGetResizeHints(const clap_plugin_t *plugin, clap_gui_resize_hints_t *hints)
-{
-    return false;
-}
-
-bool extGUIAdjustSize(const clap_plugin_t *plugin, uint32_t *width, uint32_t *height)
-{
-    return extGUIGetSize(plugin, width, height);
-}
-
-bool extGUISetSize(const clap_plugin_t *plugin, uint32_t width, uint32_t height)
-{
-    return true;
-}
-
-bool extGUISetParent(const clap_plugin_t *_plugin, const clap_window_t *window)
-{
-    assert(0 == strcmp(window->api, GUI_API));
-    // We'll define GUISetParent in our platform specific code file.
-    GUISetParent((MyPlugin *)_plugin->plugin_data, window);
-    return true;
-}
-
-bool extGUISetTransient(const clap_plugin_t *plugin, const clap_window_t *window)
-{
-    return false;
-}
-
-void extGUISuggestTitle(const clap_plugin_t *plugin, const char *title) {}
-
-bool extGUIShow(const clap_plugin_t *_plugin)
-{
-    // We'll define GUISetVisible in our platform specific code file.
-    GUISetVisible((MyPlugin *)_plugin->plugin_data, true);
-    return true;
-}
-
-bool extGUIHide(const clap_plugin_t *_plugin)
-{
-    GUISetVisible((MyPlugin *)_plugin->plugin_data, false);
-    return true;
-}
-
-static const clap_plugin_gui_t extensionGUI = {
-    .is_api_supported = extGUIIsAPISupported,
-    .get_preferred_api = extGUIGetPreferredAPI,
-    .create = extGUICreate,
-    .destroy = extGUIDestroy,
-    .set_scale = extGUISetScale,
-    .get_size = extGUIGetSize,
-    .can_resize = extGUICanResize,
-    .get_resize_hints = extGUIGetResizeHints,
-    .adjust_size = extGUIAdjustSize,
-    .set_size = extGUISetSize,
-    .set_parent = extGUISetParent,
-    .set_transient = extGUISetTransient,
-    .suggest_title = extGUISuggestTitle,
-    .show = extGUIShow,
-    .hide = extGUIHide,
-};
-
-/* timer */
-
-void timerCallback(const clap_plugin_t *_plugin, clap_id timerID)
-{
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    if (plugin->gui && PluginSyncAudioToMain(plugin))
-        GUIPaint(plugin, true);
-}
-
-static const clap_plugin_timer_support_t extensionTimerSupport = {
-    .on_timer = timerCallback,
-};
-
-/* plugin class */
-
-bool pluginInit(const struct clap_plugin *_plugin)
-{
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    (void)plugin;
-
-    plugin->hostParams =
-        (const clap_host_params_t *)plugin->host->get_extension(
-            plugin->host, CLAP_EXT_PARAMS);
-
-    plugin->hostPOSIXFDSupport =
-        (const clap_host_posix_fd_support_t *)plugin->host->get_extension(
-            plugin->host, CLAP_EXT_POSIX_FD_SUPPORT);
-
-    MutexInitialise(plugin->syncParameters);
-
-    for (uint32_t i = 0; i < P_COUNT; ++i)
-    {
-        clap_param_info_t information = {};
-        extensionParams.get_info(_plugin, i, &information);
-        plugin->mainParameters[i] = plugin->parameters[i] =
-            information.default_value;
+const AudioPorts = struct {
+    fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
+        _ = is_input;
+        _ = plugin;
+        return 1;
     }
 
-    plugin->hostTimerSupport =
-        (const clap_host_timer_support_t *)plugin->host->get_extension(
-            plugin->host, CLAP_EXT_TIMER_SUPPORT);
-    if (plugin->hostTimerSupport && plugin->hostTimerSupport->register_timer)
-        plugin->hostTimerSupport->register_timer(plugin->host, 200,
-                                                 &plugin->timerID);
+    fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_audio_port_info_t) callconv(.C) bool {
+        _ = is_input;
+        _ = plugin;
+        if (index > 0)
+            return false;
+        info.id = 0;
+        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.name});
+        info.channel_count = 2;
+        info.flags = clap.CLAP_AUDIO_PORT_IS_MAIN;
+        info.port_type = clap.CLAP_PORT_STEREO;
+        info.in_place_pair = clap.CLAP_INVALID_ID;
+        return true;
+    }
 
-    return true;
-}
+    const Data = clap.clap_plugin_audio_ports_t{
+        .count = count,
+        .get = get,
+    };
+};
 
-void pluginDestroy(const struct clap_plugin *_plugin)
-{
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+const NotePorts = struct {
+    fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
+        _ = is_input;
+        _ = plugin;
+        return 1;
+    }
 
-    if (plugin->hostTimerSupport && plugin->hostTimerSupport->register_timer)
-        plugin->hostTimerSupport->unregister_timer(plugin->host,
-                                                   plugin->timerID);
+    fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_note_port_info_t) callconv(.C) bool {
+        _ = is_input;
+        _ = plugin;
+        if (index > 0)
+            return false;
+        info.id = 0;
+        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.name});
+        info.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
+        info.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
+        return true;
+    }
 
-    MutexDestroy(plugin->syncParameters);
-    free(plugin);
-}
+    const Data = clap.clap_note_ports_t{
+        .count = count,
+        .get = get,
+    };
+};
 
-bool pluginActivate(const struct clap_plugin *_plugin, double sampleRate,
-                    uint32_t minimumFramesCount, uint32_t maximumFramesCount)
-{
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    plugin->sampleRate = sampleRate;
-    return true;
-}
+// Latency
+pub const Latency = struct {
+    fn getLatency(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {
+        const plug = plugin.plugin_data;
+        return plug.latency;
+    }
+    const Data = clap.clap_plugin_latency_t{
+        .get = getLatency,
+    };
+};
 
-void pluginDeactivate(const struct clap_plugin *_plugin) {}
+// state
+const State = struct {
+    pub fn save(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_ostream_t) callconv(.C) bool {
+        _ = stream;
+        const plug = plugin.*.plugin_data;
+        _ = plug;
+        return true;
+    }
 
-bool pluginStartProcessing(const struct clap_plugin *_plugin) { return true; }
+    pub fn load(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_istream_t) callconv(.C) bool {
+        _ = stream;
+        const plug = plugin.*.plugin_data;
+        _ = plug;
+        return true;
+    }
 
-void pluginStopProcessing(const struct clap_plugin *_plugin) {}
+    const Data = clap.clap_plugin_state_t{
+        .save = save,
+        .load = load,
+    };
+};
 
-void pluginReset(const struct clap_plugin *_plugin)
-{
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-}
+pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
+    var plug = c_cast(*Plugin, plugin.*.plugin_data);
 
-clap_process_status pluginProcess(const struct clap_plugin *_plugin,
-                                  const clap_process_t *process)
-{
-    MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-    assert(process->audio_outputs_count == 1);
-    assert(process->audio_inputs_count == 1);
-
-    PluginSyncMainToAudio(plugin, process->out_events);
-
-    const uint32_t frameCount = process->frames_count;
-    const uint32_t inputEventCount = process->in_events->size(process->in_events);
-    uint32_t eventIndex = 0;
-    uint32_t nextEventFrame = inputEventCount ? 0 : frameCount;
-    for (uint32_t i = 0; i < frameCount;)
     {
-        while (eventIndex < inputEventCount && nextEventFrame == i)
-        {
-            const clap_event_header_t *event =
-                process->in_events->get(process->in_events, eventIndex);
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_LOG);
+        if (ptr != null)
+            plug.*.host_log = c_cast(*const clap.clap_host_log_t, ptr);
+    }
+    {
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_THREAD_CHECK);
+        if (ptr != null)
+            plug.*.host_thread_check = c_cast(*const clap.clap_host_thread_check_t, ptr);
+    }
+    {
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_LATENCY);
+        if (ptr != null)
+            plug.*.host_latency = c_cast(*const clap.clap_host_latency_t, ptr);
+    }
+    {
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_STATE);
+        if (ptr != null)
+            plug.*.host_latency = c_cast(*const clap.clap_host_state_t, ptr);
+    }
+    return true;
+}
 
-            if (event->time != i)
-            {
-                nextEventFrame = event->time;
+pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    gpa.allocator().destroy(plug);
+}
+
+pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
+    _ = max_frames_count;
+    _ = min_frames_count;
+    _ = sample_rate;
+    _ = plugin;
+    return true;
+}
+
+pub fn deactivate(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    _ = plugin;
+}
+pub fn startProcessing(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
+    _ = plugin;
+    return true;
+}
+pub fn stopProcessing(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    _ = plugin;
+}
+pub fn reset(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    _ = plugin;
+}
+
+pub fn processEvent(plugin: *Plugin, header: [*c]const clap.clap_event_header_t) callconv(.C) void {
+    _ = header;
+    _ = plugin;
+}
+
+pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.clap_process_t) callconv(.C) clap.clap_process_status {
+    var plug = plugin.*.plugin_data;
+    const numFrames = processInfo.*.frames_count;
+    const numEvents = processInfo.*.in_events.*.size(process.*.in_events);
+    var eventIndex: u32 = 0;
+    var nextEventFrame: u32 = if (numEvents > 0) 0 else numFrames;
+
+    for (numFrames) |i| {
+        // handle all events at frame i
+        while (eventIndex < numEvents and nextEventFrame == i) {
+            const header = processInfo.*.in_events.*.get(processInfo.*.in_events, eventIndex);
+            if (header.*.time != i) {
+                nextEventFrame = header.*.time;
                 break;
             }
 
-            PluginProcessEvent(plugin, event);
-            eventIndex++;
-            if (eventIndex == inputEventCount)
-            {
-                nextEventFrame = frameCount;
-                break;
+            processEvent(plug, header);
+            eventIndex += 1;
+
+            if (eventIndex == numEvents) {
+                // end of event list
+                nextEventFrame = numFrames;
             }
         }
 
-        PluginRenderAudio(plugin, i, nextEventFrame,
-                          process->audio_inputs[0].data32[0], process->audio_inputs[0].data32[1], process->audio_outputs[0].data32[0],
-                          process->audio_outputs[0].data32[1]);
-        i = nextEventFrame;
+        // process audio in frame
+        while (i < nextEventFrame) : (i += 1) {
+            // get input samples
+            const inL = processInfo.*.audio_inputs[0].data32[0][i];
+            const inR = processInfo.*.audio_inputs[0].data32[1][i];
+
+            // ye olde tanh
+            var outL = std.math.tanh(inL);
+            var outR = std.math.tanh(inR);
+
+            // write output
+            processInfo.*.audio_outputs[0].data32[0][i] = outL;
+            processInfo.*.audio_outputs[0].data32[1][i] = outR;
+        }
+
+        return clap.CLAP_PROCESS_CONTINUE;
+    }
+}
+
+pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callconv(.C) [*c]const anyopaque {
+    _ = plugin;
+    if (std.cstr.cmp(id, clap.CLAP_EXT_LATENCY) == 0)
+        return &Latency.Data;
+    if (std.cst.cmp(id, clap.CLAP_EXT_AUDIO_PORTS) == 0)
+        return &AudioPorts.Data;
+    if (std.cst.cmp(id, clap.CLAP_EXT_NOTE_PORTS) == 0)
+        return &NotePorts.Data;
+    if (std.cst.cmp(id, clap.CLAP_EXT_STATE) == 0)
+        return &State.Data;
+    return null;
+}
+
+pub fn onMainThread(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    _ = plugin;
+}
+
+// Factory
+const Factory = struct {
+    fn getPluginCount(factory: [*c]const clap.clap_plugin_factory) callconv(.C) u32 {
+        _ = factory;
+        return 1;
     }
 
-    return CLAP_PROCESS_CONTINUE;
-}
+    fn getPluginDescriptor(factory: [*c]const clap.clap_plugin_factory, index: u32) callconv(.C) [*c]const clap.clap_plugin_descriptor_t {
+        _ = factory;
+        return if (index == 0) &PluginDesc else null;
+    }
 
-const void *pluginGetExtension(const struct clap_plugin *plugin,
-                               const char *id)
-{
-    if (0 == strcmp(id, CLAP_EXT_AUDIO_PORTS))
-        return &extensionAudioPorts;
-    if (0 == strcmp(id, CLAP_EXT_PARAMS))
-        return &extensionParams;
-    if (0 == strcmp(id, CLAP_EXT_STATE))
-        return &extensionState;
-    if (0 == strcmp(id, CLAP_EXT_GUI))
-        return &extensionGUI;
-    if (0 == strcmp(id, CLAP_EXT_TIMER_SUPPORT))
-        return &extensionTimerSupport;
-    if (0 == strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))
-        return &extensionPOSIXFDSupport;
-    return NULL;
-}
+    fn createPlugin(factory: [*c]const clap.clap_plugin_factory, host: [*c]const clap.clap_host_t, plugin_id: [*c]const u8) callconv(.C) [*c]const clap.clap_plugin_t {
+        _ = factory;
+        if (host.*.clap_version.major < 1)
+            return null;
+        if (std.cstr.cmp(plugin_id, PluginDesc.id) == 0) {
+            var plugin = gpa.allocator().create(Plugin) catch unreachable;
+            plugin.*.host = host;
+            plugin.*.plugin.desc = &PluginDesc;
+            plugin.*.plugin.plugin_data = plugin;
+            plugin.*.plugin.init = init;
+            plugin.*.plugin.destroy = destroy;
+            plugin.*.plugin.activate = activate;
+            plugin.*.plugin.start_processing = startProcessing;
+            plugin.*.plugin.stop_processing = stopProcessing;
+            plugin.*.plugin.reset = reset;
+            plugin.*.plugin.process = process;
+            plugin.*.plugin.get_extension = getExtension;
+            plugin.*.plugin.on_main_thread = onMainThread;
+            plugin.*.latency = 0;
+            return &plugin.*.plugin;
+        }
+        return null;
+    }
 
-void pluginOnMainThread(const struct clap_plugin *_plugin) {}
-
-static const clap_plugin_t pluginClass = {
-    .desc = &pluginDescriptor,
-    .plugin_data = NULL,
-    .init = pluginInit,
-    .destroy = pluginDestroy,
-    .activate = pluginActivate,
-    .deactivate = pluginDeactivate,
-    .start_processing = pluginStartProcessing,
-    .stop_processing = pluginStopProcessing,
-    .reset = pluginReset,
-    .process = pluginProcess,
-    .get_extension = pluginGetExtension,
-    .on_main_thread = pluginOnMainThread,
+    const data = clap.clap_plugin_factory_t{
+        .get_plugin_count = Factory.getPluginCount,
+        .get_plugin_descriptor = Factory.getPluginDescriptor,
+        .create_plugin = Factory.createPlugin,
+    };
 };
 
-uint32_t getPluginCount(const struct clap_plugin_factory *factory) { return 1; }
-const clap_plugin_descriptor_t *getPluginDescriptor(const struct clap_plugin_factory *factory,
-                                 uint32_t index) {
-    return index == 0 ? &pluginDescriptor : NULL;
-}
-const clap_plugin_t *createPlugin(const struct clap_plugin_factory *factory,
-                                  const clap_host_t *host,
-                                  const char *pluginID) {
-    if (!clap_version_is_compatible(host->clap_version) ||
-        strcmp(pluginID, pluginDescriptor.id))
-        return NULL;
+// Entry
+const Entry = struct {
+    fn init(plugin_path: [*c]const u8) callconv(.C) bool {
+        _ = plugin_path;
+        return true;
+    }
 
-    MyPlugin *plugin = (MyPlugin *)calloc(1, sizeof(MyPlugin));
-    plugin->host = host;
-    plugin->plugin = pluginClass;
-    plugin->plugin.plugin_data = plugin;
-    return &plugin->plugin;
-}
+    fn deinit() callconv(.C) void {}
 
-static const clap_plugin_factory_t pluginFactory = {
-    .get_plugin_count = getPluginCount,
-
-    .get_plugin_descriptor = getPluginDescriptor,
-
-    .create_plugin = createPlugin,
+    fn get_factory(factory_id: [*c]const u8) callconv(.C) ?*const anyopaque {
+        if (std.cstr.cmp(factory_id, &clap.CLAP_PLUGIN_FACTORY_ID) == 0) {
+            return &Factory.Data;
+        }
+        return null;
+    }
 };
 
-bool init(const char *path) { return true; }
-void deinit(void) {}
-const void *getFactory(const char *factoryID) {
-        return strcmp(factoryID, CLAP_PLUGIN_FACTORY_ID) ? NULL
-                                                         : &pluginFactory;
-}
-
-const clap_plugin_entry_t clap_entry = {
-    .clap_version = CLAP_VERSION_INIT,
-    .init = init,
-    .deinit = deinit,
-    .get_factory = getFactory,
+export const clap_entry = clap.clap_plugin_entry_t{
+    .clap_version = clap.CLAP_VERSION_INIT,
+    .init = &Entry.init,
+    .deinit = &Entry.deinit,
+    .get_factory = &Entry.get_factory,
 };
-
-#endif // PLUGIN_C
