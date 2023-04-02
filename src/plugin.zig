@@ -1,7 +1,11 @@
-//! plugin.zig
+//! Plugin.zig
 //! starting point for our plugin
 
 const std = @import("std");
+const Params = @import("Params.zig");
+// const P_COUNT = param.P_COUNT;
+// const P_VOLUME = param.P_VOLUME; // need a better way to define parameters!
+const Mutex = std.Thread.Mutex;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
@@ -12,7 +16,11 @@ pub const clap = @cImport({
 const c_cast = std.zig.c_translation.cast;
 
 const PluginDesc = clap.clap_plugin_descriptor_t{
-    .clap_version = clap.clap_version_t{ .major = clap.CLAP_VERSION_MAJOR, .minor = clap.CLAP_VERSION_MINOR, .revision = clap.CLAP_VERSION_REVISION },
+    .clap_version = clap.clap_version_t{
+        .major = clap.CLAP_VERSION_MAJOR,
+        .minor = clap.CLAP_VERSION_MINOR,
+        .revision = clap.CLAP_VERSION_REVISION,
+    },
     .id = "com.ArborealAudio.clap",
     .name = "CLAP-raw",
     .vendor = "Arboreal Audio",
@@ -21,26 +29,98 @@ const PluginDesc = clap.clap_plugin_descriptor_t{
     .support_url = "",
     .version = "0.1",
     .description = "Vintage analog warmth",
-    .features = &[_][*c]const u8{ "stereo", "instrument", null },
+    .features = &[_][*c]const u8{ "stereo", "audio-effect", null },
 };
 
-const Plugin = struct {
-    plugin: clap.clap_plugin_t,
+const Plugin = @This();
 
-    host: [*c]const clap.clap_host_t,
-    host_latency: [*c]const clap.clap_host_latency_t,
-    host_log: ?*const clap.clap_host_log_t,
-    host_thread_check: [*c]const clap.clap_host_thread_check_t,
-    host_state: [*c]const clap.clap_host_state_t,
+plugin: clap.clap_plugin_t,
 
-    latency: u32,
-};
+host: [*c]const clap.clap_host_t,
+host_latency: [*c]const clap.clap_host_latency_t,
+host_log: ?*const clap.clap_host_log_t,
+host_thread_check: [*c]const clap.clap_host_thread_check_t,
+host_state: [*c]const clap.clap_host_state_t,
+host_params: [*c]const clap.clap_host_params_t,
+
+params: Params = Params{},
+
+sampleRate: f32,
+
+latency: u32,
+
+// pub fn syncMainToAudio(plugin: *Plugin, out: [*c]const clap.clap_output_events_t) void {
+//     var mutex = Mutex{};
+//     mutex.lock();
+//     defer mutex.unlock();
+
+//     var i: u32 = 0;
+//     while (i < P_COUNT) : (i += 1) {
+//         if (plugin.gestureStart[i]) {
+//             plugin.gestureStart[i] = false;
+//             var event: clap.clap_event_param_gesture_t = undefined;
+//             event.header.size = @sizeOf(clap.clap_event_param_gesture_t);
+//             event.header.time = 0;
+//             event.header.space_id = clap.CLAP_CORE_EVENT_SPACE_ID;
+//             event.header.type = clap.CLAP_EVENT_PARAM_GESTURE_BEGIN;
+//             event.header.flags = 0;
+//             event.param_id = i;
+//             _ = out.*.try_push.?(out, &event.header);
+//         }
+//         if (plugin.mainChanged[i]) {
+//             plugin.parameters[i] = plugin.mainParameters[i];
+//             plugin.mainChanged[i] = false;
+
+//             var event: clap.clap_event_param_value_t = undefined;
+//             event.header.size = @sizeOf(clap.clap_event_param_value_t);
+//             event.header.time = 0;
+//             event.header.space_id = clap.CLAP_CORE_EVENT_SPACE_ID;
+//             event.header.type = clap.CLAP_EVENT_PARAM_VALUE;
+//             event.header.flags = 0;
+//             event.param_id = i;
+//             event.cookie = null;
+//             event.note_id = -1;
+//             event.port_index = -1;
+//             event.channel = -1;
+//             event.key = -1;
+//             event.value = plugin.parameters[i];
+//             _ = out.*.try_push.?(out, &event.header);
+//         }
+//         if (plugin.gestureEnd[i]) {
+//             plugin.gestureEnd[i] = false;
+//             var event: clap.clap_event_param_gesture_t = undefined;
+//             event.header.size = @sizeOf(clap.clap_event_param_gesture_t);
+//             event.header.time = 0;
+//             event.header.space_id = clap.CLAP_CORE_EVENT_SPACE_ID;
+//             event.header.type = clap.CLAP_EVENT_PARAM_GESTURE_END;
+//             event.header.flags = 0;
+//             event.param_id = i;
+//             _ = out.*.try_push.?(out, &event.header);
+//         }
+//     }
+// }
+
+// pub fn syncAudioToMain(plugin: *Plugin) bool {
+//     var anyChanged = false;
+//     var mutex = Mutex{};
+//     mutex.lock();
+//     defer mutex.unlock();
+//     var i: u32 = 0;
+//     while (i < P_COUNT) : (i += 1) {
+//         if (plugin.changed[i]) {
+//             plugin.mainParameters[i] = plugin.parameters[i];
+//             plugin.changed[i] = false;
+//             anyChanged = true;
+//         }
+//     }
+//     return anyChanged;
+// }
 
 const AudioPorts = struct {
     fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
         _ = is_input;
         _ = plugin;
-        return 2;
+        return 1;
     }
 
     fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_audio_port_info_t) callconv(.C) bool {
@@ -102,17 +182,22 @@ pub const Latency = struct {
 // state
 const State = struct {
     pub fn save(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_ostream_t) callconv(.C) bool {
-        _ = stream;
-        const plug = plugin.*.plugin_data;
-        _ = plug;
-        return true;
+        const plug = c_cast(*Plugin, plugin.*.plugin_data);
+        _ = plug.syncAudioToMain();
+        return @sizeOf(f32) * // TODO: inject a numParams() method from params struct == stream.*.write.?(stream, @as([*c]const f32, &plug.*.mainParameters), @sizeOf(f32) * P_COUNT);
     }
 
     pub fn load(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_istream_t) callconv(.C) bool {
-        _ = stream;
-        const plug = plugin.*.plugin_data;
-        _ = plug;
-        return true;
+        const plug = c_cast(*Plugin, plugin.*.plugin_data);
+        var mutex = Mutex{};
+        mutex.lock();
+        defer mutex.unlock();
+        const success = @sizeOf(f32) * P_COUNT == stream.*.read.?(stream, @as([*c]f32, &plug.*.mainParameters), @sizeOf(f32) * P_COUNT);
+        var i: u32 = 0;
+        while (i < P_COUNT) : (i += 1) {
+            plug.*.mainChanged[i] = true;
+        }
+        return success;
     }
 
     const Data = clap.clap_plugin_state_t{
@@ -144,19 +229,36 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
         if (ptr != null)
             plug.*.host_state = c_cast(*const clap.clap_host_state_t, ptr);
     }
+    {
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_PARAMS);
+        if (ptr != null) {
+            plug.*.host_params = c_cast(*const clap.clap_host_params_t, ptr);
+            // var i: u32 = 0;
+            // while (i < P_COUNT) : (i += 1) {
+            //     var information: clap.clap_param_info_t = undefined;
+            //     _ = Params.getInfo(plugin, i, &information);
+            //     plug.*.mainParameters[i] = @floatCast(f32, information.default_value);
+            //     plug.*.parameters[i] = @floatCast(f32, information.default_value);
+            // }
+        }
+    }
     return true;
 }
 
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    std.log.debug("Destroying plugin", .{});
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     gpa.allocator().destroy(plug);
+    const leaked = gpa.deinit();
+    if (leaked)
+        std.log.err("Leak detected!", .{});
 }
 
 pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
+    var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    plug.sampleRate = sample_rate;
     _ = max_frames_count;
     _ = min_frames_count;
-    _ = sample_rate;
-    _ = plugin;
     return true;
 }
 
@@ -174,9 +276,13 @@ pub fn reset(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     _ = plugin;
 }
 
-pub fn processEvent(plugin: *Plugin, header: [*c]const clap.clap_event_header_t) callconv(.C) void {
-    _ = header;
-    _ = plugin;
+pub fn processEvent(plugin: *Plugin, event: [*c]const clap.clap_event_header_t) callconv(.C) void {
+    if (event.*.space_id == clap.CLAP_CORE_EVENT_SPACE_ID) {
+        if (event.*.type == clap.CLAP_EVENT_PARAM_VALUE) {
+            const valueEvent = c_cast([*c]const clap.clap_event_param_value_t, event);
+            plugin.params.setValue(valueEvent.*.param_id, valueEvent.*.value);
+        }
+    }
 }
 
 pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.clap_process_t) callconv(.C) clap.clap_process_status {
@@ -185,6 +291,8 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
     const numEvents = processInfo.*.in_events.*.size.?(processInfo.*.in_events);
     var eventIndex: u32 = 0;
     var nextEventFrame: u32 = if (numEvents > 0) 0 else numFrames;
+
+    const volume = plug.params.FloatClamp01(plug.params.values.volume);
 
     var i: u32 = 0;
     while (i < numFrames) {
@@ -212,8 +320,8 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
             const inR = processInfo.*.audio_inputs[0].data32[1][i];
 
             // ye olde tanh
-            var outL = std.math.tanh(inL * 10.0) / 10.0;
-            var outR = std.math.tanh(inR * 10.0) / 10.0;
+            var outL = std.math.tanh(inL * volume) / volume;
+            var outR = std.math.tanh(inR * volume) / volume;
 
             // write output
             processInfo.*.audio_outputs[0].data32[0][i] = outL;
@@ -233,6 +341,8 @@ pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callco
         return &NotePorts.Data;
     if (std.cstr.cmp(id, &clap.CLAP_EXT_STATE) == 0)
         return &State.Data;
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_PARAMS) == 0)
+        return &Params.Data;
     return null;
 }
 
@@ -301,7 +411,11 @@ const Entry = struct {
 };
 
 export const clap_entry = clap.clap_plugin_entry_t{
-    .clap_version = clap.clap_version_t{ .major = clap.CLAP_VERSION_MAJOR, .minor = clap.CLAP_VERSION_MINOR, .revision = clap.CLAP_VERSION_REVISION },
+    .clap_version = clap.clap_version_t{
+        .major = clap.CLAP_VERSION_MAJOR,
+        .minor = clap.CLAP_VERSION_MINOR,
+        .revision = clap.CLAP_VERSION_REVISION,
+    },
     .init = &Entry.init,
     .deinit = &Entry.deinit,
     .get_factory = &Entry.get_factory,

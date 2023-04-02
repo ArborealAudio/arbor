@@ -32,9 +32,6 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     lib.install();
 
-    const rename_dll = CreateCLAPStep.create(b, lib);
-    b.getInstallStep().dependOn(&rename_dll.step);
-
     // Creates a step for unit testing.
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/plugin.zig" },
@@ -48,38 +45,3 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 }
-
-pub const CreateCLAPStep = struct {
-    pub const base_id = .top_level;
-
-    const Self = @This();
-
-    step: std.Build.Step,
-    build: *std.Build,
-    artifact: *std.Build.CompileStep,
-
-    pub fn create(b: *std.Build, a: *std.Build.CompileStep) *Self {
-        const self = b.allocator.create(Self) catch unreachable;
-        const name = "create clap plugin";
-
-        self.* = Self{
-            .step = std.Build.Step.init(.top_level, name, b.allocator, make),
-            .build = b,
-            .artifact = a,
-        };
-
-        self.step.dependOn(&a.step);
-        return self;
-    }
-
-    pub fn make(step: *std.Build.Step) !void {
-        const self = @fieldParentPtr(Self, "step", step);
-        if (self.artifact.target.isWindows()) {
-            var dir = std.fs.cwd();
-            _ = try dir.updateFile("zig-out/lib/clap-raw.dll", dir, "zig-out/lib/clap-raw.clap/Contents/x86_64-windows/clap-raw.dll", .{});
-        } else if (self.artifact.target.isDarwin()) {
-            var cwd = std.fs.cwd();
-            _ = try cwd.updateFile("zig-out/lib/libclap-raw.dylib", cwd, "zig-out/lib/clap-raw.clap/Contents/MacOS/clap-raw", .{});
-        }
-    }
-};
