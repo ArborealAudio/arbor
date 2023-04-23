@@ -3,8 +3,6 @@
 
 const std = @import("std");
 const Params = @import("Params.zig");
-// const P_COUNT = param.P_COUNT;
-// const P_VOLUME = param.P_VOLUME; // need a better way to define parameters!
 const Mutex = std.Thread.Mutex;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,7 +43,7 @@ host_params: [*c]const clap.clap_host_params_t,
 
 params: Params = Params{},
 
-sampleRate: f32,
+sampleRate: f64,
 
 latency: u32,
 
@@ -182,9 +180,13 @@ pub const Latency = struct {
 // state
 const State = struct {
     pub fn save(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_ostream_t) callconv(.C) bool {
+        _ = stream;
         const plug = c_cast(*Plugin, plugin.*.plugin_data);
-        _ = plug.syncAudioToMain();
-        return @sizeOf(f32) * // TODO: inject a numParams() method from params struct == stream.*.write.?(stream, @as([*c]const f32, &plug.*.mainParameters), @sizeOf(f32) * P_COUNT);
+        const numParams = plug.params.numParams;
+        _ = numParams;
+        // PROBLEM: This crashes the plugin!
+        // return @sizeOf(f32) * numParams == stream.*.write.?(stream, c_cast([*c]const f32, &plug.*.params), @sizeOf(f32) * numParams);
+        return true;
     }
 
     pub fn load(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_istream_t) callconv(.C) bool {
@@ -192,12 +194,8 @@ const State = struct {
         var mutex = Mutex{};
         mutex.lock();
         defer mutex.unlock();
-        const success = @sizeOf(f32) * P_COUNT == stream.*.read.?(stream, @as([*c]f32, &plug.*.mainParameters), @sizeOf(f32) * P_COUNT);
-        var i: u32 = 0;
-        while (i < P_COUNT) : (i += 1) {
-            plug.*.mainChanged[i] = true;
-        }
-        return success;
+        const numParams = plug.params.numParams;
+        return @sizeOf(f32) * numParams == stream.*.read.?(stream, c_cast([*c]f32, &plug.*.params), @sizeOf(f32) * numParams);
     }
 
     const Data = clap.clap_plugin_state_t{
@@ -292,7 +290,7 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
     var eventIndex: u32 = 0;
     var nextEventFrame: u32 = if (numEvents > 0) 0 else numFrames;
 
-    const volume = plug.params.FloatClamp01(plug.params.values.volume);
+    const volume = @floatCast(f32, plug.params.values.volume);
 
     var i: u32 = 0;
     while (i < numFrames) {
@@ -320,8 +318,8 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
             const inR = processInfo.*.audio_inputs[0].data32[1][i];
 
             // ye olde tanh
-            var outL = std.math.tanh(inL * volume) / volume;
-            var outR = std.math.tanh(inR * volume) / volume;
+            var outL: f32 = std.math.tanh(inL * volume) / volume;
+            var outR: f32 = std.math.tanh(inR * volume) / volume;
 
             // write output
             processInfo.*.audio_outputs[0].data32[0][i] = outL;
