@@ -95,8 +95,6 @@ pub fn setValue(self: *Self, param_id: u32, value: f64) void {
     const values = std.meta.fields(Values);
     var valuePtr: *f64 = undefined;
     inline for (values, 0..) |v, i| {
-        std.debug.print("param_id: {d}\n", .{param_id});
-        std.debug.print("id: {d}\n", .{list[i].id});
         if (list[i].id == param_id) {
             valuePtr = &@field(self.values, v.name);
             valuePtr.* = value;
