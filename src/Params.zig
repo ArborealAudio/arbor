@@ -21,8 +21,9 @@ numParams: u32 = std.meta.fields(Values).len,
 /// structure for plugin parameters
 /// stored as named values
 pub const Values = struct {
-    volume: f64 = 1.0,
-    freq: f64 = 200.0,
+    mix: f64 = 0.5,
+    delay: f64 = 300.0,
+    feedback: f64 = 0.0,
 };
 
 pub const ParamInfo = struct {
@@ -34,8 +35,9 @@ pub const ParamInfo = struct {
 };
 
 const list = [std.meta.fields(Values).len]ParamInfo{
-    .{ .id = 0, .name = "Volume", .minValue = 0.0, .maxValue = 20.0, .defaultValue = 1.0 },
-    .{ .id = 1, .name = "Frequency", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 200.0 },
+    .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
+    .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
+    .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
 };
 
 pub fn count(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {

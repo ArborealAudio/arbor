@@ -4,6 +4,7 @@
 const std = @import("std");
 const Params = @import("Params.zig");
 const Mutex = std.Thread.Mutex;
+const Delay = @import("zig-dsp/Delay.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
@@ -43,7 +44,11 @@ host_params: [*c]const clap.clap_host_params_t,
 
 params: Params = Params{},
 
+delay: Delay,
+
 sampleRate: f64,
+numChannels: u32,
+maxNumSamples: u32,
 
 latency: u32,
 
@@ -123,15 +128,19 @@ const AudioPorts = struct {
 
     fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_audio_port_info_t) callconv(.C) bool {
         _ = is_input;
-        _ = plugin;
         if (index > 1)
             return false;
-        info.*.id = 0;
+        info.* = .{
+            .id = 0,
+            .name = undefined,
+            .channel_count = 2,
+            .flags = clap.CLAP_AUDIO_PORT_IS_MAIN,
+            .port_type = &clap.CLAP_PORT_STEREO,
+            .in_place_pair = clap.CLAP_INVALID_ID,
+        };
         std.log.defaultLog(.info, .default, "Port name: {s}", .{info.*.name});
-        info.*.channel_count = 2;
-        info.*.flags = clap.CLAP_AUDIO_PORT_IS_MAIN;
-        info.*.port_type = &clap.CLAP_PORT_STEREO;
-        info.*.in_place_pair = clap.CLAP_INVALID_ID;
+        var plug = c_cast(*Plugin, plugin.*.plugin_data);
+        plug.numChannels = info.*.channel_count;
         return true;
     }
 
@@ -246,6 +255,7 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     std.log.debug("Destroying plugin", .{});
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    plug.delay.deinit(gpa.allocator());
     gpa.allocator().destroy(plug);
     const leaked = gpa.deinit();
     if (leaked)
@@ -255,7 +265,10 @@ pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
 pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     plug.sampleRate = sample_rate;
-    _ = max_frames_count;
+    plug.maxNumSamples = max_frames_count;
+    plug.delay.max_delay = @floatToInt(u32, plug.sampleRate * 2.0) + 1;
+    plug.delay.init(gpa.allocator(), plug.numChannels) catch unreachable;
+    plug.delay.delay_time = @floatCast(f32, (plug.params.values.delay / 1000.0) * plug.sampleRate);
     _ = min_frames_count;
     return true;
 }
@@ -290,7 +303,10 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
     var eventIndex: u32 = 0;
     var nextEventFrame: u32 = if (numEvents > 0) 0 else numFrames;
 
-    const volume = @floatCast(f32, plug.params.values.volume);
+    const mix = @floatCast(f32, plug.params.values.mix);
+    const delay_time = @floatCast(f32, plug.params.values.delay);
+    plug.delay.delay_time = (delay_time / 1000.0) * @floatCast(f32, plug.sampleRate);
+    const feedback = @floatCast(f32, plug.params.values.feedback);
 
     var i: u32 = 0;
     while (i < numFrames) {
@@ -317,9 +333,17 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
             const inL = processInfo.*.audio_inputs[0].data32[0][i];
             const inR = processInfo.*.audio_inputs[0].data32[1][i];
 
-            // ye olde tanh
-            var outL: f32 = std.math.tanh(inL * volume) / volume;
-            var outR: f32 = std.math.tanh(inR * volume) / volume;
+            var outL = plug.delay.popSample(0);
+            var outR = plug.delay.popSample(1);
+
+            plug.delay.pushSample(0, inL + (outL * feedback));
+            plug.delay.pushSample(1, inR + (outR * feedback));
+
+            outL *= mix;
+            outR *= mix;
+
+            outL += inL;
+            outR += inR;
 
             // write output
             processInfo.*.audio_outputs[0].data32[0][i] = outL;
