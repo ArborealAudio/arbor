@@ -325,15 +325,17 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
             }
         }
 
+        // get input samples
+        const in = [_][*]f32{ processInfo.*.audio_inputs[0].data32[0], processInfo.*.audio_inputs[0].data32[1] };
         // process audio in frame
         while (i < nextEventFrame) : (i += 1) {
-            // get input samples
-            const in = [2]f32{ processInfo.*.audio_inputs[0].data32[0][i], processInfo.*.audio_inputs[0].data32[1][i] };
+            const rev_out = plug.reverb.processSample(in[0][i], in[1][i]);
 
-            const rev_out = plug.reverb.processSample(in[0], in[1]);
+            const wet_level = if (mix < 0.5) mix * 2.0 else 1.0;
+            const dry_level = if (mix < 0.5) 1.0 else (1.0 - mix) * 2.0;
 
-            const outL = (rev_out[0] * mix) + (in[0] * (1.0 - mix));
-            const outR = (rev_out[1] * mix) + (in[1] * (1.0 - mix));
+            const outL = (rev_out[0] * wet_level) + (in[0][i] * dry_level);
+            const outR = (rev_out[1] * wet_level) + (in[1][i] * dry_level);
 
             // write output
             processInfo.*.audio_outputs[0].data32[0][i] = outL;
