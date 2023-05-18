@@ -266,7 +266,7 @@ pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     plug.sampleRate = sample_rate;
     plug.maxNumSamples = max_frames_count;
-    plug.reverb.init(gpa.allocator(), 0.3 * @floatCast(f32, plug.sampleRate)) catch unreachable;
+    plug.reverb.init(gpa.allocator(), 0.6 * @floatCast(f32, plug.sampleRate)) catch unreachable;
     // plug.delay.max_delay = @floatToInt(u32, plug.sampleRate * 2.0) + 1;
     // plug.delay.init(gpa.allocator(), plug.numChannels) catch unreachable;
     // plug.delay.delay_time = @floatCast(f32, (plug.params.values.delay / 1000.0) * plug.sampleRate);
