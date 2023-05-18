@@ -304,8 +304,7 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
     var eventIndex: u32 = 0;
     var nextEventFrame: u32 = if (numEvents > 0) 0 else numFrames;
 
-    // const mix = @floatCast(f32, plug.params.values.mix);
-    // _ = mix;
+    const mix = @floatCast(f32, plug.params.values.mix);
 
     var i: u32 = 0;
     while (i < numFrames) {
@@ -329,14 +328,16 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
         // process audio in frame
         while (i < nextEventFrame) : (i += 1) {
             // get input samples
-            var inL = processInfo.*.audio_inputs[0].data32[0][i];
-            var inR = processInfo.*.audio_inputs[0].data32[1][i];
+            const in = [2]f32{ processInfo.*.audio_inputs[0].data32[0][i], processInfo.*.audio_inputs[0].data32[1][i] };
 
-            // plug.reverb.processSample(&inL, &inR);
+            const rev_out = plug.reverb.processSample(in[0], in[1]);
+
+            const outL = (rev_out[0] * mix) + (in[0] * (1.0 - mix));
+            const outR = (rev_out[1] * mix) + (in[1] * (1.0 - mix));
 
             // write output
-            processInfo.*.audio_outputs[0].data32[0][i] = inL;
-            processInfo.*.audio_outputs[0].data32[1][i] = inR;
+            processInfo.*.audio_outputs[0].data32[0][i] = outL;
+            processInfo.*.audio_outputs[0].data32[1][i] = outR;
         }
     }
     return clap.CLAP_PROCESS_CONTINUE;

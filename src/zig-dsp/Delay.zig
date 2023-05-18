@@ -9,7 +9,7 @@ delay_time: f32, // delay time in samples
 
 buffer: [][]f32,
 
-max_delay: u32, // set this prior to processing!
+max_delay: u32, // set this prior to processing & init-ing!
 
 write_pos: [2]usize,
 read_pos: [2]usize,
