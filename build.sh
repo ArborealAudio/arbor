@@ -15,5 +15,5 @@ if [[ $(uname) == "Darwin" ]]; then
 elif [[ $(uname) == "Linux" ]]; then
   cp -pf zig-out/lib/libclap-raw.so ~/.clap/clap-raw.clap
 elif [[ $(echo $OSTYPE) == "msys" ]]; then
-  cp -pf zig-out/lib/libclap-raw.dll ~/.clap/clap-raw.clap
+  cp -pf zig-out/lib/clap-raw.dll ~/.clap/clap-raw.clap
 fi
