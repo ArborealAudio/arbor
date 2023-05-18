@@ -1,6 +1,15 @@
 set -e
 
-zig build
+if [[ $1 != "" ]]; then
+  mode=$1
+else
+  mode="Debug"
+fi
+
+echo "Building in $mode mode"
+
+zig build -Doptimize=$mode
+
 if [[ $(uname) == "Darwin" ]]; then
   cp -pf zig-out/lib/libclap-raw.dylib ~/Library/Audio/Plug-Ins/CLAP/clap-raw.clap
 elif [[ $(uname) == "Linux" ]]; then
