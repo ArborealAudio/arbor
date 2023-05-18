@@ -18,9 +18,9 @@ pub fn init(self: *Reverb, alloc: Allocator, maxDelaySamples: f32) !void {
     while (i < ORDER) : (i += 1) {
         self.delay[i].max_delay = @floatToInt(u32, maxDelaySamples);
         try self.delay[i].init(alloc, 1);
-        self.delayTime[i] = (@intToFloat(f32, i + 1) / @intToFloat(f32, self.delayTime.len)) * maxDelaySamples;
+        self.delayTime[i] = @intToFloat(f32, i + 1) / @intToFloat(f32, self.delayTime.len) * maxDelaySamples;
         self.delay[i].delay_time = self.delayTime[i];
-        self.feedback[i] = (@intToFloat(f32, i + 1) / @intToFloat(f32, self.delayTime.len)) * 0.5;
+        self.feedback[i] = @intToFloat(f32, i + 1) / @intToFloat(f32, self.delayTime.len) * 0.5;
     }
 }
 
@@ -47,12 +47,12 @@ pub fn processSample(self: *Reverb, inL: f32, inR: f32) [2]f32 {
     for (self.delay, 0..) |_, j| {
         ds[j] = self.delay[j].popSample(0);
     }
+    processHouseholderMatrix(&ds);
     self.delay[0].pushSample(0, inL + (ds[0] * self.feedback[0]));
     self.delay[1].pushSample(0, inR + (ds[1] * self.feedback[1]));
-    self.delay[2].pushSample(0, -inL + (ds[2] * self.feedback[2]));
-    self.delay[3].pushSample(0, -inR + (ds[3] * self.feedback[3]));
-    processHouseholderMatrix(&ds);
-    out[0] = (ds[0] * 0.5) + (ds[3] * 0.5);
-    out[1] = (ds[1] * 0.5) + (ds[2] * 0.5);
+    self.delay[2].pushSample(0, inL + (-ds[2] * self.feedback[2]));
+    self.delay[3].pushSample(0, inR + (-ds[3] * self.feedback[3]));
+    out[0] = (ds[0] * 0.5) + (ds[2] * 0.5);
+    out[1] = (ds[1] * 0.5) + (ds[3] * 0.5);
     return out;
 }
