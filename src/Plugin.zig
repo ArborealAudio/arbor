@@ -7,6 +7,7 @@ const Mutex = std.Thread.Mutex;
 const Reverb = @import("zig-dsp/Reverb.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var allocator: std.mem.Allocator = undefined;
 
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
@@ -253,23 +254,16 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
 }
 
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
-    std.log.debug("Destroying plugin", .{});
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    plug.reverb.deinit(gpa.allocator());
-    gpa.allocator().destroy(plug);
-    const leaked = gpa.deinit();
-    if (leaked)
-        std.log.err("Leak detected!", .{});
+    plug.reverb.deinit(allocator);
+    allocator.destroy(plug);
 }
 
 pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     plug.sampleRate = sample_rate;
     plug.maxNumSamples = max_frames_count;
-    plug.reverb.init(gpa.allocator(), 0.6 * @floatCast(f32, plug.sampleRate)) catch unreachable;
-    // plug.delay.max_delay = @floatToInt(u32, plug.sampleRate * 2.0) + 1;
-    // plug.delay.init(gpa.allocator(), plug.numChannels) catch unreachable;
-    // plug.delay.delay_time = @floatCast(f32, (plug.params.values.delay / 1000.0) * plug.sampleRate);
+    plug.reverb.init(allocator, plug.sampleRate, 0.6 * @floatCast(f32, plug.sampleRate)) catch unreachable;
     _ = min_frames_count;
     return true;
 }
@@ -381,7 +375,7 @@ const Factory = struct {
         if (host.*.clap_version.major < 1)
             return null;
         if (std.cstr.cmp(plugin_id, PluginDesc.id) == 0) {
-            var plugin = gpa.allocator().create(Plugin) catch unreachable;
+            var plugin = allocator.create(Plugin) catch unreachable;
             plugin.*.host = host;
             plugin.*.plugin.desc = &PluginDesc;
             plugin.*.plugin.plugin_data = plugin;
@@ -411,6 +405,8 @@ const Factory = struct {
 const Entry = struct {
     fn init(plugin_path: [*c]const u8) callconv(.C) bool {
         _ = plugin_path;
+
+        allocator = gpa.allocator();
         return true;
     }
 

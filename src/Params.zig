@@ -24,6 +24,7 @@ pub const Values = struct {
     mix: f64 = 0.5,
     delay: f64 = 300.0,
     feedback: f64 = 0.0,
+    freq: f64 = 1500.0,
 };
 
 pub const ParamInfo = struct {
@@ -38,6 +39,7 @@ const list = [std.meta.fields(Values).len]ParamInfo{
     .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
     .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
     .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
+    .{ .id = 3, .name = "Freq", .minValue = 20.0, .maxValue = 20000.0, .defaultValue = 1500.0 },
 };
 
 pub fn count(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {
