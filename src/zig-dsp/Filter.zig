@@ -5,9 +5,9 @@ const std = @import("std");
 
 const Filter = @This();
 
-cutoff: f32,
-reso: f32,
-coeffs: Coeffs,
+cutoff: f32 = undefined,
+reso: f32 = undefined,
+coeffs: Coeffs = undefined,
 
 xn: [][]f32 = undefined,
 yn: [][]f32 = undefined,

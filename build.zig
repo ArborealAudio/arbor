@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -20,7 +21,10 @@ pub fn build(b: *std.Build) void {
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/Plugin.zig" },
-        .target = target,
+        .target = .{
+            .os_tag = builtin.os.tag,
+            .os_version_min = target.os_version_min,
+        },
         .optimize = optimize,
     });
 
@@ -30,11 +34,11 @@ pub fn build(b: *std.Build) void {
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
-    lib.install();
+    b.installArtifact(lib);
 
     // Creates a step for unit testing.
     const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/plugin.zig" },
+        .root_source_file = .{ .path = "src/Plugin.zig" },
         .target = target,
         .optimize = optimize,
     });

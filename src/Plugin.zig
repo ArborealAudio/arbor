@@ -47,9 +47,9 @@ params: Params = Params{},
 
 reverb: Reverb,
 
-sampleRate: f64,
-numChannels: u32,
-maxNumSamples: u32,
+sampleRate: f64 = 44100.0,
+numChannels: u32 = 2,
+maxNumSamples: u32 = 128,
 
 latency: u32,
 
@@ -255,15 +255,17 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
 
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    plug.reverb.deinit(allocator);
     allocator.destroy(plug);
+    const leaked = gpa.detectLeaks();
+    if (leaked)
+        std.debug.print("Leaked!", .{});
 }
 
 pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     plug.sampleRate = sample_rate;
     plug.maxNumSamples = max_frames_count;
-    plug.reverb.init(allocator, plug.sampleRate, 0.6 * @floatCast(f32, plug.sampleRate)) catch unreachable;
+    plug.reverb.init(allocator, plug.sampleRate, 0.125 * @floatCast(f32, plug.sampleRate)) catch unreachable;
     _ = min_frames_count;
     return true;
 }
@@ -323,7 +325,7 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
         const in = [_][*]f32{ processInfo.*.audio_inputs[0].data32[0], processInfo.*.audio_inputs[0].data32[1] };
         // process audio in frame
         while (i < nextEventFrame) : (i += 1) {
-            const rev_out = plug.reverb.processSample(in[0][i], in[1][i]);
+            const rev_out = plug.reverb.processSample([_]f32{ in[0][i], in[1][i] });
 
             const wet_level = if (mix < 0.5) mix * 2.0 else 1.0;
             const dry_level = if (mix < 0.5) 1.0 else (1.0 - mix) * 2.0;
@@ -376,20 +378,31 @@ const Factory = struct {
             return null;
         if (std.cstr.cmp(plugin_id, PluginDesc.id) == 0) {
             var plugin = allocator.create(Plugin) catch unreachable;
-            plugin.*.host = host;
-            plugin.*.plugin.desc = &PluginDesc;
-            plugin.*.plugin.plugin_data = plugin;
-            plugin.*.plugin.init = init;
-            plugin.*.plugin.destroy = destroy;
-            plugin.*.plugin.activate = activate;
-            plugin.*.plugin.start_processing = startProcessing;
-            plugin.*.plugin.stop_processing = stopProcessing;
-            plugin.*.plugin.reset = reset;
-            plugin.*.plugin.process = process;
-            plugin.*.plugin.get_extension = getExtension;
-            plugin.*.plugin.on_main_thread = onMainThread;
-            plugin.*.latency = 0;
-            return &plugin.*.plugin;
+            plugin.* = .{
+                .plugin = .{
+                    .desc = &PluginDesc,
+                    .plugin_data = plugin,
+                    .init = init,
+                    .destroy = destroy,
+                    .activate = activate,
+                    .deactivate = deactivate,
+                    .start_processing = startProcessing,
+                    .stop_processing = stopProcessing,
+                    .reset = reset,
+                    .process = process,
+                    .get_extension = getExtension,
+                    .on_main_thread = onMainThread,
+                },
+                .host = host,
+                .host_params = null,
+                .host_state = null,
+                .host_latency = null,
+                .host_log = null,
+                .host_thread_check = null,
+                .latency = 0,
+                .reverb = .{},
+            };
+            return &plugin.plugin;
         }
         return null;
     }

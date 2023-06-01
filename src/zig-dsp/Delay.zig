@@ -5,14 +5,14 @@ const Allocator = std.mem.Allocator;
 
 const Delay = @This();
 
-delay_time: f32, // delay time in samples
+delay_time: f32 = 0, // delay time in samples
 
-buffer: [][]f32,
+buffer: [][]f32 = undefined,
 
-max_delay: u32, // set this prior to processing & init-ing!
+max_delay: u32 = undefined, // set this prior to processing & init-ing!
 
-write_pos: [2]usize,
-read_pos: [2]usize,
+write_pos: [2]usize = undefined,
+read_pos: [2]usize = undefined,
 
 /// setup delay processor, allocate internal buffers
 pub fn init(self: *Delay, alloc: Allocator, numChannels: usize) !void {
