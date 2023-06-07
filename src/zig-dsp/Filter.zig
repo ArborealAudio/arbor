@@ -47,7 +47,7 @@ pub fn reset(self: *Filter) void {
 }
 
 pub fn setCoeffs(self: *Filter) void {
-    const w0 = 2.0 * std.math.pi * (self.cutoff / self.sample_rate);
+    const w0 = 2.0 * std.math.pi * (self.cutoff / (self.sample_rate * 0.5));
     const q = 1.0 / (2.0 * self.reso);
     const tmp = std.math.exp(-q * w0);
     self.coeffs.a1 = -2.0 * tmp;
