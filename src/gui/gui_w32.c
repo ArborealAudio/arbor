@@ -1,6 +1,7 @@
 #define GUI_API CLAP_WINDOW_API_WIN32
 
 #include <windowsx.h>
+#include "Gui.h"
 
 struct GUI
 {
@@ -10,14 +11,14 @@ struct GUI
 
 static int globalOpenGUICount = 0;
 
-static void GUIPaint(MyPlugin *plugin, bool internal)
+static void GUIPaint(Plugin *plugin, bool internal)
 {
-    if (internal) PluginPaint(plugin, plugin->gui->bits);
+    if (internal) pluginPaint(plugin->gui->bits);
     RedrawWindow(plugin->gui->window, 0, 0, RDW_INVALIDATE);
 }
 
 LRESULT CALLBACK GUIWindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
-	MyPlugin *plugin = (MyPlugin *) GetWindowLongPtr(window, 0);
+	Plugin *plugin = (Plugin *) GetWindowLongPtr(window, 0);
 
 	if (!plugin) {
 		return DefWindowProc(window, message, wParam, lParam);
@@ -47,7 +48,7 @@ LRESULT CALLBACK GUIWindowProcedure(HWND window, UINT message, WPARAM wParam, LP
 	return 0;
 }
 
-static void GUICreate(MyPlugin *plugin)
+static void GUICreate(Plugin *plugin)
 {
     assert(!plugin->gui);
     plugin->gui = (struct GUI *) calloc(1, sizeof(struct GUI));
@@ -56,7 +57,7 @@ static void GUICreate(MyPlugin *plugin)
     {
         WNDCLASS windowClass = {};
         windowClass.lpfnWndProc = GUIWindowProcedure;
-        windowClass.cbWndExtra = sizeof(MyPlugin *);
+        windowClass.cbWndExtra = sizeof(Plugin *);
         windowClass.lpszClassName = pluginDescriptor.id;
         windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
         windowClass.style = CS_DBLCLKS;
@@ -69,7 +70,7 @@ static void GUICreate(MyPlugin *plugin)
     GUIPaint(plugin, true);
 }
 
-static void GUIDestroy(MyPlugin *plugin)
+static void GUIDestroy(Plugin *plugin)
 {
     assert(plugin->gui);
     DestroyWindow(plugin->gui->window);
@@ -85,4 +86,4 @@ static void GUIDestroy(MyPlugin *plugin)
 
 #define GUISetParent(plugin, parent) SetParent((plugin)->gui->window, (HWND)(parent)->win32)
 #define GUISetVisible(plugin, visible) ShowWindow((plugin)->gui->window, (visible) ? SW_SHOW : SW_HIDE)
-static void GUIOnPOSIXFD(MyPlugin *) {}
+static void GUIOnPOSIXFD(Plugin *) {}

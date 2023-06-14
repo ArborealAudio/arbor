@@ -5,6 +5,7 @@ const std = @import("std");
 const Params = @import("Params.zig");
 const Mutex = std.Thread.Mutex;
 const Reverb = @import("zig-dsp/Reverb.zig");
+const Gui = @import("gui/Gui.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var allocator: std.mem.Allocator = undefined;
@@ -15,7 +16,7 @@ pub const clap = @cImport({
 
 const c_cast = std.zig.c_translation.cast;
 
-const PluginDesc = clap.clap_plugin_descriptor_t{
+pub const PluginDesc = clap.clap_plugin_descriptor_t{
     .clap_version = clap.clap_version_t{
         .major = clap.CLAP_VERSION_MAJOR,
         .minor = clap.CLAP_VERSION_MINOR,
@@ -53,72 +54,8 @@ maxNumSamples: u32 = 128,
 
 latency: u32,
 
-// pub fn syncMainToAudio(plugin: *Plugin, out: [*c]const clap.clap_output_events_t) void {
-//     var mutex = Mutex{};
-//     mutex.lock();
-//     defer mutex.unlock();
-
-//     var i: u32 = 0;
-//     while (i < P_COUNT) : (i += 1) {
-//         if (plugin.gestureStart[i]) {
-//             plugin.gestureStart[i] = false;
-//             var event: clap.clap_event_param_gesture_t = undefined;
-//             event.header.size = @sizeOf(clap.clap_event_param_gesture_t);
-//             event.header.time = 0;
-//             event.header.space_id = clap.CLAP_CORE_EVENT_SPACE_ID;
-//             event.header.type = clap.CLAP_EVENT_PARAM_GESTURE_BEGIN;
-//             event.header.flags = 0;
-//             event.param_id = i;
-//             _ = out.*.try_push.?(out, &event.header);
-//         }
-//         if (plugin.mainChanged[i]) {
-//             plugin.parameters[i] = plugin.mainParameters[i];
-//             plugin.mainChanged[i] = false;
-
-//             var event: clap.clap_event_param_value_t = undefined;
-//             event.header.size = @sizeOf(clap.clap_event_param_value_t);
-//             event.header.time = 0;
-//             event.header.space_id = clap.CLAP_CORE_EVENT_SPACE_ID;
-//             event.header.type = clap.CLAP_EVENT_PARAM_VALUE;
-//             event.header.flags = 0;
-//             event.param_id = i;
-//             event.cookie = null;
-//             event.note_id = -1;
-//             event.port_index = -1;
-//             event.channel = -1;
-//             event.key = -1;
-//             event.value = plugin.parameters[i];
-//             _ = out.*.try_push.?(out, &event.header);
-//         }
-//         if (plugin.gestureEnd[i]) {
-//             plugin.gestureEnd[i] = false;
-//             var event: clap.clap_event_param_gesture_t = undefined;
-//             event.header.size = @sizeOf(clap.clap_event_param_gesture_t);
-//             event.header.time = 0;
-//             event.header.space_id = clap.CLAP_CORE_EVENT_SPACE_ID;
-//             event.header.type = clap.CLAP_EVENT_PARAM_GESTURE_END;
-//             event.header.flags = 0;
-//             event.param_id = i;
-//             _ = out.*.try_push.?(out, &event.header);
-//         }
-//     }
-// }
-
-// pub fn syncAudioToMain(plugin: *Plugin) bool {
-//     var anyChanged = false;
-//     var mutex = Mutex{};
-//     mutex.lock();
-//     defer mutex.unlock();
-//     var i: u32 = 0;
-//     while (i < P_COUNT) : (i += 1) {
-//         if (plugin.changed[i]) {
-//             plugin.mainParameters[i] = plugin.parameters[i];
-//             plugin.changed[i] = false;
-//             anyChanged = true;
-//         }
-//     }
-//     return anyChanged;
-// }
+gui: ?*Gui = null,
+host_posix_fd_support: [*c]const clap.clap_host_posix_fd_support_t,
 
 const AudioPorts = struct {
     fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
@@ -241,13 +178,6 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
         var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_PARAMS);
         if (ptr != null) {
             plug.*.host_params = c_cast(*const clap.clap_host_params_t, ptr);
-            // var i: u32 = 0;
-            // while (i < P_COUNT) : (i += 1) {
-            //     var information: clap.clap_param_info_t = undefined;
-            //     _ = Params.getInfo(plugin, i, &information);
-            //     plug.*.mainParameters[i] = @floatCast(f32, information.default_value);
-            //     plug.*.parameters[i] = @floatCast(f32, information.default_value);
-            // }
         }
     }
     return true;
@@ -353,6 +283,8 @@ pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callco
         return &State.Data;
     if (std.cstr.cmp(id, &clap.CLAP_EXT_PARAMS) == 0)
         return &Params.Data;
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_GUI) == 0)
+        return &Gui.Data;
     return null;
 }
 
@@ -399,6 +331,7 @@ const Factory = struct {
                 .host_latency = null,
                 .host_log = null,
                 .host_thread_check = null,
+                .host_posix_fd_support = null,
                 .latency = 0,
                 .reverb = .{},
             };

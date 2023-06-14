@@ -9,27 +9,39 @@ pub fn build(b: *std.Build) void {
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
+    var target = b.standardTargetOptions(.{});
+    target.os_tag = builtin.os.tag;
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const gui = b.addObject(.{
+        .name = "Gui",
+        .root_source_file = .{ .path = "src/gui/Gui.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
     const lib = b.addSharedLibrary(.{
         .name = "clap-raw",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/Plugin.zig" },
-        .target = .{
-            .os_tag = builtin.os.tag,
-            .os_version_min = target.os_version_min,
-        },
+        .target = target,
         .optimize = optimize,
     });
 
     lib.linkLibC();
     lib.addIncludePath("src/clap/include");
+    lib.addIncludePath("src/gui");
+    lib.addObject(gui);
+    if (lib.target.isWindows()) {
+        lib.linkSystemLibrary("User32");
+        lib.linkSystemLibrary("Gdi32");
+        lib.linkSystemLibrary("Dwmapi");
+    }
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
