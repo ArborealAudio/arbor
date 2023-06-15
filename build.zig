@@ -10,22 +10,16 @@ pub fn build(b: *std.Build) void {
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
     var target = b.standardTargetOptions(.{});
-    target.os_tag = builtin.os.tag;
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const gui = b.addObject(.{
-        .name = "Gui",
-        .root_source_file = .{ .path = "src/gui/Gui.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+    const plugin_name = "clap-raw";
 
-    const lib = b.addSharedLibrary(.{
-        .name = "clap-raw",
+    const plugin = b.addSharedLibrary(.{
+        .name = plugin_name,
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/Plugin.zig" },
@@ -33,20 +27,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    lib.linkLibC();
-    lib.addIncludePath("src/clap/include");
-    lib.addIncludePath("src/gui");
-    lib.addObject(gui);
-    if (lib.target.isWindows()) {
-        lib.linkSystemLibrary("User32");
-        lib.linkSystemLibrary("Gdi32");
-        lib.linkSystemLibrary("Dwmapi");
-    }
+    plugin.linkLibC();
+    plugin.addIncludePath("/usr/include");
+    plugin.addIncludePath("src/clap/include");
+    if (plugin.target.isWindows()) {
+        plugin.linkSystemLibrary("User32");
+        plugin.linkSystemLibrary("Gdi32");
+        plugin.linkSystemLibrary("Dwmapi");
+    } else if (plugin.target.isLinux())
+        plugin.linkSystemLibrary("X11");
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
-    b.installArtifact(lib);
+    const install = b.addInstallArtifact(plugin);
+    install.dest_sub_path = plugin_name ++ ".clap";
+    b.getInstallStep().dependOn(&install.step);
 
     // Creates a step for unit testing.
     const main_tests = b.addTest(.{

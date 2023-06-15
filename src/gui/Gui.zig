@@ -4,44 +4,41 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Plugin = @import("../Plugin.zig");
-export const GUI_WIDTH: c_uint = 800;
-export const GUI_HEIGHT: c_uint = 600;
-const Gui = if (builtin.os.tag == .windows) @cImport({
+pub export const GUI_WIDTH: c_uint = 800;
+pub export const GUI_HEIGHT: c_uint = 600;
+pub const Impl = if (builtin.os.tag == .windows) @cImport({
     @cInclude("gui_w32.c");
 }) else if (builtin.os.tag == .macos) @cImport({
     @cInclude("gui_mac.c");
-}) else if (builtin.os.tag == .linux) @cImport({
-    @cInclude("gui_x11.c");
-});
-pub const clap = @cImport({
+}) else if (builtin.os.tag == .linux)
+    @import("gui_x11.zig");
+
+const clap = @cImport({
     @cInclude("clap/clap.h");
 });
 const c_cast = std.zig.c_translation.cast;
 
-const Rectangle = struct {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-};
-
-const PosixFDSupport = struct {
-    fn onFD(plugin: [*c]const clap.clap_plugin_t, fd: u32, flags: [*c]const clap.clap_posix_fd_flags_t) void {
+pub const PosixFDSupport = struct {
+    fn onFD(plugin: [*c]const clap.clap_plugin_t, fd: c_int, flags: clap.clap_posix_fd_flags_t) callconv(.C) void {
         _ = flags;
         _ = fd;
         var plug = c_cast(*Plugin, plugin.*.plugin_data);
-        Gui.onPOSIXFD(plug);
+        Impl.GUIOnPOSIXFD(plug);
     }
+
+    pub const Data = clap.clap_plugin_posix_fd_support_t{
+        .on_fd = onFD,
+    };
 };
 
 fn isAPISupported(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
     _ = plugin;
-    return 0 == std.cstr.cmp(api, &Gui.GUI_API) and !is_floating;
+    return 0 == std.cstr.cmp(api, &Impl.GUI_API) and !is_floating;
 }
 
 fn getPreferredAPI(plugin: [*c]const clap.clap_plugin_t, api: [*c][*c]const u8, is_floating: [*c]bool) callconv(.C) bool {
     _ = plugin;
-    api.* = &Gui.GUI_API;
+    api.* = &Impl.GUI_API;
     is_floating.* = false;
     return true;
 }
@@ -50,13 +47,13 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     if (!isAPISupported(plugin, api, is_floating))
         return false;
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Gui.GUIcreate(plug);
+    Impl.GUICreate(plug) catch unreachable;
     return true;
 }
 
 fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Gui.GUIcreate(plug);
+    Impl.GUIDestroy(plug);
 }
 
 fn setScale(plugin: [*c]const clap.clap_plugin_t, scale: f64) callconv(.C) bool {
@@ -94,15 +91,15 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
     return false;
 }
 
-fn setParent(plugin: [*c]const clap.clap_plugin_t, window: [*c]const clap.clap_window_t) callconv(.C) bool {
-    std.debug.assert(std.cstr.cmp(window.*.api, &Gui.GUI_API) == 0);
+fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
+    std.debug.assert(std.cstr.cmp(clap_window.*.api, &Impl.GUI_API) == 0);
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Gui.setParent(plug, window);
+    Impl.GUISetParent(plug, clap_window);
     return true;
 }
 
-fn setTransient(plugin: [*c]const clap.clap_plugin_t, window: [*c]const clap.clap_window_t) callconv(.C) bool {
-    _ = window;
+fn setTransient(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
+    _ = clap_window;
     _ = plugin;
     return false;
 }
@@ -114,13 +111,13 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Gui.setVisible(plug, true);
+    Impl.GUISetVisible(plug, true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Gui.setVisible(plug, false);
+    Impl.GUISetVisible(plug, false);
     return true;
 }
 
@@ -142,21 +139,29 @@ pub const Data = clap.clap_plugin_gui_t{
     .hide = hide,
 };
 
-fn paintRectangle(bits: [*]u32, rect: Rectangle, border: u32, fill: u32) void {
+const Rectangle = struct {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+};
+
+fn paintRectangle(data: [*]u32, rect: Rectangle, border: u32, fill: u32) void {
     const r = rect.x + rect.width;
     const b = rect.y + rect.height;
     var y: u32 = 0;
     while (y < b) : (y += 1) {
         var x: u32 = 0;
         while (x < r) : (x += 1) {
-            bits[y * GUI_WIDTH + x] = if (y == rect.y or y == b - 1 or x == rect.x or x == r - 1) border else fill;
+            data[y * GUI_WIDTH + x] = if (y == rect.y or y == b - 1 or x == rect.x or x == r - 1) border else fill;
         }
     }
 }
 
-export fn pluginPaint(bits: [*]u32) void {
+pub fn pluginPaint(data: [*]u32) void {
+    std.debug.print("Painting...", .{});
     // draw background
-    paintRectangle(bits, Rectangle{
+    paintRectangle(data, Rectangle{
         .x = 0,
         .y = 0,
         .width = GUI_WIDTH,
@@ -168,16 +173,18 @@ export fn pluginPaint(bits: [*]u32) void {
     var width: u32 = GUI_WIDTH / 3;
     var height: u32 = @intToFloat(f32, GUI_HEIGHT) * 0.75;
     var x = centerX - (width / 2);
+    _ = x;
     var y = centerY - (height / 2);
+    _ = y;
 
-    const bounds = Rectangle{
-        .x = x,
-        .y = y,
-        .width = width,
-        .height = height,
-    };
-    paintRectangle(bits, bounds, 0x000000, 0xC0C0C0);
+    // const bounds = Rectangle{
+    //     .x = x,
+    //     .y = y,
+    //     .width = width,
+    //     .height = height,
+    // };
+    // paintRectangle(data, bounds, 0x000000, 0xC0C0C0);
     // const paramVal = 1.0 - self.params.values.mix;
     // const paramY = y + (height - y) * paramVal;
-    // paintRectangle(bits, Rectangle{ x, paramY, width, height }, 0x000000, 0x000000);
+    // paintRectangle(data, Rectangle{ x, paramY, width, height }, 0x000000, 0x000000);
 }

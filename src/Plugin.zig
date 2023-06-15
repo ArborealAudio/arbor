@@ -8,7 +8,7 @@ const Reverb = @import("zig-dsp/Reverb.zig");
 const Gui = @import("gui/Gui.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var allocator: std.mem.Allocator = undefined;
+pub var allocator: std.mem.Allocator = undefined;
 
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
@@ -54,7 +54,7 @@ maxNumSamples: u32 = 128,
 
 latency: u32,
 
-gui: ?*Gui = null,
+gui: ?*Gui.Impl.Display = null,
 host_posix_fd_support: [*c]const clap.clap_host_posix_fd_support_t,
 
 const AudioPorts = struct {
@@ -180,6 +180,12 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
             plug.*.host_params = c_cast(*const clap.clap_host_params_t, ptr);
         }
     }
+    {
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_POSIX_FD_SUPPORT);
+        if (ptr != null) {
+            plug.*.host_posix_fd_support = c_cast(*const clap.clap_host_posix_fd_support_t, ptr);
+        }
+    }
     return true;
 }
 
@@ -285,6 +291,8 @@ pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callco
         return &Params.Data;
     if (std.cstr.cmp(id, &clap.CLAP_EXT_GUI) == 0)
         return &Gui.Data;
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_POSIX_FD_SUPPORT) == 0)
+        return &Gui.PosixFDSupport.Data;
     return null;
 }
 
