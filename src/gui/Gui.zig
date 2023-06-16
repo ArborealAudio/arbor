@@ -22,10 +22,33 @@ pub const GUI_WIDTH: c_uint = 800;
 pub const GUI_HEIGHT: c_uint = 600;
 
 pub fn render(plugin: *Plugin) void {
-    _ = plugin;
+    var color: rl.Color = undefined;
+
+    if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT))
+        color = rl.BLACK
+    else
+        color = rl.RED;
+
     rl.BeginDrawing();
 
     rl.ClearBackground(rl.RAYWHITE);
+
+    const reverb_amount = @floatCast(f32, plugin.params.values.mix);
+
+    const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
+    const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
+    const rect_width: f32 = 50.0;
+    const rect_height: f32 = 100.0 * reverb_amount;
+    const x: f32 = centerX - (rect_width * 0.5);
+    const b: f32 = centerY + 50.0;
+    const y: f32 = b + rect_height;
+
+    rl.DrawRectangleRec(.{
+        .x = x,
+        .y = y,
+        .width = rect_width,
+        .height = rect_height,
+    }, color);
 
     rl.EndDrawing();
 }
@@ -45,11 +68,12 @@ fn getPreferredAPI(plugin: [*c]const clap.clap_plugin_t, api: [*c][*c]const u8, 
 fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
     if (!isAPISupported(plugin, api, is_floating))
         return false;
+    var plug = c_cast(*Plugin, plugin.*.plugin_data);
     // Impl.GUICreate(plug) catch unreachable;
     rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
     rl.SetTargetFPS(rl.GetMonitorRefreshRate(rl.GetCurrentMonitor()));
-    render(c_cast(*Plugin, plugin.*.plugin_data));
+    render(plug);
     return true;
 }
 
@@ -97,6 +121,8 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
     // Impl.GUISetParent(plug, clap_window);
+    var ptr = c_cast(@TypeOf(clap_window.*.unnamed_0), rl.GetWindowHandle());
+    ptr = clap_window.*.unnamed_0;
     return true;
 }
 
@@ -122,6 +148,7 @@ fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     _ = plug;
     // Impl.GUISetVisible(plug, false);
+    rl.CloseWindow();
     return true;
 }
 
