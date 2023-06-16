@@ -54,8 +54,7 @@ maxNumSamples: u32 = 128,
 
 latency: u32,
 
-gui: ?*Gui.Impl.Display = null,
-host_posix_fd_support: [*c]const clap.clap_host_posix_fd_support_t,
+gui: ?*Gui = null,
 
 const AudioPorts = struct {
     fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
@@ -180,12 +179,6 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
             plug.*.host_params = c_cast(*const clap.clap_host_params_t, ptr);
         }
     }
-    {
-        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_POSIX_FD_SUPPORT);
-        if (ptr != null) {
-            plug.*.host_posix_fd_support = c_cast(*const clap.clap_host_posix_fd_support_t, ptr);
-        }
-    }
     return true;
 }
 
@@ -291,8 +284,8 @@ pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callco
         return &Params.Data;
     if (std.cstr.cmp(id, &clap.CLAP_EXT_GUI) == 0)
         return &Gui.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_POSIX_FD_SUPPORT) == 0)
-        return &Gui.PosixFDSupport.Data;
+    // if (std.cstr.cmp(id, &clap.CLAP_EXT_POSIX_FD_SUPPORT) == 0)
+    //     return &Gui.PosixFDSupport.Data;
     return null;
 }
 
@@ -339,7 +332,6 @@ const Factory = struct {
                 .host_latency = null,
                 .host_log = null,
                 .host_thread_check = null,
-                .host_posix_fd_support = null,
                 .latency = 0,
                 .reverb = .{},
             };

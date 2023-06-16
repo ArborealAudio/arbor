@@ -28,14 +28,9 @@ pub fn build(b: *std.Build) void {
     });
 
     plugin.linkLibC();
-    plugin.addIncludePath("/usr/include");
-    plugin.addIncludePath("src/clap/include");
-    if (plugin.target.isWindows()) {
-        plugin.linkSystemLibrary("User32");
-        plugin.linkSystemLibrary("Gdi32");
-        plugin.linkSystemLibrary("Dwmapi");
-    } else if (plugin.target.isLinux())
-        plugin.linkSystemLibrary("X11");
+    plugin.linkSystemLibrary("raylib");
+    plugin.addIncludePath("lib/clap/include");
+    plugin.addSystemIncludePath("/usr/local/include");
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
