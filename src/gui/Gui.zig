@@ -20,18 +20,18 @@ pub const rl = @cImport({
     @cInclude("raylib.h");
 });
 
-const Impl = @cImport({
-    switch (builtin.os.tag) {
-        .windows => {
-            @cInclude("windows.h");
-            @cInclude("windowsx.h");
-            @cInclude("winuser.h");
-        },
-        .linux => {},
-        .macos => {},
-        else => @panic("Unsupported OS"),
-    }
-});
+// const Impl = @cImport({
+//     switch (builtin.os.tag) {
+//         .windows => {
+//             @cInclude("windows.h");
+//             @cInclude("windowsx.h");
+//             @cInclude("winuser.h");
+//         },
+//         .linux => {},
+//         .macos => {},
+//         else => @panic("Unsupported OS"),
+//     }
+// });
 
 extern fn implGuiSetParent(main: ?*anyopaque, window: [*c]const clap.clap_window_t) callconv(.C) void;
 extern fn implGuiSetVisible(main: ?*anyopaque, visible: bool) callconv(.C) void;
@@ -48,23 +48,21 @@ pub const mix_slider = rl.Rectangle{
 };
 
 pub fn render(plugin: *Plugin) void {
-    while (!rl.WindowShouldClose()) {
-        rl.BeginDrawing();
+    rl.BeginDrawing();
 
-        rl.ClearBackground(rl.RAYWHITE);
+    rl.ClearBackground(rl.RAYWHITE);
 
-        const reverb_amount = @floatCast(f32, plugin.params.values.mix);
+    const reverb_amount = @floatCast(f32, plugin.params.values.mix);
 
-        var d_mix_slider = mix_slider;
-        d_mix_slider.height = mix_slider.height * reverb_amount;
-        d_mix_slider.y = mix_slider.y - (mix_slider.height - d_mix_slider.height);
+    var d_mix_slider = mix_slider;
+    d_mix_slider.height = mix_slider.height * reverb_amount;
+    d_mix_slider.y = mix_slider.y - (mix_slider.height - d_mix_slider.height);
 
-        rl.DrawRectangleRec(d_mix_slider, rl.RED);
+    rl.DrawRectangleRec(d_mix_slider, rl.RED);
 
-        rl.DrawFPS(5, 5);
+    rl.DrawFPS(5, 5);
 
-        rl.EndDrawing();
-    }
+    rl.EndDrawing();
 }
 
 fn isAPISupported(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
@@ -84,8 +82,9 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
         return false;
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
     // Impl.GUICreate(plug) catch unreachable;
-    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
+    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
+    rl.SetWindowPosition(0, 0);
     rl.SetTargetFPS(60);
     rl.SetGesturesEnabled(rl.GESTURE_DRAG);
     render(plug);
@@ -137,7 +136,7 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
     // var plug = c_cast(*Plugin, plugin.*.plugin_data);
     // _ = plug;
-    // implGuiSetParent(rl.GetWindowHandle(), clap_window);
+    implGuiSetParent(rl.GetWindowHandle(), clap_window);
     return true;
 }
 
@@ -163,7 +162,7 @@ fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     //     .macos => {},
     //     else => @panic("Unsupported OS"),
     // }
-    // implGuiSetVisible(rl.GetWindowHandle(), true);
+    implGuiSetVisible(rl.GetWindowHandle(), true);
     return true;
 }
 
@@ -177,7 +176,7 @@ fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     //     .macos => {},
     //     else => @panic("Unsupported OS"),
     // }
-    // implGuiSetVisible(rl.GetWindowHandle(), false);
+    implGuiSetVisible(rl.GetWindowHandle(), false);
     rl.CloseWindow();
     return true;
 }
