@@ -27,8 +27,8 @@ pub fn init(self: *Delay, alloc: Allocator, numChannels: usize) !void {
 }
 
 pub fn deinit(self: *Delay, alloc: Allocator) void {
-    for (self.buffer) |ch| {
-        alloc.free(ch);
+    for (self.buffer, 0..) |_, i| {
+        alloc.free(self.buffer[i]);
     }
     alloc.free(self.buffer);
 }

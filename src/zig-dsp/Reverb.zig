@@ -11,7 +11,9 @@ const INPUT_DIFF_ORDER = 4;
 const EARLY_REF_ORDER = 4;
 
 const TAIL_ORDER = 9; // number of delay lines and assoc. parameters for reverb tail
-const TAIL_BLOCKS = TAIL_ORDER / 3;
+const DELAYS_PER_BLOCK = 3;
+const TAIL_BLOCKS = TAIL_ORDER / DELAYS_PER_BLOCK;
+const MOD_RATE = 3.0; // mod rate in Hz
 
 early_ref: [EARLY_REF_ORDER]Delay = undefined,
 
@@ -54,26 +56,34 @@ pub fn init(self: *Reverb, alloc: Allocator, sampleRate: f64, maxDelaySamples: f
     for (&self.tail_delay, 0..) |*d, i| {
         d.max_delay = @floatToInt(u32, maxDelaySamples);
         try d.init(alloc, 2);
-        self.tail_delayTime[i] = std.math.sqrt(@intToFloat(f32, TAIL_ORDER) / @intToFloat(f32, i + 1)) * maxDelaySamples;
+        self.tail_delayTime[i] = @sqrt(@intToFloat(f32, TAIL_ORDER) / @intToFloat(f32, i + 1)) * maxDelaySamples;
         d.delay_time = self.tail_delayTime[i];
         self.inversion[i] = if (rand.next() % 2 == 0) 1.0 else -1.0;
     }
 
     for (&self.feedback, 0..) |*f, i| {
-        f.* = std.math.sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, i + 1)) * max_feedback;
+        f.* = @sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, i + 1)) * max_feedback;
     }
 
-    for (&self.tail_filter, 0..) |*f, j|
-        f.init(alloc, 2, @floatCast(f32, sampleRate), 10000.0 * std.math.sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, j + 1)), std.math.sqrt1_2);
+    for (&self.tail_filter, 0..) |*f, j| {
+        f.filter_type = .Lowpass;
+        f.init(alloc, 2, @floatCast(f32, sampleRate), 8000.0 * @sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, j + 1)), std.math.sqrt1_2);
+    }
 
+    self.input_filter.filter_type = .Lowpass;
     self.input_filter.init(alloc, 2, @floatCast(f32, sampleRate), 12000.0, std.math.sqrt1_2);
 }
 
 pub fn deinit(self: *Reverb, alloc: Allocator) void {
-    for (&self.tail_delay) |*d| {
+    for (&self.early_ref) |*d|
         d.deinit(alloc);
-        alloc.destroy(d);
-    }
+    for (&self.input_diff) |*d|
+        d.deinit(alloc);
+    for (&self.tail_filter) |*f|
+        f.deinit(alloc);
+    for (&self.tail_delay) |*d|
+        d.deinit(alloc);
+    self.input_filter.deinit(alloc);
 }
 
 fn processHouseholderMatrix(in: []f32) void {
@@ -146,7 +156,7 @@ pub fn processSample(self: *Reverb, in: [2]f32) [2]f32 {
     const er = self.processEarlyReflections([_]f32{ filt_L, filt_R });
     const diff = self.processInputDiffusion([_]f32{ filt_L, filt_R });
 
-    while (i < TAIL_ORDER) : (i += 3) {
+    while (i < TAIL_ORDER) : (i += DELAYS_PER_BLOCK) {
         std.debug.assert(i + 2 < TAIL_ORDER);
         var ch: u32 = 0;
         while (ch < 2) : (ch += 1) {

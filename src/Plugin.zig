@@ -191,6 +191,7 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
 
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    plug.reverb.deinit(allocator);
     allocator.destroy(plug);
     const leaked = gpa.detectLeaks();
     if (leaked)

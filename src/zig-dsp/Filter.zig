@@ -8,6 +8,7 @@ const Filter = @This();
 cutoff: f32 = undefined,
 reso: f32 = undefined,
 coeffs: Coeffs = undefined,
+filter_type: Type = .Lowpass,
 
 xn: [][]f32 = undefined,
 yn: [][]f32 = undefined,
@@ -20,6 +21,12 @@ pub const Coeffs = struct {
     b0: f32,
     b1: f32,
     b2: f32,
+};
+
+pub const Type = enum {
+    Lowpass,
+    Highpass,
+    Bandpass,
 };
 
 /// initialize filter coefficients
@@ -38,6 +45,16 @@ pub fn init(self: *Filter, allocator: std.mem.Allocator, numChannels: u32, sampl
     self.setCoeffs();
 }
 
+// deallocate filter state
+pub fn deinit(self: *Filter, allocator: std.mem.Allocator) void {
+    for (self.xn, 0..) |_, i|
+        allocator.free(self.xn[i]);
+    for (self.yn, 0..) |_, i|
+        allocator.free(self.yn[i]);
+    allocator.free(self.xn);
+    allocator.free(self.yn);
+}
+
 pub fn reset(self: *Filter) void {
     for (self.xn, 0..) |_, i|
         self.xn[i] = [2]f32{ 0.0, 0.0 };
@@ -47,28 +64,51 @@ pub fn reset(self: *Filter) void {
 }
 
 pub fn setCoeffs(self: *Filter) void {
-    const w0 = 2.0 * std.math.pi * (self.cutoff / (self.sample_rate * 0.5));
+    const w0 = 2.0 * std.math.pi * self.cutoff / self.sample_rate;
     const q = 1.0 / (2.0 * self.reso);
-    const tmp = std.math.exp(-q * w0);
+    const tmp = @exp(-q * w0);
     self.coeffs.a1 = -2.0 * tmp;
     if (q <= 1.0)
-        self.coeffs.a1 *= std.math.cos(std.math.sqrt(1.0 - q * q) * w0)
+        self.coeffs.a1 *= @cos(@sqrt(1.0 - q * q) * w0)
     else
-        self.coeffs.a1 *= std.math.cosh(std.math.sqrt(q * q - 1.0) * w0);
+        self.coeffs.a1 *= std.math.cosh(@sqrt(q * q - 1.0) * w0);
     self.coeffs.a2 = tmp * tmp;
 
-    const f0 = self.cutoff / self.sample_rate;
+    const f0 = self.cutoff / (self.sample_rate * 0.5);
     const freq2 = f0 * f0;
-    const r0 = 1.0 + self.coeffs.a1 + self.coeffs.a2;
-    const r1_num = (1.0 - self.coeffs.a1 + self.coeffs.a2) * freq2;
-    const r1_f2 = (1.0 - freq2) * (1.0 - freq2);
-    const r1_denom = std.math.sqrt(r1_f2 + freq2 / (self.reso * self.reso));
+    const fac = (1.0 - freq2) * (1.0 - freq2);
 
-    const r1 = r1_num / r1_denom;
+    switch (self.filter_type) {
+        .Lowpass => {
+            const r0 = 1.0 + self.coeffs.a1 + self.coeffs.a2;
+            const r1_num = (1.0 - self.coeffs.a1 + self.coeffs.a2) * freq2;
+            const r1_denom = @sqrt(fac + freq2 / (self.reso * self.reso));
+            const r1 = r1_num / r1_denom;
 
-    self.coeffs.b0 = (r0 + r1) / 2.0;
-    self.coeffs.b1 = r0 - self.coeffs.b0;
-    self.coeffs.b2 = 0.0;
+            self.coeffs.b0 = (r0 + r1) / 2.0;
+            self.coeffs.b1 = r0 - self.coeffs.b0;
+            self.coeffs.b2 = 0.0;
+        },
+        .Highpass => {
+            const r1_num = 1.0 - self.coeffs.a1 + self.coeffs.a2;
+            const r1_denom = @sqrt(fac + freq2 / (self.reso * self.reso));
+            const r1 = r1_num / r1_denom;
+
+            self.coeffs.b0 = r1 / 4.0;
+            self.coeffs.b1 = -2.0 * self.coeffs.b0;
+            self.coeffs.b2 = self.coeffs.b0;
+        },
+        .Bandpass => {
+            const r0 = (1.0 + self.coeffs.a1 + self.coeffs.a2) / (std.math.pi * f0 * self.reso);
+            const r1_num = (1.0 - self.coeffs.a1 + self.coeffs.a2) * (f0 / self.reso);
+            const r1_denom = @sqrt(fac + freq2 / (self.reso * self.reso));
+            const r1 = r1_num / r1_denom;
+
+            self.coeffs.b1 = -r1 / 2.0;
+            self.coeffs.b0 = (r0 - self.coeffs.b1) / 2.0;
+            self.coeffs.b2 = -self.coeffs.b0 - self.coeffs.b1;
+        },
+    }
 }
 
 pub fn processSample(self: *Filter, ch: u32, in: f32) f32 {
