@@ -162,11 +162,12 @@ const Timer = struct {
             const vec = Gui.rl.GetMouseDelta();
             // TODO: translate this to useable distance information
             const p_val = plug.params.values.mix;
-            const n_val = @min(1.0, @max(0.0, p_val + @floatCast(f64, vec.y)));
+            const n_val = @min(1.0, @max(0.0, p_val + @floatCast(f64, -vec.y * 0.01)));
             plug.params.setValue(0, n_val);
         }
 
         // currently just infinitely repainting...
+        // MAYBE: we should check if a repaint is needed
         if (!Gui.rl.WindowShouldClose())
             Gui.render(plug);
     }
@@ -209,7 +210,7 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
         var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_TIMER_SUPPORT);
         if (ptr != null) {
             plug.*.host_timer_support = c_cast(*const clap.clap_host_timer_support_t, ptr);
-            _ = plug.*.host_timer_support.*.register_timer.?(plug.*.host, 8, &plug.*.timerID);
+            _ = plug.*.host_timer_support.*.register_timer.?(plug.*.host, 16, &plug.*.timerID);
         }
     }
     return true;

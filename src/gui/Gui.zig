@@ -43,8 +43,9 @@ pub fn render(plugin: *Plugin) void {
 
     var d_mix_slider = mix_slider;
     d_mix_slider.height = mix_slider.height * reverb_amount;
-    d_mix_slider.y = mix_slider.y - (mix_slider.height - d_mix_slider.height);
+    d_mix_slider.y = mix_slider.y + (mix_slider.height - d_mix_slider.height);
 
+    rl.DrawRectangleRec(mix_slider, rl.BLACK);
     rl.DrawRectangleRec(d_mix_slider, rl.RED);
 
     rl.DrawFPS(5, 5);
@@ -71,7 +72,6 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
     rl.SetWindowPosition(0, 0);
-    rl.SetTargetFPS(60);
     rl.SetGesturesEnabled(rl.GESTURE_DRAG);
     render(plug);
     return true;
