@@ -8,7 +8,7 @@ const Reverb = @import("zig-dsp/Reverb.zig");
 const Gui = @import("gui/Gui.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-pub var allocator: std.mem.Allocator = undefined;
+pub var allocator: std.mem.Allocator = gpa.allocator();
 
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
@@ -43,6 +43,8 @@ host_log: ?*const clap.clap_host_log_t,
 host_thread_check: [*c]const clap.clap_host_thread_check_t,
 host_state: [*c]const clap.clap_host_state_t,
 host_params: [*c]const clap.clap_host_params_t,
+host_timer_support: [*c]const clap.clap_host_timer_support_t,
+timerID: clap.clap_id,
 
 params: Params = Params{},
 
@@ -150,6 +152,22 @@ const State = struct {
     };
 };
 
+// Timer
+const Timer = struct {
+    fn onTimer(plugin: [*c]const clap.clap_plugin_t, timerID: clap.clap_id) callconv(.C) void {
+        _ = timerID;
+        var plug = c_cast(*Plugin, plugin.*.plugin_data);
+
+        // currently just infinitely repainting...
+        if (!Gui.rl.IsWindowHidden())
+            Gui.render(plug);
+    }
+
+    pub const Data = clap.clap_plugin_timer_support_t{
+        .on_timer = onTimer,
+    };
+};
+
 pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
 
@@ -179,15 +197,22 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
             plug.*.host_params = c_cast(*const clap.clap_host_params_t, ptr);
         }
     }
+    {
+        var ptr = plug.*.host.*.get_extension.?(plug.*.host, &clap.CLAP_EXT_TIMER_SUPPORT);
+        if (ptr != null) {
+            plug.*.host_timer_support = c_cast(*const clap.clap_host_timer_support_t, ptr);
+            _ = plug.*.host_timer_support.*.register_timer.?(plug.*.host, 200, &plug.*.timerID);
+        }
+    }
     return true;
 }
 
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+    defer _ = gpa.deinit();
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    // if (plug.*.host_timer_support != null and plug.*.host_timer_support.*.unregister_timer != null)
+    _ = plug.*.host_timer_support.*.unregister_timer.?(plug.*.host, plug.*.timerID);
     allocator.destroy(plug);
-    const leaked = gpa.detectLeaks();
-    if (leaked)
-        std.debug.print("Leaked!", .{});
 }
 
 pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
@@ -284,6 +309,8 @@ pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callco
         return &Params.Data;
     if (std.cstr.cmp(id, &clap.CLAP_EXT_GUI) == 0)
         return &Gui.Data;
+    if (std.cstr.cmp(id, &clap.CLAP_EXT_TIMER_SUPPORT) == 0)
+        return &Timer.Data;
     // if (std.cstr.cmp(id, &clap.CLAP_EXT_POSIX_FD_SUPPORT) == 0)
     //     return &Gui.PosixFDSupport.Data;
     return null;
@@ -332,6 +359,8 @@ const Factory = struct {
                 .host_latency = null,
                 .host_log = null,
                 .host_thread_check = null,
+                .host_timer_support = null,
+                .timerID = undefined,
                 .latency = 0,
                 .reverb = .{},
             };
@@ -352,7 +381,6 @@ const Entry = struct {
     fn init(plugin_path: [*c]const u8) callconv(.C) bool {
         _ = plugin_path;
 
-        allocator = gpa.allocator();
         return true;
     }
 

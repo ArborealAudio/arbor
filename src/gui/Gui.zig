@@ -4,7 +4,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Plugin = @import("../Plugin.zig");
-const GUI = @This();
 const clap = @cImport({
     @cInclude("clap/clap.h");
 });
@@ -14,20 +13,32 @@ pub const GUI_API = switch (builtin.os.tag) {
     .windows => clap.CLAP_WINDOW_API_WIN32,
     else => @panic("Unsupported OS"),
 };
-const rl = @cImport({
-    @cInclude("raylib.h");
-});
-const c_cast = std.zig.c_translation.cast;
 pub const GUI_WIDTH: c_uint = 800;
 pub const GUI_HEIGHT: c_uint = 600;
 
-pub fn render(plugin: *Plugin) void {
-    var color: rl.Color = undefined;
+pub const rl = @cImport({
+    @cInclude("raylib.h");
+});
 
+const Impl = @cImport({
+    switch (builtin.os.tag) {
+        .windows => {
+            @cInclude("windows.h");
+            @cInclude("windowsx.h");
+            @cInclude("winuser.h");
+        },
+        .linux => {},
+        .macos => {},
+        else => @panic("Unsupported OS"),
+    }
+});
+
+const c_cast = std.zig.c_translation.cast;
+
+pub fn render(plugin: *Plugin) void {
+    var color = rl.RED;
     if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT))
-        color = rl.BLACK
-    else
-        color = rl.RED;
+        color = rl.BLACK;
 
     rl.BeginDrawing();
 
@@ -120,9 +131,15 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
-    // Impl.GUISetParent(plug, clap_window);
-    var ptr = c_cast(@TypeOf(clap_window.*.unnamed_0), rl.GetWindowHandle());
-    ptr = clap_window.*.unnamed_0;
+    // var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    // switch (builtin.os.tag) {
+    //     .windows => {
+    //         _ = Impl.SetParent(c_cast(Impl.HWND, rl.GetWindowHandle().?), c_cast(Impl.HWND, clap_window.*.unnamed_0.win32));
+    //     },
+    //     .macos => {},
+    //     .linux => {},
+    //     else => @panic("Unsupported OS"),
+    // }
     return true;
 }
 
@@ -138,17 +155,29 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 }
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    _ = plug;
+    _ = plugin;
     // Impl.GUISetVisible(plug, true);
+    switch (builtin.os.tag) {
+        .windows => {
+            _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_SHOW);
+        },
+        .linux => {},
+        .macos => {},
+        else => @panic("Unsupported OS"),
+    }
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    _ = plug;
-    // Impl.GUISetVisible(plug, false);
-    rl.CloseWindow();
+    _ = plugin;
+    switch (builtin.os.tag) {
+        .windows => {
+            _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_HIDE);
+        },
+        .linux => {},
+        .macos => {},
+        else => @panic("Unsupported OS"),
+    }
     return true;
 }
 
