@@ -33,35 +33,38 @@ const Impl = @cImport({
     }
 });
 
+extern fn implGuiSetParent(main: ?*anyopaque, window: [*c]const clap.clap_window_t) callconv(.C) void;
+extern fn implGuiSetVisible(main: ?*anyopaque, visible: bool) callconv(.C) void;
+
 const c_cast = std.zig.c_translation.cast;
 
+const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
+const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
+pub const mix_slider = rl.Rectangle{
+    .x = centerX - 25.0,
+    .y = centerY - 50.0,
+    .width = 50.0,
+    .height = 100.0,
+};
+
 pub fn render(plugin: *Plugin) void {
-    var color = rl.RED;
-    if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT))
-        color = rl.BLACK;
+    while (!rl.WindowShouldClose()) {
+        rl.BeginDrawing();
 
-    rl.BeginDrawing();
+        rl.ClearBackground(rl.RAYWHITE);
 
-    rl.ClearBackground(rl.RAYWHITE);
+        const reverb_amount = @floatCast(f32, plugin.params.values.mix);
 
-    const reverb_amount = @floatCast(f32, plugin.params.values.mix);
+        var d_mix_slider = mix_slider;
+        d_mix_slider.height = mix_slider.height * reverb_amount;
+        d_mix_slider.y = mix_slider.y - (mix_slider.height - d_mix_slider.height);
 
-    const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
-    const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
-    const rect_width: f32 = 50.0;
-    const rect_height: f32 = 100.0 * reverb_amount;
-    const x: f32 = centerX - (rect_width * 0.5);
-    const b: f32 = centerY + 50.0;
-    const y: f32 = b + rect_height;
+        rl.DrawRectangleRec(d_mix_slider, rl.RED);
 
-    rl.DrawRectangleRec(.{
-        .x = x,
-        .y = y,
-        .width = rect_width,
-        .height = rect_height,
-    }, color);
+        rl.DrawFPS(5, 5);
 
-    rl.EndDrawing();
+        rl.EndDrawing();
+    }
 }
 
 fn isAPISupported(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
@@ -83,7 +86,8 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     // Impl.GUICreate(plug) catch unreachable;
     rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
-    rl.SetTargetFPS(rl.GetMonitorRefreshRate(rl.GetCurrentMonitor()));
+    rl.SetTargetFPS(60);
+    rl.SetGesturesEnabled(rl.GESTURE_DRAG);
     render(plug);
     return true;
 }
@@ -132,14 +136,8 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
     // var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    // switch (builtin.os.tag) {
-    //     .windows => {
-    //         _ = Impl.SetParent(c_cast(Impl.HWND, rl.GetWindowHandle().?), c_cast(Impl.HWND, clap_window.*.unnamed_0.win32));
-    //     },
-    //     .macos => {},
-    //     .linux => {},
-    //     else => @panic("Unsupported OS"),
-    // }
+    // _ = plug;
+    // implGuiSetParent(rl.GetWindowHandle(), clap_window);
     return true;
 }
 
@@ -157,27 +155,30 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
     // Impl.GUISetVisible(plug, true);
-    switch (builtin.os.tag) {
-        .windows => {
-            _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_SHOW);
-        },
-        .linux => {},
-        .macos => {},
-        else => @panic("Unsupported OS"),
-    }
+    // switch (builtin.os.tag) {
+    //     .windows => {
+    //         _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_SHOW);
+    //     },
+    //     .linux => {},
+    //     .macos => {},
+    //     else => @panic("Unsupported OS"),
+    // }
+    // implGuiSetVisible(rl.GetWindowHandle(), true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    switch (builtin.os.tag) {
-        .windows => {
-            _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_HIDE);
-        },
-        .linux => {},
-        .macos => {},
-        else => @panic("Unsupported OS"),
-    }
+    // switch (builtin.os.tag) {
+    //     .windows => {
+    //         _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_HIDE);
+    //     },
+    //     .linux => {},
+    //     .macos => {},
+    //     else => @panic("Unsupported OS"),
+    // }
+    // implGuiSetVisible(rl.GetWindowHandle(), false);
+    rl.CloseWindow();
     return true;
 }
 

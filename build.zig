@@ -30,6 +30,8 @@ pub fn build(b: *std.Build) void {
 
     plugin.linkLibC();
     plugin.linkLibrary(raylib.addRaylib(b, target, optimize));
+    if (plugin.target.isDarwin())
+        plugin.addCSourceFile("src/gui/gui_mac.m", &[_][]const u8{"-ObjC"});
     plugin.addIncludePath("lib/clap/include");
     plugin.addIncludePath("lib/raylib/src");
 
