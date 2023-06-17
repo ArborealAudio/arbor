@@ -20,19 +20,6 @@ pub const rl = @cImport({
     @cInclude("raylib.h");
 });
 
-// const Impl = @cImport({
-//     switch (builtin.os.tag) {
-//         .windows => {
-//             @cInclude("windows.h");
-//             @cInclude("windowsx.h");
-//             @cInclude("winuser.h");
-//         },
-//         .linux => {},
-//         .macos => {},
-//         else => @panic("Unsupported OS"),
-//     }
-// });
-
 extern fn implGuiSetParent(main: ?*anyopaque, window: [*c]const clap.clap_window_t) callconv(.C) void;
 extern fn implGuiSetVisible(main: ?*anyopaque, visible: bool) callconv(.C) void;
 
@@ -81,7 +68,6 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     if (!isAPISupported(plugin, api, is_floating))
         return false;
     var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    // Impl.GUICreate(plug) catch unreachable;
     rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
     rl.SetWindowPosition(0, 0);
@@ -134,8 +120,6 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
-    // var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    // _ = plug;
     implGuiSetParent(rl.GetWindowHandle(), clap_window);
     return true;
 }
@@ -153,31 +137,13 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    // Impl.GUISetVisible(plug, true);
-    // switch (builtin.os.tag) {
-    //     .windows => {
-    //         _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_SHOW);
-    //     },
-    //     .linux => {},
-    //     .macos => {},
-    //     else => @panic("Unsupported OS"),
-    // }
     implGuiSetVisible(rl.GetWindowHandle(), true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    // switch (builtin.os.tag) {
-    //     .windows => {
-    //         _ = Impl.ShowWindow(c_cast(Impl.HWND, rl.GetWindowHandle().?), Impl.SW_HIDE);
-    //     },
-    //     .linux => {},
-    //     .macos => {},
-    //     else => @panic("Unsupported OS"),
-    // }
     implGuiSetVisible(rl.GetWindowHandle(), false);
-    rl.CloseWindow();
     return true;
 }
 
