@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const Plugin = @import("Plugin.zig");
+const ClapPlugin = @import("clap_plugin.zig");
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
 });
@@ -126,13 +127,13 @@ fn textToValue(plugin: [*c]const clap.clap_plugin_t, param_id: clap.clap_id, dis
 
 fn flush(plugin: [*c]const clap.clap_plugin_t, in: [*c]const clap.clap_input_events_t, out: [*c]const clap.clap_output_events_t) callconv(.C) void {
     _ = out;
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
+    var c_plugin = c_cast(*ClapPlugin, plugin.*.plugin_data);
     const eventCount = in.*.size.?(in);
     // plug.syncMainToAudio(out);
 
     var eventIndex: u32 = 0;
     while (eventIndex < eventCount) : (eventIndex += 1) {
-        plug.processEvent(in.*.get.?(in, eventIndex));
+        c_plugin.processEvent(in.*.get.?(in, eventIndex));
     }
 }
 
