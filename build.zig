@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const raylib = @import("lib/raylib/src/build.zig");
 
+const Format = enum { CLAP, VST3 };
+
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
@@ -17,13 +19,36 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const plugin_name = "clap-raw";
+    const format = b.option(Format, "format", "Plugin format");
+
+    if (format == null)
+        std.debug.panic("Provide a format\n", .{});
+
+    var plugin_name: []const u8 = undefined;
+    var root_file: []const u8 = undefined;
+    var sdk_include: []const u8 = undefined;
+    var lib_dir: []const u8 = undefined;
+
+    switch (format.?) {
+        .CLAP => {
+            root_file = "src/clap_plugin.zig";
+            sdk_include = "lib/clap/include";
+            lib_dir = "/Users/Alex/.clap/clap-raw.clap";
+            plugin_name = "clap-raw.clap";
+        },
+        .VST3 => {
+            root_file = "src/vst3_plugin.zig";
+            sdk_include = "lib/vst3";
+            lib_dir = "/Program Files/Common Files/VST3/vst3-raw.vst3";
+            plugin_name = "vst3-raw.vst3";
+        },
+    }
 
     const plugin = b.addSharedLibrary(.{
         .name = plugin_name,
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/clap_plugin.zig" },
+        .root_source_file = .{ .path = root_file },
         .target = target,
         .optimize = optimize,
     });
@@ -36,14 +61,15 @@ pub fn build(b: *std.Build) void {
         plugin.addCSourceFile("src/gui/gui_w32.c", &[_][]const u8{"-std=c99"})
     else if (plugin.target.isLinux())
         plugin.addCSourceFile("src/gui/gui_x11.c", &[_][]const u8{"-std=c99"});
-    plugin.addIncludePath("lib/clap/include");
+    plugin.addIncludePath(sdk_include);
     plugin.addIncludePath("lib/raylib/src");
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
+    b.lib_dir = lib_dir;
     const install = b.addInstallArtifact(plugin);
-    install.dest_sub_path = plugin_name ++ ".clap";
+    install.dest_sub_path = plugin_name;
     b.getInstallStep().dependOn(&install.step);
 
     // Creates a step for unit testing.
