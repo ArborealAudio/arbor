@@ -13,6 +13,7 @@ pub const Description = struct {
     pub const url = "https://arborealaudio.com";
 };
 
+pub var parameter_changed = [_]bool{false} ** Params.numParams;
 params: Params = Params{},
 
 reverb: Reverb = Reverb{},
@@ -32,7 +33,10 @@ pub fn init(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_fra
     self.reverb.init(allocator, self.sampleRate, 0.125 * @floatCast(f32, self.sampleRate)) catch unreachable;
 }
 
-/// returns number of frames processed
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    self.reverb.deinit(allocator);
+}
+
 pub fn processAudio(self: *Self, in: [2][*]f32, out: [2][*]f32, numFrames: u32) void {
     var i: u32 = 0;
     const mix = self.params.values.mix;

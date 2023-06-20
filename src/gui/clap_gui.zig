@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const ClapPlugin = @import("../clap_plugin.zig");
 const Plugin = @import("../Plugin.zig");
 const Gui = @import("Gui.zig");
 const GUI_WIDTH = Gui.GUI_WIDTH;
@@ -17,12 +18,16 @@ pub const GUI_API = switch (builtin.os.tag) {
     else => @panic("Unsupported OS"),
 };
 
+/// only used for X11
+var display: *anyopaque = undefined;
+
 pub const rl = @cImport({
     @cInclude("raylib.h");
 });
 
-extern fn implGuiSetParent(main: ?*anyopaque, window: [*c]const clap.clap_window_t) callconv(.C) void;
-extern fn implGuiSetVisible(main: ?*anyopaque, visible: bool) callconv(.C) void;
+extern fn implGuiCreateDisplay() callconv(.C) *anyopaque;
+extern fn implGuiSetParent(display: *anyopaque, main: ?*anyopaque, window: [*c]const clap.clap_window_t) callconv(.C) void;
+extern fn implGuiSetVisible(display: *anyopaque, main: ?*anyopaque, visible: bool) callconv(.C) void;
 
 const c_cast = std.zig.c_translation.cast;
 
@@ -41,11 +46,14 @@ fn getPreferredAPI(plugin: [*c]const clap.clap_plugin_t, api: [*c][*c]const u8, 
 fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
     if (!isAPISupported(plugin, api, is_floating))
         return false;
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED);
+    display = implGuiCreateDisplay();
+    var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
+    var plug = c_plug.plugin;
+    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
     rl.SetWindowPosition(0, 0);
     rl.SetGesturesEnabled(rl.GESTURE_DRAG);
+    Gui.init(plug) catch unreachable;
     Gui.render(plug);
     return true;
 }
@@ -93,7 +101,7 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
-    implGuiSetParent(rl.GetWindowHandle(), clap_window);
+    implGuiSetParent(display, rl.GetWindowHandle(), clap_window);
     return true;
 }
 
@@ -110,13 +118,13 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    implGuiSetVisible(rl.GetWindowHandle(), true);
+    implGuiSetVisible(display, rl.GetWindowHandle(), true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    implGuiSetVisible(rl.GetWindowHandle(), false);
+    implGuiSetVisible(display, rl.GetWindowHandle(), false);
     return true;
 }
 

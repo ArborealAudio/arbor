@@ -18,14 +18,14 @@ pub fn FloatClamp01(x: anytype) @TypeOf(x) {
 }
 
 values: Values = Values{},
-numParams: u32 = std.meta.fields(Values).len,
+pub const numParams: u32 = std.meta.fields(Values).len;
 /// structure for plugin parameters
 /// stored as named values
 pub const Values = struct {
     mix: f64 = 0.5,
-    delay: f64 = 300.0,
-    feedback: f64 = 0.0,
-    freq: f64 = 1500.0,
+    // delay: f64 = 300.0,
+    // feedback: f64 = 0.0,
+    // freq: f64 = 1500.0,
 };
 
 pub const ParamInfo = struct {
@@ -36,11 +36,11 @@ pub const ParamInfo = struct {
     defaultValue: f64,
 };
 
-const list = [std.meta.fields(Values).len]ParamInfo{
+pub const list = [std.meta.fields(Values).len]ParamInfo{
     .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
-    .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
-    .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
-    .{ .id = 3, .name = "Freq", .minValue = 20.0, .maxValue = 20000.0, .defaultValue = 1500.0 },
+    // .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
+    // .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
+    // .{ .id = 3, .name = "Freq", .minValue = 20.0, .maxValue = 20000.0, .defaultValue = 1500.0 },
 };
 
 pub fn count(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {
@@ -53,7 +53,8 @@ fn getInfo(plugin: [*c]const clap.clap_plugin_t, index: u32, info: [*c]clap.clap
     const params = std.meta.fields(Values);
     switch (index) {
         inline 0...(params.len - 1) => |comptime_index| {
-            const param = params[comptime_index];
+            // const param = params[comptime_index];
+            // _ = param;
             info.* = .{
                 .name = undefined,
                 .module = undefined,
@@ -64,11 +65,10 @@ fn getInfo(plugin: [*c]const clap.clap_plugin_t, index: u32, info: [*c]clap.clap
                 .default_value = list[comptime_index].defaultValue,
                 .cookie = null,
             };
-            std.mem.copy(u8, &info.*.name, list[index].name);
             if (list[index].name.len > 0) {
                 _ = std.fmt.bufPrintZ(&info.*.name, "{s}", .{list[index].name}) catch unreachable;
             } else {
-                _ = std.fmt.bufPrintZ(&info.*.name, param.name, .{}) catch unreachable;
+                _ = std.fmt.bufPrintZ(&info.*.name, "N/A", .{}) catch unreachable;
             }
             return true;
         },
@@ -76,12 +76,46 @@ fn getInfo(plugin: [*c]const clap.clap_plugin_t, index: u32, info: [*c]clap.clap
     }
 }
 
-fn idToValue(self: Self, id: u32) !f64 {
+pub fn getNormalizedValue(self: *Self, id: u32) !f64 {
+    const val = try self.idToValue(id);
+    const param = list[id];
+    return val / (param.maxValue - param.minValue);
+}
+
+pub fn idToName(id: u32) ![]u8 {
+    std.debug.assert(id < numParams);
+    inline for (list) |info| {
+        if (info.id == id)
+            return @constCast(info.name);
+    }
+    return error.CantFindName;
+}
+
+pub fn idToValue(self: *Self, id: u32) !f64 {
+    std.debug.assert(id < numParams);
     const values = std.meta.fields(Values);
     inline for (values, 0..) |v, i| {
         if (list[i].id == id) {
             return @field(self.values, v.name);
         }
+    }
+    return error.CantFindValue;
+}
+
+pub fn nameToValue(self: *Self, name: []const u8) !f64 {
+    const values = std.meta.fields(Values);
+    inline for (values, 0..) |v, i| {
+        if (std.mem.eql(u8, v.name, name))
+            return self.idToValue(i);
+    }
+    return error.CantFindValue;
+}
+
+pub fn nameToID(name: []const u8) !u32 {
+    const values = std.meta.fields(Values);
+    inline for (values, 0..) |v, i| {
+        if (std.mem.eql(u8, v.name, name))
+            return i;
     }
     return error.CantFindValue;
 }
