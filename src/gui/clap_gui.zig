@@ -101,7 +101,13 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
-    implGuiSetParent(display.?, rl.GetWindowHandle(), c_cast(*anyopaque, clap_window.*.unnamed_0.x11));
+    const parent_window = switch (builtin.os.tag) {
+        .macos => clap_window.*.unnamed_0.cocoa,
+        .windows => clap_window.*.unnamed_0.win32,
+        .linux => clap_window.*.unnamed_0.x11,
+        else => @panic("Unsupported OS"),
+    };
+    implGuiSetParent(display, rl.GetWindowHandle(), parent_window);
     return true;
 }
 

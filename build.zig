@@ -33,13 +33,23 @@ pub fn build(b: *std.Build) void {
         .CLAP => {
             root_file = "src/clap_plugin.zig";
             sdk_include = "lib/clap/include";
-            lib_dir = "/home/alex/.clap/clap-raw.clap";
+            lib_dir = switch (builtin.os.tag) {
+                .linux => "/home/alex/.clap/clap-raw.clap",
+                .macos => "/Users/alex/Library/Audio/Plug-Ins/CLAP/",
+                .windows => "/Program Files/Common Files/CLAP/clap-raw.clap/",
+                else => @panic("Unsupported OS"),
+            };
             plugin_name = "clap-raw.clap";
         },
         .VST3 => {
             root_file = "src/vst3_plugin.zig";
             sdk_include = "";
-            lib_dir = "/home/alex/.vst3/vst3-raw.vst3";
+            lib_dir = switch (builtin.os.tag) {
+                .linux => "/home/alex/.vst3/vst3-raw.vst3",
+                .macos => "/Users/alex/Library/Audio/Plug-Ins/VST3/",
+                .windows => "/Program Files/Common Files/VST3/vst3-raw.vst3/",
+                else => @panic("Unsupported OS"),
+            };
             plugin_name = "vst3-raw.vst3";
         },
     }
