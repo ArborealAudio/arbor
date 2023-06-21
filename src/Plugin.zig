@@ -7,10 +7,29 @@ const Gui = @import("gui/Gui.zig");
 const Reverb = @import("zig-dsp/Reverb.zig");
 
 pub const Description = struct {
-    pub const plugin_name = "CLAP-raw";
+    pub const plugin_name = "ZigVerb";
     pub const vendor_name = "Arboreal Audio";
     pub const version = "0.1";
     pub const url = "https://arborealaudio.com";
+    pub const contact_address = "contact@arborealaudio.com";
+
+    // TODO: Make a clean way to define features, ideally
+    // one that will have you define just once features shared btw
+    // CLAP & VST, and the format-specific features can be defined separately
+    // PROBABLY: Should just define different enums for format features
+    pub const vst3_desc: VST3Description = .{
+        .uid = "AAu.ZigVerb.vst3",
+        .category = "Audio Module Class",
+        .features = &[_][]const u8{ "Fx", "Reverb" },
+        .sdk_version = "3.7.7",
+    };
+
+    const VST3Description = struct {
+        uid: []const u8,
+        features: []const []const u8,
+        category: []const u8,
+        sdk_version: []const u8,
+    };
 };
 
 pub var parameter_changed = [_]bool{false} ** Params.numParams;

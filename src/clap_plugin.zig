@@ -25,12 +25,12 @@ pub const PluginDesc = clap.clap_plugin_descriptor_t{
         .minor = clap.CLAP_VERSION_MINOR,
         .revision = clap.CLAP_VERSION_REVISION,
     },
-    .id = "com.ArborealAudio.clap",
+    .id = "AAu.ZigVerb.clap",
     .name = Plugin.Description.plugin_name,
     .vendor = Plugin.Description.vendor_name,
     .url = Plugin.Description.url,
     .manual_url = "",
-    .support_url = "",
+    .support_url = Plugin.Description.contact_address,
     .version = Plugin.Description.version,
     .description = "Vintage analog warmth",
     .features = &[_][*c]const u8{ "stereo", "audio-effect", null },
@@ -72,7 +72,7 @@ const AudioPorts = struct {
             .port_type = &clap.CLAP_PORT_STEREO,
             .in_place_pair = clap.CLAP_INVALID_ID,
         };
-        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.*.name});
+        std.log.defaultLog(.info, .default, "Audio port: {s}", .{info.*.name});
         var plug = c_cast(*Self, plugin.*.plugin_data).plugin;
         plug.numChannels = info.*.channel_count;
         return true;
@@ -97,7 +97,7 @@ const NotePorts = struct {
         if (index > 0)
             return false;
         info.*.id = 0;
-        std.log.defaultLog(.info, .default, "Port name: {s}", .{info.*.name});
+        std.log.defaultLog(.info, .default, "Note port: {s}", .{info.*.name});
         info.*.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
         info.*.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
         return true;

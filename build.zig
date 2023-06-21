@@ -33,13 +33,13 @@ pub fn build(b: *std.Build) void {
         .CLAP => {
             root_file = "src/clap_plugin.zig";
             sdk_include = "lib/clap/include";
-            lib_dir = "/Users/Alex/.clap/clap-raw.clap";
+            lib_dir = "/home/alex/.clap/clap-raw.clap";
             plugin_name = "clap-raw.clap";
         },
         .VST3 => {
             root_file = "src/vst3_plugin.zig";
-            sdk_include = "lib/vst3";
-            lib_dir = "/Program Files/Common Files/VST3/vst3-raw.vst3";
+            sdk_include = "";
+            lib_dir = "/home/alex/.vst3/vst3-raw.vst3";
             plugin_name = "vst3-raw.vst3";
         },
     }
@@ -79,9 +79,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const vst3_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/vst3_plugin.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&vst3_tests.step);
 }

@@ -19,15 +19,15 @@ pub const GUI_API = switch (builtin.os.tag) {
 };
 
 /// only used for X11
-var display: *anyopaque = undefined;
+var display: ?*anyopaque = null;
 
 pub const rl = @cImport({
     @cInclude("raylib.h");
 });
 
-extern fn implGuiCreateDisplay() callconv(.C) *anyopaque;
-extern fn implGuiSetParent(display: *anyopaque, main: ?*anyopaque, window: [*c]const clap.clap_window_t) callconv(.C) void;
-extern fn implGuiSetVisible(display: *anyopaque, main: ?*anyopaque, visible: bool) callconv(.C) void;
+extern fn implGuiCreateDisplay() callconv(.C) ?*anyopaque;
+extern fn implGuiSetParent(display: ?*anyopaque, main: ?*anyopaque, window: ?*anyopaque) callconv(.C) void;
+extern fn implGuiSetVisible(display: ?*anyopaque, main: ?*anyopaque, visible: bool) callconv(.C) void;
 
 const c_cast = std.zig.c_translation.cast;
 
@@ -46,7 +46,7 @@ fn getPreferredAPI(plugin: [*c]const clap.clap_plugin_t, api: [*c][*c]const u8, 
 fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
     if (!isAPISupported(plugin, api, is_floating))
         return false;
-    display = implGuiCreateDisplay();
+    display = implGuiCreateDisplay().?;
     var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
     rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT);
@@ -101,7 +101,7 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
     _ = plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
-    implGuiSetParent(display, rl.GetWindowHandle(), clap_window);
+    implGuiSetParent(display.?, rl.GetWindowHandle(), c_cast(*anyopaque, clap_window.*.unnamed_0.x11));
     return true;
 }
 
@@ -118,13 +118,13 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    implGuiSetVisible(display, rl.GetWindowHandle(), true);
+    implGuiSetVisible(display.?, rl.GetWindowHandle(), true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    implGuiSetVisible(display, rl.GetWindowHandle(), false);
+    implGuiSetVisible(display.?, rl.GetWindowHandle(), false);
     return true;
 }
 
