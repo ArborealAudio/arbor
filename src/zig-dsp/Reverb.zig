@@ -3,6 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Delay = @import("Delay.zig");
 const Filter = @import("Filter.zig");
+const Plugin = @import("../Plugin.zig");
 
 const Reverb = @This();
 
@@ -14,6 +15,7 @@ const TAIL_ORDER = 9; // number of delay lines and assoc. parameters for reverb 
 const DELAYS_PER_BLOCK = 3;
 const TAIL_BLOCKS = TAIL_ORDER / DELAYS_PER_BLOCK;
 const MOD_RATE = 3.0; // mod rate in Hz
+plugin: *Plugin,
 
 early_ref: [EARLY_REF_ORDER]Delay = undefined,
 
@@ -31,31 +33,31 @@ tail_filter: [TAIL_BLOCKS]Filter = undefined,
 m_sum: [2]f32 = undefined,
 m_ff: [2]f32 = undefined,
 
+update_feedback: bool = false,
+
 /// early reflection delays in ms
 const early_ref_time = [EARLY_REF_ORDER]f32{ 32, 54, 23, 69 };
 
-pub fn init(self: *Reverb, alloc: Allocator, sampleRate: f64, maxDelaySamples: f32) !void {
+pub fn init(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, maxDelaySamples: f32) !void {
+    self.plugin = _plugin;
     var rand = std.rand.DefaultPrng.init(69);
 
     const max_early_ref_delay: u32 = @floatToInt(u32, 0.1 * sampleRate);
 
-    const max_feedback: f32 = 0.2;
+    const max_feedback: f32 = @floatCast(f32, self.plugin.params.values.feedback);
 
     for (&self.early_ref, 0..) |*d, i| {
-        d.max_delay = max_early_ref_delay;
-        try d.init(alloc, 1);
+        try d.init(alloc, max_early_ref_delay, 1);
         d.delay_time = (early_ref_time[i] / 1000.0) * @floatCast(f32, sampleRate);
     }
 
     for (&self.input_diff, 0..) |*d, i| {
-        d.max_delay = 500.0;
-        try d.init(alloc, 2);
+        try d.init(alloc, 500, 2);
         d.delay_time = 500.0 / (@intToFloat(f32, i + 1));
     }
 
     for (&self.tail_delay, 0..) |*d, i| {
-        d.max_delay = @floatToInt(u32, maxDelaySamples);
-        try d.init(alloc, 2);
+        try d.init(alloc, @floatToInt(u32, maxDelaySamples), 2);
         self.tail_delayTime[i] = @sqrt(@intToFloat(f32, TAIL_ORDER) / @intToFloat(f32, i + 1)) * maxDelaySamples;
         d.delay_time = self.tail_delayTime[i];
         self.inversion[i] = if (rand.next() % 2 == 0) 1.0 else -1.0;
@@ -72,6 +74,13 @@ pub fn init(self: *Reverb, alloc: Allocator, sampleRate: f64, maxDelaySamples: f
 
     self.input_filter.filter_type = .Lowpass;
     self.input_filter.init(alloc, 2, @floatCast(f32, sampleRate), 12000.0, std.math.sqrt1_2);
+}
+
+pub fn updateFeedback(self: *Reverb) void {
+    const max_feedback = @floatCast(f32, self.plugin.params.values.feedback);
+    for (&self.feedback, 0..) |*f, i| {
+        f.* = @sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, i + 1)) * max_feedback;
+    }
 }
 
 pub fn deinit(self: *Reverb, alloc: Allocator) void {
@@ -145,6 +154,11 @@ fn processSubSection(self: *Reverb, index: u32, ch: u32, dry: f32, fIn: f32) f32
 
 /// for now, will mono the input and process mono internally
 pub fn processSample(self: *Reverb, in: [2]f32) [2]f32 {
+    if (self.update_feedback) {
+        self.updateFeedback();
+        self.update_feedback = false;
+    }
+
     self.m_sum[0] = 0;
     self.m_sum[1] = 0;
     var i: u32 = 0;

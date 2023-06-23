@@ -1,190 +1,225 @@
 //! Gui.zig
-//! GUI module for plugin
+//! Where you layout GUI properties & behavior
 
 const std = @import("std");
 const builtin = @import("builtin");
-const Plugin = @import("../Plugin.zig");
-pub export const GUI_WIDTH: c_uint = 800;
-pub export const GUI_HEIGHT: c_uint = 600;
-pub const Impl = if (builtin.os.tag == .windows) @cImport({
-    @cInclude("gui_w32.c");
-}) else if (builtin.os.tag == .macos) @cImport({
-    @cInclude("gui_mac.c");
-}) else if (builtin.os.tag == .linux)
-    @import("gui_x11.zig");
-
-const clap = @cImport({
-    @cInclude("clap/clap.h");
+const build_options = @import("build_options");
+const rl = @cImport({
+    @cInclude("raylib.h");
 });
-const c_cast = std.zig.c_translation.cast;
+const Plugin = @import("../Plugin.zig");
+const Params = @import("../Params.zig");
+const Components = @import("Components.zig");
+const Gui = @This();
 
-pub const PosixFDSupport = struct {
-    fn onFD(plugin: [*c]const clap.clap_plugin_t, fd: c_int, flags: clap.clap_posix_fd_flags_t) callconv(.C) void {
-        _ = flags;
-        _ = fd;
-        var plug = c_cast(*Plugin, plugin.*.plugin_data);
-        Impl.GUIOnPOSIXFD(plug);
+pub const GUI_WIDTH: c_uint = 400;
+pub const GUI_HEIGHT: c_uint = 500;
+const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
+const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
+
+pub var font: rl.Font = undefined;
+
+const State = enum {
+    // TODO: Implement a state system to manage updates in a cleaner way
+    GestureDetected,
+    GestureContinue,
+    GestureProcessed,
+    Idle,
+};
+
+state: State = .Idle,
+
+plugin: *Plugin,
+
+// slice representing all parameter knobs. Access via ID
+components: []*Components.Knob,
+
+// index to last component adjusted
+last_component: ?u32 = null,
+
+const BACKGROUND_COLOR = rl.Color{
+    .r = 24,
+    .g = 43,
+    .b = 51,
+    .a = 255,
+};
+
+pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
+    const ptr = try allocator.create(Gui);
+    ptr.* = .{
+        .plugin = plugin,
+        .components = try allocator.alloc(*Components.Knob, Params.numParams),
+        // This gets the UI into proper event state
+        .state = .Idle,
+    };
+    // create pointers, assign IDs and values
+    // this is how the components get "attached" to parameters
+    for (ptr.components, 0..) |_, i| {
+        ptr.components[i] = try allocator.create(Components.Knob);
+        ptr.components[i].id = @intCast(u32, i);
+        ptr.components[i].value = try plugin.params.getNormalizedValue(@intCast(u32, i));
     }
 
-    pub const Data = clap.clap_plugin_posix_fd_support_t{
-        .on_fd = onFD,
+    // setup unique properties here
+    ptr.components[Components.getComponentID("mix")].* = .{
+        .label = .{
+            .text = "Mix",
+            .size = 25.0,
+            .spacing = 7,
+        },
+        .centerX = centerX - 75.0,
+        .centerY = centerY,
+        .width = 100.0,
+        .color = rl.RAYWHITE,
+        .flags = .{
+            .filled = true,
+            .draw_label = true,
+        },
     };
-};
+    ptr.components[Components.getComponentID("feedback")].* = .{
+        .label = .{
+            .text = "Delay",
+            .size = 25.0,
+            .spacing = 7,
+        },
+        .centerX = centerX + 75.0,
+        .centerY = centerY,
+        .width = 100.0,
+        .color = rl.RAYWHITE,
+        .flags = .{
+            .filled = true,
+            .draw_label = true,
+        },
+    };
 
-fn isAPISupported(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
-    _ = plugin;
-    return 0 == std.cstr.cmp(api, &Impl.GUI_API) and !is_floating;
+    // set default font
+    const font_file = @embedFile("res/Sora-Regular.ttf");
+    font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
+
+    return ptr;
 }
 
-fn getPreferredAPI(plugin: [*c]const clap.clap_plugin_t, api: [*c][*c]const u8, is_floating: [*c]bool) callconv(.C) bool {
-    _ = plugin;
-    api.* = &Impl.GUI_API;
-    is_floating.* = false;
-    return true;
+pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
+    // free individual components
+    for (self.components) |c|
+        allocator.destroy(c);
+    // free component slice
+    allocator.free(self.components);
 }
 
-fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
-    if (!isAPISupported(plugin, api, is_floating))
-        return false;
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Impl.GUICreate(plug) catch unreachable;
-    return true;
+pub fn render(self: *Gui) void {
+    // IDEA: What if we handle GUI events here, i.e. mouse clicks, and passing parameter changes to UI
+    // can still happen in the plugin's timer?
+    // UPDATE: Mostly did that, except parameter changes from host are processed in plugin wrapper, not timer
+    _ = self.update() catch @panic("GUI update error");
+    rl.BeginDrawing();
+
+    rl.ClearBackground(BACKGROUND_COLOR);
+
+    for (self.components) |c| {
+        c.draw();
+    }
+
+    const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
+    rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @intToFloat(f32, GUI_WIDTH) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
+    const format_text_size = rl.MeasureTextEx(font, @tagName(build_options.format), 13.0, 1.0);
+    rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @intToFloat(f32, GUI_WIDTH) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
+
+    if (builtin.mode == .Debug)
+        rl.DrawFPS(5, 5);
+
+    rl.EndDrawing();
 }
 
-fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Impl.GUIDestroy(plug);
-}
+/// function for getting mouse events, checking parameters
+pub fn update(self: *Gui) !bool {
+    // TODO: replace with proper events query
 
-fn setScale(plugin: [*c]const clap.clap_plugin_t, scale: f64) callconv(.C) bool {
-    _ = scale;
-    _ = plugin;
-    return false;
-}
+    var may_repaint = false;
+    var exit = false;
 
-fn getSize(plugin: [*c]const clap.clap_plugin_t, width: [*c]u32, height: [*c]u32) callconv(.C) bool {
-    _ = plugin;
-    width.* = GUI_WIDTH;
-    height.* = GUI_HEIGHT;
-    return true;
-}
-
-fn canResize(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    _ = plugin;
-    return false;
-}
-
-fn getResizeHints(plugin: [*c]const clap.clap_plugin_t, hints: [*c]clap.clap_gui_resize_hints_t) callconv(.C) bool {
-    _ = hints;
-    _ = plugin;
-    return false;
-}
-
-fn adjustSize(plugin: [*c]const clap.clap_plugin_t, width: [*c]u32, height: [*c]u32) callconv(.C) bool {
-    return getSize(plugin, width, height);
-}
-
-fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callconv(.C) bool {
-    _ = height;
-    _ = width;
-    _ = plugin;
-    return false;
-}
-
-fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
-    std.debug.assert(std.cstr.cmp(clap_window.*.api, &Impl.GUI_API) == 0);
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Impl.GUISetParent(plug, clap_window);
-    return true;
-}
-
-fn setTransient(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
-    _ = clap_window;
-    _ = plugin;
-    return false;
-}
-
-fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callconv(.C) void {
-    _ = title;
-    _ = plugin;
-}
-
-fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Impl.GUISetVisible(plug, true);
-    return true;
-}
-
-fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    var plug = c_cast(*Plugin, plugin.*.plugin_data);
-    Impl.GUISetVisible(plug, false);
-    return true;
-}
-
-pub const Data = clap.clap_plugin_gui_t{
-    .is_api_supported = isAPISupported,
-    .get_preferred_api = getPreferredAPI,
-    .create = createGUI,
-    .destroy = destroyGUI,
-    .set_scale = setScale,
-    .get_size = getSize,
-    .can_resize = canResize,
-    .get_resize_hints = getResizeHints,
-    .adjust_size = adjustSize,
-    .set_size = setSize,
-    .set_parent = setParent,
-    .set_transient = setTransient,
-    .suggest_title = suggestTitle,
-    .show = show,
-    .hide = hide,
-};
-
-const Rectangle = struct {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-};
-
-fn paintRectangle(data: [*]u32, rect: Rectangle, border: u32, fill: u32) void {
-    const r = rect.x + rect.width;
-    const b = rect.y + rect.height;
-    var y: u32 = 0;
-    while (y < b) : (y += 1) {
-        var x: u32 = 0;
-        while (x < r) : (x += 1) {
-            data[y * GUI_WIDTH + x] = if (y == rect.y or y == b - 1 or x == rect.x or x == r - 1) border else fill;
+    while (!exit) {
+        switch (self.state) {
+            .Idle => {
+                // check param changes
+                for (&Plugin.parameter_changed, 0..) |*p, i| {
+                    // set the associated component value based off the current param value
+                    if (p.*) {
+                        self.components[i].value = try self.plugin.params.getNormalizedValue(@intCast(u32, i));
+                        p.* = false;
+                        may_repaint = true;
+                    }
+                }
+                // check for gestures
+                if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
+                    self.state = .GestureDetected;
+                    break;
+                } else exit = true;
+                // TODO: Check for mouse clicks and plain ol mouse over
+            },
+            .GestureDetected => {
+                exit = try self.processGesture(false);
+            },
+            .GestureContinue => {
+                exit = try self.processGesture(true);
+            },
+            .GestureProcessed => {
+                if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
+                    self.state = .GestureContinue;
+                    break;
+                }
+                self.state = .Idle;
+                if (self.last_component != null)
+                    self.components[self.last_component.?].is_mouse_over = false;
+                exit = true;
+            },
         }
     }
+
+    return may_repaint;
 }
 
-pub fn pluginPaint(data: [*]u32) void {
-    std.debug.print("Painting...", .{});
-    // draw background
-    paintRectangle(data, Rectangle{
-        .x = 0,
-        .y = 0,
-        .width = GUI_WIDTH,
-        .height = GUI_HEIGHT,
-    }, 0xC0C0C0, 0xC0C0C0);
+fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
+    const vec = rl.GetMouseDelta();
+    const pos = rl.GetMousePosition();
+    // check if still processing gesture on last component
+    var comp: ?*Components.Knob = null;
+    if (gesture_rendered)
+        comp = self.components[self.last_component.?] // is_mouse_over should still be true
+    else {
+        // if not, get pointer to component which mouse is over
+        outer: for (self.components) |c| {
+            if (rl.CheckCollisionPointCircle(pos, .{
+                .x = @intToFloat(f32, c.centerX),
+                .y = @intToFloat(f32, c.centerY),
+            }, c.width / 2.0)) {
+                comp = c;
+                comp.?.is_mouse_over = true;
+                break :outer;
+            }
+        }
+    }
+    // otherwise, mouse event not on a component
+    if (comp == null)
+        return true;
 
-    const centerX: u32 = GUI_WIDTH / 2;
-    const centerY: u32 = GUI_HEIGHT / 2;
-    var width: u32 = GUI_WIDTH / 3;
-    var height: u32 = @intToFloat(f32, GUI_HEIGHT) * 0.75;
-    var x = centerX - (width / 2);
-    _ = x;
-    var y = centerY - (height / 2);
-    _ = y;
+    const id = comp.?.id;
 
-    // const bounds = Rectangle{
-    //     .x = x,
-    //     .y = y,
-    //     .width = width,
-    //     .height = height,
-    // };
-    // paintRectangle(data, bounds, 0x000000, 0xC0C0C0);
-    // const paramVal = 1.0 - self.params.values.mix;
-    // const paramY = y + (height - y) * paramVal;
-    // paintRectangle(data, Rectangle{ x, paramY, width, height }, 0x000000, 0x000000);
+    std.debug.print("Comp id: {d}\n", .{id});
+
+    // get parameter value of component under mouse
+    var p_val = try self.plugin.params.idToValue(id);
+    const p_min = Params.list[id].minValue;
+    const p_max = Params.list[id].maxValue;
+    p_val += @floatCast(f64, -vec.y * 0.01);
+    p_val = @min(p_max, @max(p_min, p_val));
+
+    // change parameter
+    self.plugin.params.setValue(id, p_val);
+    comp.?.value = try self.plugin.params.getNormalizedValue(id);
+
+    self.last_component = comp.?.id;
+    std.debug.assert(self.last_component.? < self.components.len);
+    self.state = .GestureProcessed;
+    return true;
 }
