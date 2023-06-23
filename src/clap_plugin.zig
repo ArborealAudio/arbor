@@ -11,7 +11,8 @@ const ClapGui = @import("gui/clap_gui.zig");
 const rl = ClapGui.rl;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-pub var allocator: std.mem.Allocator = gpa.allocator();
+// var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+pub const allocator = gpa.allocator();
 
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
@@ -19,22 +20,7 @@ pub const clap = @cImport({
 
 const c_cast = std.zig.c_translation.cast;
 
-pub const PluginDesc = clap.clap_plugin_descriptor_t{
-    .clap_version = clap.clap_version_t{
-        .major = clap.CLAP_VERSION_MAJOR,
-        .minor = clap.CLAP_VERSION_MINOR,
-        .revision = clap.CLAP_VERSION_REVISION,
-    },
-    .id = "AAu.ZigVerb.clap",
-    .name = Plugin.Description.plugin_name,
-    .vendor = Plugin.Description.vendor_name,
-    .url = Plugin.Description.url,
-    .manual_url = "",
-    .support_url = Plugin.Description.contact_address,
-    .version = Plugin.Description.version,
-    .description = "Vintage analog warmth",
-    .features = &[_][*c]const u8{ "stereo", "audio-effect", null },
-};
+pub const PluginDesc = Plugin.Description.format_desc;
 
 const Self = @This();
 
@@ -157,9 +143,11 @@ const Timer = struct {
 
         // currently just infinitely repainting...
         // MAYBE: we should check if a repaint is needed
-        if (!rl.WindowShouldClose() or self.need_repaint) {
-            Gui.render(plug);
-            self.need_repaint = false;
+        // so that means moving the interaction logic to here
+        // BUT: It doesn't work! Never gets a gesture
+        if (rl.IsWindowReady() and !rl.WindowShouldClose()) {
+            plug.gui.?.render();
+            // self.need_repaint = false;
         }
     }
 
@@ -211,19 +199,17 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     defer _ = gpa.deinit();
     var self = c_cast(*Self, plugin.*.plugin_data);
-    // self.plugin.deinit(allocator); // BUG: This crashes...
     if (self.*.host_timer_support != null and self.*.host_timer_support.*.unregister_timer != null)
         _ = self.*.host_timer_support.*.unregister_timer.?(self.*.host, self.*.timer_id);
+    // arena.deinit();
+    self.plugin.deinit(allocator);
+    allocator.destroy(self.plugin);
     allocator.destroy(self);
-    // PROBLEM: We're still leaking memory! We never de-init the processors owned by Plugin
 }
 
 pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
     var plug = c_cast(*Self, plugin.*.plugin_data).plugin;
     plug.init(allocator, sample_rate, max_frames_count) catch unreachable;
-    // plug.sampleRate = sample_rate;
-    // plug.maxNumSamples = max_frames_count;
-    // plug.reverb.init(allocator, plug.sampleRate, 0.125 * @floatCast(f32, plug.sampleRate)) catch unreachable;
     _ = min_frames_count;
     return true;
 }
@@ -248,6 +234,7 @@ pub fn processEvent(self: *Self, event: [*c]const clap.clap_event_header_t) call
             const valueEvent = c_cast([*c]const clap.clap_event_param_value_t, event);
             self.plugin.params.setValue(valueEvent.*.param_id, valueEvent.*.value);
             Plugin.parameter_changed[valueEvent.*.param_id] = true;
+            self.plugin.onParamChange(valueEvent.*.param_id);
             self.need_repaint = true;
         }
     }
@@ -334,7 +321,7 @@ const Factory = struct {
         if (host.*.clap_version.major < 1)
             return null;
         if (std.cstr.cmp(plugin_id, PluginDesc.id) == 0) {
-            // PROBLEM: This segfaults
+            // PROBLEM: This segfaults sometimes
             var c_plugin = allocator.create(Self) catch unreachable;
             c_plugin.* = .{
                 .plugin = allocator.create(Plugin) catch unreachable,
@@ -361,6 +348,7 @@ const Factory = struct {
                 .host_timer_support = null,
                 .timer_id = undefined,
             };
+            c_plugin.plugin.* = .{ .reverb = .{ .plugin = c_plugin.plugin } };
             return &c_plugin.clap_plugin;
         }
         return null;

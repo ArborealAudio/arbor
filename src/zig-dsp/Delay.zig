@@ -15,7 +15,8 @@ write_pos: [2]usize = undefined,
 read_pos: [2]usize = undefined,
 
 /// setup delay processor, allocate internal buffers
-pub fn init(self: *Delay, alloc: Allocator, numChannels: usize) !void {
+pub fn init(self: *Delay, alloc: Allocator, maxDelay: u32, numChannels: usize) !void {
+    self.max_delay = maxDelay;
     self.buffer = try alloc.alloc([]f32, numChannels);
     for (self.buffer, 0..) |_, ch| {
         self.buffer[ch] = try alloc.alloc(f32, self.max_delay);

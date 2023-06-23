@@ -2,9 +2,17 @@
 //! This is where you will define the properties of your plugin
 const Self = @This();
 const std = @import("std");
+const build_options = @import("build_options");
+const clap = @cImport({
+    @cInclude("clap/clap.h");
+});
 const Params = @import("Params.zig");
 const Gui = @import("gui/Gui.zig");
 const Reverb = @import("zig-dsp/Reverb.zig");
+
+pub const Format = enum { CLAP, VST3 };
+const format = build_options.format;
+// const format = std.build.option(Format, "format", "Plugin format");
 
 pub const Description = struct {
     pub const plugin_name = "ZigVerb";
@@ -12,16 +20,38 @@ pub const Description = struct {
     pub const version = "0.1";
     pub const url = "https://arborealaudio.com";
     pub const contact_address = "contact@arborealaudio.com";
+    pub const format_desc = switch (format) {
+        .CLAP => FormatDesc.clap_desc,
+        .VST3 => FormatDesc.vst3_desc,
+    };
 
     // TODO: Make a clean way to define features, ideally
     // one that will have you define just once features shared btw
     // CLAP & VST, and the format-specific features can be defined separately
     // PROBABLY: Should just define different enums for format features
-    pub const vst3_desc: VST3Description = .{
-        .uid = "AAu.ZigVerb.vst3",
-        .category = "Audio Module Class",
-        .features = &[_][]const u8{ "Fx", "Reverb" },
-        .sdk_version = "3.7.7",
+    pub const FormatDesc = union {
+        const vst3_desc: VST3Description = .{
+            .uid = "AAu.ZigVerb.vst3",
+            .category = "Audio Module Class",
+            .features = &[_][]const u8{ "Fx", "Reverb" },
+            .sdk_version = "3.7.8",
+        };
+        const clap_desc: clap.clap_plugin_descriptor_t = .{
+            .clap_version = clap.clap_version_t{
+                .major = clap.CLAP_VERSION_MAJOR,
+                .minor = clap.CLAP_VERSION_MINOR,
+                .revision = clap.CLAP_VERSION_REVISION,
+            },
+            .id = "AAu.ZigVerb.clap",
+            .name = plugin_name,
+            .vendor = vendor_name,
+            .url = url,
+            .manual_url = "",
+            .support_url = contact_address,
+            .version = version,
+            .description = "Vintage analog warmth",
+            .features = &[_][*c]const u8{ "stereo", "audio-effect", null },
+        };
     };
 
     const VST3Description = struct {
@@ -33,11 +63,17 @@ pub const Description = struct {
 };
 
 pub var parameter_changed = [_]bool{false} ** Params.numParams;
+
+pub fn onParamChange(self: *Self, id: u32) void {
+    if (id == Params.nameToID("feedback") catch @panic("Param not found"))
+        self.reverb.update_feedback = true;
+}
+
 params: Params = Params{},
 
-reverb: Reverb = Reverb{},
+reverb: Reverb,
 
-// gui: ?*Gui = null,
+gui: ?*Gui = null,
 
 sampleRate: f64 = 44100.0,
 numChannels: u32 = 2,
@@ -49,7 +85,7 @@ latency: u32 = 0,
 pub fn init(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
     self.sampleRate = sample_rate;
     self.maxNumSamples = max_frames;
-    self.reverb.init(allocator, self.sampleRate, 0.125 * @floatCast(f32, self.sampleRate)) catch unreachable;
+    self.reverb.init(allocator, self, self.sampleRate, 0.125 * @floatCast(f32, self.sampleRate)) catch unreachable;
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {

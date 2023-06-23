@@ -23,8 +23,8 @@ pub const numParams: u32 = std.meta.fields(Values).len;
 /// stored as named values
 pub const Values = struct {
     mix: f64 = 0.5,
+    feedback: f64 = 0.2,
     // delay: f64 = 300.0,
-    // feedback: f64 = 0.0,
     // freq: f64 = 1500.0,
 };
 
@@ -38,6 +38,7 @@ pub const ParamInfo = struct {
 
 pub const list = [std.meta.fields(Values).len]ParamInfo{
     .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
+    .{ .id = 1, .name = "Feedback", .minValue = 0.001, .maxValue = 0.35, .defaultValue = 0.2 },
     // .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
     // .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
     // .{ .id = 3, .name = "Freq", .minValue = 20.0, .maxValue = 20000.0, .defaultValue = 1500.0 },

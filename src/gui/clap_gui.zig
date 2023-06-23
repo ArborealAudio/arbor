@@ -25,6 +25,17 @@ pub const rl = @cImport({
     @cInclude("raylib.h");
 });
 
+const glfw = @cImport({
+    @cInclude("GLFW/glfw3.h");
+    switch (builtin.os.tag) {
+        .linux => @cDefine("GLFW_EXPOSE_NATIVE_X11", {}),
+        .macos => @cDefine("GLFW_EXPOSE_NATIVE_COCOA", {}),
+        .windows => @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {}),
+        else => @panic("Unsupported OS"),
+    }
+    @cInclude("GLFW/glfw3native.h");
+});
+
 extern fn implGuiCreateDisplay() callconv(.C) ?*anyopaque;
 extern fn implGuiSetParent(display: ?*anyopaque, main: ?*anyopaque, window: ?*anyopaque) callconv(.C) void;
 extern fn implGuiSetVisible(display: ?*anyopaque, main: ?*anyopaque, visible: bool) callconv(.C) void;
@@ -50,18 +61,25 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
     rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT);
-    rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "clap-raw");
+    rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "ZigVerb");
     rl.SetWindowPosition(0, 0);
     rl.SetGesturesEnabled(rl.GESTURE_DRAG);
-    Gui.init(plug) catch unreachable;
-    Gui.render(plug);
+    std.debug.assert(plug.gui == null);
+    plug.gui = Gui.init(ClapPlugin.allocator, plug) catch unreachable;
+    plug.gui.?.render();
     return true;
 }
 
 fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
-    _ = plugin;
     // Impl.GUIDestroy(plug);
+    var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
+    var plug = c_plug.plugin;
+    std.debug.print("Destroying GUI...\n", .{});
     rl.CloseWindow();
+    std.debug.assert(plug.gui != null);
+    plug.gui.?.deinit(ClapPlugin.allocator);
+    ClapPlugin.allocator.destroy(plug.gui.?);
+    plug.gui = null;
 }
 
 fn setScale(plugin: [*c]const clap.clap_plugin_t, scale: f64) callconv(.C) bool {
@@ -107,7 +125,13 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
         .linux => clap_window.*.unnamed_0.x11,
         else => @panic("Unsupported OS"),
     };
-    implGuiSetParent(display, rl.GetWindowHandle(), parent_window);
+    const main_window = switch (builtin.os.tag) {
+        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .windows => glfw.glfwGetWin32Window(rl.GetWindowHandle()),
+        .linux => glfw.glfwGetX11Window(rl.GetWindowHandle()),
+        else => @panic("Unsupported OS"),
+    };
+    implGuiSetParent(display, main_window, parent_window);
     return true;
 }
 
@@ -124,13 +148,25 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    implGuiSetVisible(display.?, rl.GetWindowHandle(), true);
+    const main_window = switch (builtin.os.tag) {
+        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .windows => glfw.glfwGetWin32Window(rl.GetWindowHandle()),
+        .linux => glfw.glfwGetX11Window(rl.GetWindowHandle()),
+        else => @panic("Unsupported OS"),
+    };
+    implGuiSetVisible(display.?, main_window, true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
-    implGuiSetVisible(display.?, rl.GetWindowHandle(), false);
+    const main_window = switch (builtin.os.tag) {
+        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .windows => glfw.glfwGetWin32Window(rl.GetWindowHandle()),
+        .linux => glfw.glfwGetX11Window(rl.GetWindowHandle()),
+        else => @panic("Unsupported OS"),
+    };
+    implGuiSetVisible(display.?, main_window, false);
     return true;
 }
 

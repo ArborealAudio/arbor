@@ -38,7 +38,7 @@ pub const Knob = struct {
         text: []const u8,
         size: f32,
         position: Position = .Below,
-        spacing: i32,
+        spacing: i32 = 5,
 
         const Position = enum {
             Above,
@@ -78,7 +78,7 @@ pub const Knob = struct {
         rl.DrawLineEx(.{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, self.pointer_thickness, pointer_color);
 
         if (self.flags.draw_label) {
-            var label = Params.idToName(self.id) catch unreachable;
+            var label = self.label.text;
             const max_chars = 3;
             if (self.is_mouse_over) {
                 var buf: [max_chars + 1]u8 = undefined;
