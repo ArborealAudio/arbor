@@ -127,11 +127,15 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
     };
     const main_window = switch (builtin.os.tag) {
         .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
-        .windows => glfw.glfwGetWin32Window(rl.GetWindowHandle()),
-        .linux => glfw.glfwGetX11Window(rl.GetWindowHandle()),
+        .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .linux => glfw.glfwGetX11Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         else => @panic("Unsupported OS"),
     };
-    implGuiSetParent(display, main_window, parent_window);
+    const disp = if (builtin.os.tag == .linux)
+        glfw.glfwGetX11Display()
+    else
+        null;
+    implGuiSetParent(disp, c_cast(*anyopaque, main_window), c_cast(*anyopaque, parent_window));
     return true;
 }
 
@@ -150,11 +154,15 @@ fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
     const main_window = switch (builtin.os.tag) {
         .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
-        .windows => glfw.glfwGetWin32Window(rl.GetWindowHandle()),
-        .linux => glfw.glfwGetX11Window(rl.GetWindowHandle()),
+        .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .linux => rl.GetWindowHandle(),
         else => @panic("Unsupported OS"),
     };
-    implGuiSetVisible(display.?, main_window, true);
+    const disp = if (builtin.os.tag == .linux)
+        glfw.glfwGetX11Display()
+    else
+        null;
+    implGuiSetVisible(disp, main_window, true);
     return true;
 }
 
@@ -162,11 +170,15 @@ fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     _ = plugin;
     const main_window = switch (builtin.os.tag) {
         .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
-        .windows => glfw.glfwGetWin32Window(rl.GetWindowHandle()),
-        .linux => glfw.glfwGetX11Window(rl.GetWindowHandle()),
+        .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .linux => rl.GetWindowHandle(),
         else => @panic("Unsupported OS"),
     };
-    implGuiSetVisible(display.?, main_window, false);
+    const disp = if (builtin.os.tag == .linux)
+        glfw.glfwGetX11Display()
+    else
+        null;
+    implGuiSetVisible(disp, main_window, false);
     return true;
 }
 
