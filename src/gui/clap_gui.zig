@@ -131,11 +131,8 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
         .linux => glfw.glfwGetX11Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         else => @panic("Unsupported OS"),
     };
-    const disp = if (builtin.os.tag == .linux)
-        glfw.glfwGetX11Display()
-    else
-        null;
-    implGuiSetParent(disp, c_cast(*anyopaque, main_window), c_cast(*anyopaque, parent_window));
+    const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
+    implGuiSetParent(disp, main_window, c_cast(*anyopaque, parent_window));
     return true;
 }
 

@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     const install_dir = switch (format.?) {
         .CLAP => switch (target.getOsTag()) {
             .linux => "/home/alex/.clap/" ++ filename,
-            .macos => "/Users/alex/Library/Audio/Plug-Ins/CLAP/" ++ filename,
+            .macos => "/Users/alex/Library/Audio/Plug-Ins/CLAP/",
             .windows => "/Program Files/Common Files/CLAP/",
             else => {
                 std.log.err("Unsupported OS\n", .{});

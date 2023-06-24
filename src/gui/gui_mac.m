@@ -11,12 +11,13 @@
 void *implGuiCreateDisplay()
 {}
 
-void implGuiSetParent(const void *disp, const void *_mainView, const void *window)
+void implGuiSetParent(const void *disp, const void *_pluginWindow, const void *parent)
 {
-    NSView *mainView = (NSView *)_mainView;
-    NSView *parentView = (NSView *)window;
-    // if (mainView.hasSuperView) [mainView removeFromSuperview];
-    [parentView addSubview:mainView];
+    NSWindow *pluginWindow = (NSWindow *)_pluginWindow;
+    NSView *pluginView = [pluginWindow contentView];
+    NSView *parentView = (NSView *)parent;
+    // if ([pluginView superview] != nil) [pluginView removeFromSuperview];
+    [parentView addSubview:pluginView];
     // mainView.hasSuperView = true;
 }
 
