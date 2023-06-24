@@ -5,8 +5,8 @@
 
 void *implGuiCreateDisplay() {}
 
-void implGuiSetParent(void *display, void *main, const clap_window_t *window) {
-	SetParent((HWND)main, (HWND)window->win32);
+void implGuiSetParent(void *display, void *main, void *window) {
+	SetParent((HWND)main, (HWND)window);
 }
 void implGuiSetVisible(void *display, void *main, bool visible) {
 	ShowWindow((HWND)main, visible ? SW_SHOW : SW_HIDE);

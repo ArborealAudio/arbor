@@ -127,7 +127,7 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
     };
     const main_window = switch (builtin.os.tag) {
         .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
-        .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .windows => rl.GetWindowHandle(),
         .linux => glfw.glfwGetX11Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         else => @panic("Unsupported OS"),
     };
