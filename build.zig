@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
 
     const build_options = b.addOptions();
     const format = b.option(Format, "format", "Plugin format");
+    const system_install = b.option(bool, "install", "Install plugin to default system directory");
 
     if (format == null) {
         std.log.err("Provide a format\n", .{});
@@ -21,9 +22,9 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(Format, "format", format.?);
 
     const plugin_name = "ZigVerb";
-    const filename = plugin_name ++ switch (format.?) {
-        .CLAP => ".clap",
-        .VST3 => ".vst3",
+    const filename = switch (format.?) {
+        .CLAP => plugin_name ++ ".clap",
+        .VST3 => plugin_name ++ ".vst3",
     };
     const root_file = if (format.? == .CLAP) "src/clap_plugin.zig" else "src/vst3_plugin.zig";
     const sdk_include = if (format.? == .CLAP) "lib/clap/include" else "";
@@ -31,7 +32,7 @@ pub fn build(b: *std.Build) void {
         .CLAP => switch (target.getOsTag()) {
             .linux => "/home/alex/.clap/" ++ filename,
             .macos => "/Users/alex/Library/Audio/Plug-Ins/CLAP/" ++ filename,
-            .windows => "/Program Files/Common Files/CLAP/" ++ filename ++ "/",
+            .windows => "/Program Files/Common Files/CLAP/",
             else => {
                 std.log.err("Unsupported OS\n", .{});
                 std.process.exit(1);
@@ -40,7 +41,7 @@ pub fn build(b: *std.Build) void {
         .VST3 => switch (target.getOsTag()) {
             .linux => "/home/alex/.vst3/" ++ filename,
             .macos => "/Users/alex/Library/Audio/Plug-Ins/VST3/" ++ filename,
-            .windows => "/Program Files/Common Files/VST3/" ++ filename ++ "/",
+            .windows => "/Program Files/Common Files/VST3/",
             else => {
                 std.log.err("Unsupported OS\n", .{});
                 std.process.exit(1);
@@ -50,8 +51,6 @@ pub fn build(b: *std.Build) void {
 
     const plugin = b.addSharedLibrary(.{
         .name = plugin_name,
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = root_file },
         .target = target,
         .optimize = optimize,
@@ -78,16 +77,11 @@ pub fn build(b: *std.Build) void {
     plugin.addIncludePath("lib/raylib/src");
     plugin.addIncludePath("lib/raylib/src/external/glfw/include");
 
-    const install = b.addInstallArtifact(plugin);
-    install.dest_sub_path = plugin_name;
-    b.getInstallStep().dependOn(&install.step);
-
-    // step for copying built binary to system directory
-    const copy_step = b.step("copy", "Copy the built artifact to default system location");
-    const copy = b.addSystemCommand(&[_][]const u8{"/bin/cp"});
-    copy.addFileSourceArg(install.artifact.getOutputSource());
-    copy.addArg(install_dir);
-    copy_step.dependOn(&copy.step);
+    if (system_install != null and system_install.?)
+        b.lib_dir = install_dir;
+    const output = b.addInstallArtifact(plugin);
+    output.dest_sub_path = filename;
+    b.getInstallStep().dependOn(&output.step);
 
     // Creates a step for unit testing.
     const main_tests = b.addTest(.{
@@ -109,3 +103,28 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&main_tests.step);
     test_step.dependOn(&vst3_tests.step);
 }
+
+// const CopyStep = struct {
+//     step: std.Build.Step,
+
+//     source: []const u8,
+//     dest: []const u8,
+
+//     pub fn create(b: *std.Build, source_path: []const u8, dest_path: []const u8) CopyStep {
+//         return .{
+//             .step = std.build.Step.init(.{
+//                 .id = .install_artifact,
+//                 .name = "Copy Step",
+//                 .owner = b,
+//             }),
+//             .source = source_path,
+//             .dest = dest_path,
+//         };
+//     }
+
+//     pub fn copy(step: *std.Build.Step) !void {
+//         const self = @fieldParentPtr(CopyStep, "step", step);
+
+//         _ = try std.fs.updateFileAbsolute(self.source, self.dest, .{});
+//     }
+// };
