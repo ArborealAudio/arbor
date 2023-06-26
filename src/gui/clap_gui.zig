@@ -1,4 +1,4 @@
-//! Gui.zig
+//! clap_gui.zig
 //! GUI module for plugin
 
 const std = @import("std");
@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 const ClapPlugin = @import("../clap_plugin.zig");
 const Plugin = @import("../Plugin.zig");
 const Gui = @import("Gui.zig");
+const glfw = Gui.glfw;
 const GUI_WIDTH = Gui.GUI_WIDTH;
 const GUI_HEIGHT = Gui.GUI_HEIGHT;
 const clap = @cImport({
@@ -23,17 +24,6 @@ var display: ?*anyopaque = null;
 
 pub const rl = @cImport({
     @cInclude("raylib.h");
-});
-
-const glfw = @cImport({
-    @cInclude("GLFW/glfw3.h");
-    switch (builtin.os.tag) {
-        .linux => @cDefine("GLFW_EXPOSE_NATIVE_X11", {}),
-        .macos => @cDefine("GLFW_EXPOSE_NATIVE_COCOA", {}),
-        .windows => @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {}),
-        else => @panic("Unsupported OS"),
-    }
-    @cInclude("GLFW/glfw3native.h");
 });
 
 extern fn implGuiCreateDisplay() callconv(.C) ?*anyopaque;
@@ -60,13 +50,19 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     display = implGuiCreateDisplay().?;
     var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
-    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT);
-    rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, "ZigVerb");
-    rl.SetWindowPosition(0, 0);
-    rl.SetGesturesEnabled(rl.GESTURE_DRAG);
+    if (glfw.glfwInit() != glfw.GLFW_TRUE) {
+        // std.log.err("Failed to initialize GLFW: {?s}", .{glfw.getErrorString()});
+        std.process.exit(1);
+    }
     std.debug.assert(plug.gui == null);
     plug.gui = Gui.init(ClapPlugin.allocator, plug) catch unreachable;
-    plug.gui.?.render();
+    glfw.glfwWindowHint(glfw.GLFW_DECORATED, glfw.GLFW_FALSE);
+    glfw.glfwWindowHint(glfw.GLFW_VISIBLE, glfw.GLFW_FALSE);
+    plug.gui.?.window = glfw.glfwCreateWindow(GUI_WIDTH, GUI_HEIGHT, Plugin.Description.plugin_name, null, null);
+    if (plug.gui.?.window == null)
+        std.process.exit(1);
+    // glfw.glfwSetWindowPos(plug.gui.?.window, 0, 0);
+    // plug.gui.?.render();
     return true;
 }
 
@@ -75,8 +71,9 @@ fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
     var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
     std.debug.print("Destroying GUI...\n", .{});
-    rl.CloseWindow();
+    glfw.glfwTerminate();
     std.debug.assert(plug.gui != null);
+    glfw.glfwDestroyWindow(plug.gui.?.window);
     plug.gui.?.deinit(ClapPlugin.allocator);
     ClapPlugin.allocator.destroy(plug.gui.?);
     plug.gui = null;
@@ -111,13 +108,15 @@ fn adjustSize(plugin: [*c]const clap.clap_plugin_t, width: [*c]u32, height: [*c]
 }
 
 fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callconv(.C) bool {
+    _ = height;
+    _ = width;
     _ = plugin;
-    rl.SetWindowSize(c_cast(c_int, width), c_cast(c_int, height));
+    // rl.SetWindowSize(c_cast(c_int, width), c_cast(c_int, height));
     return true;
 }
 
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
-    _ = plugin;
+    var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
     const parent_window = switch (builtin.os.tag) {
         .macos => clap_window.*.unnamed_0.cocoa,
@@ -125,14 +124,16 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
         .linux => clap_window.*.unnamed_0.x11,
         else => @panic("Unsupported OS"),
     };
+    std.debug.assert(plug.gui.?.window != null);
     const main_window = switch (builtin.os.tag) {
-        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window.?),
         .windows => rl.GetWindowHandle(),
         .linux => glfw.glfwGetX11Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         else => @panic("Unsupported OS"),
     };
     const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
-    implGuiSetParent(disp, main_window, c_cast(*anyopaque, parent_window));
+    implGuiSetParent(disp, main_window, parent_window);
+    glfw.glfwShowWindow(plug.gui.?.window);
     return true;
 }
 
@@ -148,34 +149,30 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 }
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    _ = plugin;
+    var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     const main_window = switch (builtin.os.tag) {
-        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window.?),
         .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         .linux => rl.GetWindowHandle(),
         else => @panic("Unsupported OS"),
     };
-    const disp = if (builtin.os.tag == .linux)
-        glfw.glfwGetX11Display()
-    else
-        null;
+    const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
     implGuiSetVisible(disp, main_window, true);
+    glfw.glfwShowWindow(plug.gui.?.window);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    _ = plugin;
+    var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     const main_window = switch (builtin.os.tag) {
-        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window.?),
         .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         .linux => rl.GetWindowHandle(),
         else => @panic("Unsupported OS"),
     };
-    const disp = if (builtin.os.tag == .linux)
-        glfw.glfwGetX11Display()
-    else
-        null;
+    const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
     implGuiSetVisible(disp, main_window, false);
+    glfw.glfwHideWindow(plug.gui.?.window);
     return true;
 }
 

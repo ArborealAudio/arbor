@@ -41,7 +41,7 @@ pub fn pushSample(self: *Delay, ch: usize, input: f32) void {
 
 pub fn popSample(self: *Delay, ch: usize) f32 {
     var out: f32 = 0.0;
-    var delayPos = @floatToInt(usize, self.delay_time) + self.read_pos[ch];
+    var delayPos = @intFromFloat(usize, self.delay_time) + self.read_pos[ch];
     if (delayPos + 1 >= self.max_delay) {
         delayPos %= self.max_delay;
     }

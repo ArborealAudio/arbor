@@ -42,7 +42,7 @@ pub fn init(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, 
     self.plugin = _plugin;
     var rand = std.rand.DefaultPrng.init(69);
 
-    const max_early_ref_delay: u32 = @floatToInt(u32, 0.1 * sampleRate);
+    const max_early_ref_delay: u32 = @intFromFloat(u32, 0.1 * sampleRate);
 
     const max_feedback: f32 = @floatCast(f32, self.plugin.params.values.feedback);
 
@@ -53,23 +53,23 @@ pub fn init(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, 
 
     for (&self.input_diff, 0..) |*d, i| {
         try d.init(alloc, 500, 2);
-        d.delay_time = 500.0 / (@intToFloat(f32, i + 1));
+        d.delay_time = 500.0 / (@floatFromInt(f32, i + 1));
     }
 
     for (&self.tail_delay, 0..) |*d, i| {
-        try d.init(alloc, @floatToInt(u32, maxDelaySamples), 2);
-        self.tail_delayTime[i] = @sqrt(@intToFloat(f32, TAIL_ORDER) / @intToFloat(f32, i + 1)) * maxDelaySamples;
+        try d.init(alloc, @intFromFloat(u32, maxDelaySamples), 2);
+        self.tail_delayTime[i] = @sqrt(@floatFromInt(f32, TAIL_ORDER) / @floatFromInt(f32, i + 1)) * maxDelaySamples;
         d.delay_time = self.tail_delayTime[i];
         self.inversion[i] = if (rand.next() % 2 == 0) 1.0 else -1.0;
     }
 
     for (&self.feedback, 0..) |*f, i| {
-        f.* = @sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, i + 1)) * max_feedback;
+        f.* = @sqrt(@floatFromInt(f32, TAIL_BLOCKS) / @floatFromInt(f32, i + 1)) * max_feedback;
     }
 
     for (&self.tail_filter, 0..) |*f, j| {
         f.filter_type = .Lowpass;
-        f.init(alloc, 2, @floatCast(f32, sampleRate), 8000.0 * @sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, j + 1)), std.math.sqrt1_2);
+        f.init(alloc, 2, @floatCast(f32, sampleRate), 8000.0 * @sqrt(@floatFromInt(f32, TAIL_BLOCKS) / @floatFromInt(f32, j + 1)), std.math.sqrt1_2);
     }
 
     self.input_filter.filter_type = .Lowpass;
@@ -79,7 +79,7 @@ pub fn init(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, 
 pub fn updateFeedback(self: *Reverb) void {
     const max_feedback = @floatCast(f32, self.plugin.params.values.feedback);
     for (&self.feedback, 0..) |*f, i| {
-        f.* = @sqrt(@intToFloat(f32, TAIL_BLOCKS) / @intToFloat(f32, i + 1)) * max_feedback;
+        f.* = @sqrt(@floatFromInt(f32, TAIL_BLOCKS) / @floatFromInt(f32, i + 1)) * max_feedback;
     }
 }
 
@@ -96,7 +96,7 @@ pub fn deinit(self: *Reverb, alloc: Allocator) void {
 }
 
 fn processHouseholderMatrix(in: []f32) void {
-    const h_mult = -2.0 / @intToFloat(f32, in.len);
+    const h_mult = -2.0 / @floatFromInt(f32, in.len);
     var sum: f32 = 0;
     for (in, 0..) |_, i|
         sum += in[i];

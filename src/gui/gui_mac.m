@@ -14,15 +14,23 @@ void *implGuiCreateDisplay()
 void implGuiSetParent(const void *disp, const void *_pluginWindow, const void *parent)
 {
     NSWindow *pluginWindow = (NSWindow *)_pluginWindow;
-    NSView *pluginView = [pluginWindow contentView];
+    // NSView *pluginView = [pluginWindow contentView];
     NSView *parentView = (NSView *)parent;
+    NSWindow *parentWindow = [parentView window];
+    [pluginWindow setExcludedFromWindowsMenu: YES];
+    [pluginWindow setCanHide: YES];
+    [parentWindow addChildWindow: pluginWindow
+                        ordered: NSWindowAbove];
+    [parentWindow orderFront: nil];
+    [pluginWindow orderFront: nil];
     // if ([pluginView superview] != nil) [pluginView removeFromSuperview];
-    [parentView addSubview:pluginView];
+    // [parentView addSubview:pluginView];
     // mainView.hasSuperView = true;
 }
 
-void implGuiSetVisible(const void *disp, const void *_mainView, bool visible)
+void implGuiSetVisible(const void *disp, const void *_pluginWindow, bool visible)
 {
-    NSView *mainView = (NSView *)_mainView;
+    NSWindow *mainWindow = (NSWindow *)_pluginWindow;
+    NSView *mainView = [mainWindow contentView];
     [mainView setHidden:(visible ? NO : YES)];
 }

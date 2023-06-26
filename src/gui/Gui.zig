@@ -7,6 +7,17 @@ const build_options = @import("build_options");
 const rl = @cImport({
     @cInclude("raylib.h");
 });
+pub const glfw = @cImport({
+    @cInclude("GLFW/glfw3.h");
+    switch (builtin.os.tag) {
+        .linux => @cDefine("GLFW_EXPOSE_NATIVE_X11", {}),
+        .macos => @cDefine("GLFW_EXPOSE_NATIVE_COCOA", {}),
+        .windows => @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {}),
+        else => @panic("Unsupported OS"),
+    }
+    @cInclude("GLFW/glfw3native.h");
+});
+pub const Window = glfw.GLFWwindow;
 const Plugin = @import("../Plugin.zig");
 const Params = @import("../Params.zig");
 const Components = @import("Components.zig");
@@ -30,6 +41,8 @@ const State = enum {
 state: State = .Idle,
 
 plugin: *Plugin,
+
+window: ?*Window = null,
 
 // slice representing all parameter knobs. Access via ID
 components: []*Components.Knob,
@@ -93,8 +106,8 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     };
 
     // set default font
-    const font_file = @embedFile("res/Sora-Regular.ttf");
-    font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
+    // const font_file = @embedFile("res/Sora-Regular.ttf");
+    // font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
 
     return ptr;
 }
@@ -121,9 +134,9 @@ pub fn render(self: *Gui) void {
     }
 
     const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
-    rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @intToFloat(f32, GUI_WIDTH) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
+    rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @floatFromInt(f32, GUI_WIDTH) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
     const format_text_size = rl.MeasureTextEx(font, @tagName(build_options.format), 13.0, 1.0);
-    rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @intToFloat(f32, GUI_WIDTH) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
+    rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @floatFromInt(f32, GUI_WIDTH) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
 
     if (builtin.mode == .Debug)
         rl.DrawFPS(5, 5);
@@ -190,8 +203,8 @@ fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
         // if not, get pointer to component which mouse is over
         outer: for (self.components) |c| {
             if (rl.CheckCollisionPointCircle(pos, .{
-                .x = @intToFloat(f32, c.centerX),
-                .y = @intToFloat(f32, c.centerY),
+                .x = @floatFromInt(f32, c.centerX),
+                .y = @floatFromInt(f32, c.centerY),
             }, c.width / 2.0)) {
                 comp = c;
                 comp.?.is_mouse_over = true;
