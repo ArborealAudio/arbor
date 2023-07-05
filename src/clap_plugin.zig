@@ -145,7 +145,7 @@ const Timer = struct {
         // MAYBE: we should check if a repaint is needed
         // so that means moving the interaction logic to here
         // BUT: It doesn't work! Never gets a gesture
-        if (rl.IsWindowReady() and !rl.WindowShouldClose()) {
+        if (rl.IsWindowReady() and !rl.WindowShouldClose() and plug.gui != null) {
             plug.gui.?.render();
             // self.need_repaint = false;
         }
@@ -281,19 +281,19 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
 
 pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callconv(.C) ?*const anyopaque {
     _ = plugin;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_LATENCY) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_LATENCY).compare(.eq))
         return &Latency.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_AUDIO_PORTS) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_AUDIO_PORTS).compare(.eq))
         return &AudioPorts.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_NOTE_PORTS) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_NOTE_PORTS).compare(.eq))
         return &NotePorts.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_STATE) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_STATE).compare(.eq))
         return &State.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_PARAMS) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_PARAMS).compare(.eq))
         return &Params.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_GUI) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_GUI).compare(.eq))
         return &ClapGui.Data;
-    if (std.cstr.cmp(id, &clap.CLAP_EXT_TIMER_SUPPORT) == 0)
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_TIMER_SUPPORT).compare(.eq))
         return &Timer.Data;
     // if (std.cstr.cmp(id, &clap.CLAP_EXT_POSIX_FD_SUPPORT) == 0)
     //     return &Gui.PosixFDSupport.Data;
@@ -320,7 +320,7 @@ const Factory = struct {
         _ = factory;
         if (host.*.clap_version.major < 1)
             return null;
-        if (std.cstr.cmp(plugin_id, PluginDesc.id) == 0) {
+        if (std.mem.orderZ(u8, plugin_id, PluginDesc.id).compare(.eq)) {
             // PROBLEM: This segfaults sometimes
             var c_plugin = allocator.create(Self) catch unreachable;
             c_plugin.* = .{
@@ -372,7 +372,7 @@ const Entry = struct {
     fn deinit() callconv(.C) void {}
 
     fn get_factory(factory_id: [*c]const u8) callconv(.C) ?*const anyopaque {
-        if (std.cstr.cmp(factory_id, &clap.CLAP_PLUGIN_FACTORY_ID) == 0) {
+        if (std.mem.orderZ(u8, factory_id, &clap.CLAP_PLUGIN_FACTORY_ID).compare(.eq)) {
             return &Factory.Data;
         }
         return null;

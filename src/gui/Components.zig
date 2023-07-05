@@ -64,15 +64,15 @@ pub const Knob = struct {
         const min_knob_pos: f32 = std.math.pi * 0.75;
         const max_knob_pos: f32 = std.math.pi * 2.25;
         // point along circumference to draw pointer
-        const pointer_angle = min_knob_pos + @floatCast(f32, self.value) * (max_knob_pos - min_knob_pos);
+        const pointer_angle = min_knob_pos + @as(f32, @floatCast(self.value)) * (max_knob_pos - min_knob_pos);
         const cos = @cos(pointer_angle);
         const sin = @sin(pointer_angle);
-        const x1 = @floatFromInt(f32, self.centerX) + (cos * radius);
-        const y1 = @floatFromInt(f32, self.centerY) + (sin * radius);
+        const x1 = @as(f32, @floatFromInt(self.centerX)) + (cos * radius);
+        const y1 = @as(f32, @floatFromInt(self.centerY)) + (sin * radius);
 
         const r2 = radius - (self.pointer_length * radius);
-        const x2 = @floatFromInt(f32, self.centerX) + (cos * r2);
-        const y2 = @floatFromInt(f32, self.centerY) + (sin * r2);
+        const x2 = @as(f32, @floatFromInt(self.centerX)) + (cos * r2);
+        const y2 = @as(f32, @floatFromInt(self.centerY)) + (sin * r2);
 
         const pointer_color = if (self.flags.filled) rl.ColorContrast(self.color, -1.0) else self.color;
         rl.DrawLineEx(.{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, self.pointer_thickness, pointer_color);
@@ -86,7 +86,7 @@ pub const Knob = struct {
             }
             const text_width = rl.MeasureTextEx(Gui.font, label.ptr, self.label.size, 1.5);
             const half_text = text_width.x / 2.0;
-            rl.DrawTextEx(Gui.font, label.ptr, .{ .x = @floatFromInt(f32, self.centerX) - half_text, .y = @floatFromInt(f32, self.centerY + self.label.spacing) + radius }, self.label.size, 1.5, rl.RAYWHITE);
+            rl.DrawTextEx(Gui.font, label.ptr, .{ .x = @as(f32, @floatFromInt(self.centerX)) - half_text, .y = @as(f32, @floatFromInt(self.centerY + self.label.spacing)) + radius }, self.label.size, 1.5, rl.RAYWHITE);
         }
     }
 };

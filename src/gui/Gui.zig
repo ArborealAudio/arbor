@@ -4,6 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
+const c_cast = std.zig.c_translation.cast;
 const rl = @cImport({
     @cInclude("raylib.h");
 });
@@ -42,7 +43,7 @@ state: State = .Idle,
 
 plugin: *Plugin,
 
-window: ?*Window = null,
+window: *Window,
 
 // slice representing all parameter knobs. Access via ID
 components: []*Components.Knob,
@@ -58,19 +59,23 @@ const BACKGROUND_COLOR = rl.Color{
 };
 
 pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
+    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT);
+    rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, Plugin.Description.plugin_name);
+    rl.SetGesturesEnabled(rl.GESTURE_DRAG);
     const ptr = try allocator.create(Gui);
     ptr.* = .{
         .plugin = plugin,
         .components = try allocator.alloc(*Components.Knob, Params.numParams),
         // This gets the UI into proper event state
         .state = .Idle,
+        .window = c_cast(*Window, rl.GetWindowHandle().?),
     };
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
     for (ptr.components, 0..) |_, i| {
         ptr.components[i] = try allocator.create(Components.Knob);
-        ptr.components[i].id = @intCast(u32, i);
-        ptr.components[i].value = try plugin.params.getNormalizedValue(@intCast(u32, i));
+        ptr.components[i].id = @intCast(i);
+        ptr.components[i].value = try plugin.params.getNormalizedValue(@intCast(i));
     }
 
     // setup unique properties here
@@ -106,8 +111,8 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     };
 
     // set default font
-    // const font_file = @embedFile("res/Sora-Regular.ttf");
-    // font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
+    const font_file = @embedFile("res/Sora-Regular.ttf");
+    font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
 
     return ptr;
 }
@@ -134,9 +139,9 @@ pub fn render(self: *Gui) void {
     }
 
     const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
-    rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @floatFromInt(f32, GUI_WIDTH) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
+    rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
     const format_text_size = rl.MeasureTextEx(font, @tagName(build_options.format), 13.0, 1.0);
-    rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @floatFromInt(f32, GUI_WIDTH) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
+    rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
 
     if (builtin.mode == .Debug)
         rl.DrawFPS(5, 5);
@@ -158,7 +163,7 @@ pub fn update(self: *Gui) !bool {
                 for (&Plugin.parameter_changed, 0..) |*p, i| {
                     // set the associated component value based off the current param value
                     if (p.*) {
-                        self.components[i].value = try self.plugin.params.getNormalizedValue(@intCast(u32, i));
+                        self.components[i].value = try self.plugin.params.getNormalizedValue(@as(u32, @intCast(i)));
                         p.* = false;
                         may_repaint = true;
                     }
@@ -203,8 +208,8 @@ fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
         // if not, get pointer to component which mouse is over
         outer: for (self.components) |c| {
             if (rl.CheckCollisionPointCircle(pos, .{
-                .x = @floatFromInt(f32, c.centerX),
-                .y = @floatFromInt(f32, c.centerY),
+                .x = @as(f32, @floatFromInt(c.centerX)),
+                .y = @as(f32, @floatFromInt(c.centerY)),
             }, c.width / 2.0)) {
                 comp = c;
                 comp.?.is_mouse_over = true;
@@ -218,13 +223,11 @@ fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
 
     const id = comp.?.id;
 
-    std.debug.print("Comp id: {d}\n", .{id});
-
     // get parameter value of component under mouse
     var p_val = try self.plugin.params.idToValue(id);
     const p_min = Params.list[id].minValue;
     const p_max = Params.list[id].maxValue;
-    p_val += @floatCast(f64, -vec.y * 0.01);
+    p_val += @as(f64, @floatCast(-vec.y * 0.01));
     p_val = @min(p_max, @max(p_min, p_val));
 
     // change parameter

@@ -34,7 +34,7 @@ const c_cast = std.zig.c_translation.cast;
 
 fn isAPISupported(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
     _ = plugin;
-    return 0 == std.cstr.cmp(api, &GUI_API) and !is_floating;
+    return std.mem.orderZ(u8, api, &GUI_API).compare(.eq) and !is_floating;
 }
 
 fn getPreferredAPI(plugin: [*c]const clap.clap_plugin_t, api: [*c][*c]const u8, is_floating: [*c]bool) callconv(.C) bool {
@@ -50,19 +50,9 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     display = implGuiCreateDisplay().?;
     var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
-    if (glfw.glfwInit() != glfw.GLFW_TRUE) {
-        // std.log.err("Failed to initialize GLFW: {?s}", .{glfw.getErrorString()});
-        std.process.exit(1);
-    }
     std.debug.assert(plug.gui == null);
     plug.gui = Gui.init(ClapPlugin.allocator, plug) catch unreachable;
-    glfw.glfwWindowHint(glfw.GLFW_DECORATED, glfw.GLFW_FALSE);
-    glfw.glfwWindowHint(glfw.GLFW_VISIBLE, glfw.GLFW_FALSE);
-    plug.gui.?.window = glfw.glfwCreateWindow(GUI_WIDTH, GUI_HEIGHT, Plugin.Description.plugin_name, null, null);
-    if (plug.gui.?.window == null)
-        std.process.exit(1);
-    // glfw.glfwSetWindowPos(plug.gui.?.window, 0, 0);
-    // plug.gui.?.render();
+    plug.gui.?.render();
     return true;
 }
 
@@ -71,9 +61,7 @@ fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
     var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
     std.debug.print("Destroying GUI...\n", .{});
-    glfw.glfwTerminate();
     std.debug.assert(plug.gui != null);
-    glfw.glfwDestroyWindow(plug.gui.?.window);
     plug.gui.?.deinit(ClapPlugin.allocator);
     ClapPlugin.allocator.destroy(plug.gui.?);
     plug.gui = null;
@@ -117,23 +105,22 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
     var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
-    std.debug.assert(std.cstr.cmp(clap_window.*.api, &GUI_API) == 0);
+    std.debug.assert(std.mem.orderZ(u8, clap_window.*.api, &GUI_API).compare(.eq));
     const parent_window = switch (builtin.os.tag) {
         .macos => clap_window.*.unnamed_0.cocoa,
         .windows => clap_window.*.unnamed_0.win32,
         .linux => clap_window.*.unnamed_0.x11,
         else => @panic("Unsupported OS"),
     };
-    std.debug.assert(plug.gui.?.window != null);
     const main_window = switch (builtin.os.tag) {
-        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window.?),
+        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window),
         .windows => rl.GetWindowHandle(),
-        .linux => glfw.glfwGetX11Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
+        .linux => glfw.glfwGetX11Window(c_cast(*glfw.GLFWwindow, plug.gui.?.window)),
         else => @panic("Unsupported OS"),
     };
     const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
     implGuiSetParent(disp, main_window, parent_window);
-    glfw.glfwShowWindow(plug.gui.?.window);
+    // glfw.glfwShowWindow(plug.gui.?.window);
     return true;
 }
 
@@ -151,28 +138,28 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     const main_window = switch (builtin.os.tag) {
-        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window.?),
+        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, plug.gui.?.window)),
         .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         .linux => rl.GetWindowHandle(),
         else => @panic("Unsupported OS"),
     };
     const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
     implGuiSetVisible(disp, main_window, true);
-    glfw.glfwShowWindow(plug.gui.?.window);
+    // glfw.glfwShowWindow(plug.gui.?.window);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     const main_window = switch (builtin.os.tag) {
-        .macos => glfw.glfwGetCocoaWindow(plug.gui.?.window.?),
+        .macos => glfw.glfwGetCocoaWindow(c_cast(*glfw.GLFWwindow, plug.gui.?.window)),
         .windows => glfw.glfwGetWin32Window(c_cast(*glfw.GLFWwindow, rl.GetWindowHandle())),
         .linux => rl.GetWindowHandle(),
         else => @panic("Unsupported OS"),
     };
     const disp = if (builtin.os.tag == .linux) glfw.glfwGetX11Display() else null;
     implGuiSetVisible(disp, main_window, false);
-    glfw.glfwHideWindow(plug.gui.?.window);
+    // glfw.glfwHideWindow(plug.gui.?.window);
     return true;
 }
 

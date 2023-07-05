@@ -85,7 +85,7 @@ latency: u32 = 0,
 pub fn init(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
     self.sampleRate = sample_rate;
     self.maxNumSamples = max_frames;
-    self.reverb.init(allocator, self, self.sampleRate, 0.125 * @floatCast(f32, self.sampleRate)) catch unreachable;
+    self.reverb.init(allocator, self, self.sampleRate, @floatCast(0.125 * self.sampleRate)) catch unreachable;
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -105,7 +105,7 @@ pub fn processAudio(self: *Self, in: [2][*]f32, out: [2][*]f32, numFrames: u32) 
         const outR = (rev_out[1] * wet_level) + (in[1][i] * dry_level);
 
         // write output
-        out[0][i] = @floatCast(f32, outL);
-        out[1][i] = @floatCast(f32, outR);
+        out[0][i] = @floatCast(outL);
+        out[1][i] = @floatCast(outR);
     }
 }
