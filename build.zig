@@ -25,12 +25,17 @@ pub fn build(b: *std.Build) void {
     const filename = switch (format.?) {
         .CLAP => plugin_name ++ ".clap",
         .VST3 => plugin_name ++ ".vst3",
+        .Standalone => plugin_name,
     };
-    const root_file = if (format.? == .CLAP) "src/clap_plugin.zig" else "src/vst3_plugin.zig";
+    const root_file = switch (format.?) {
+        .CLAP => "src/clap_plugin.zig",
+        .VST3 => "src/vst3_plugin.zig",
+        .Standalone => "src/standalone.zig",
+    };
     const sdk_include = if (format.? == .CLAP) "lib/clap/include" else "";
     const install_dir = switch (format.?) {
         .CLAP => switch (target.getOsTag()) {
-            .linux => "/home/alex/.clap/" ++ filename,
+            .linux => "/home/alex/.clap/",
             .macos => "/Users/alex/Library/Audio/Plug-Ins/CLAP/",
             .windows => "/Program Files/Common Files/CLAP/",
             else => {
@@ -39,17 +44,23 @@ pub fn build(b: *std.Build) void {
             },
         },
         .VST3 => switch (target.getOsTag()) {
-            .linux => "/home/alex/.vst3/" ++ filename,
-            .macos => "/Users/alex/Library/Audio/Plug-Ins/VST3/" ++ filename,
+            .linux => "/home/alex/.vst3/",
+            .macos => "/Users/alex/Library/Audio/Plug-Ins/VST3/",
             .windows => "/Program Files/Common Files/VST3/",
             else => {
                 std.log.err("Unsupported OS\n", .{});
                 std.process.exit(1);
             },
         },
+        .Standalone => "/Users/alex/Applications/",
     };
 
-    const plugin = b.addSharedLibrary(.{
+    const plugin = if (format.? != .Standalone) b.addSharedLibrary(.{
+        .name = plugin_name,
+        .root_source_file = .{ .path = root_file },
+        .target = target,
+        .optimize = optimize,
+    }) else b.addExecutable(.{
         .name = plugin_name,
         .root_source_file = .{ .path = root_file },
         .target = target,
@@ -103,28 +114,3 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&main_tests.step);
     test_step.dependOn(&vst3_tests.step);
 }
-
-// const CopyStep = struct {
-//     step: std.Build.Step,
-
-//     source: []const u8,
-//     dest: []const u8,
-
-//     pub fn create(b: *std.Build, source_path: []const u8, dest_path: []const u8) CopyStep {
-//         return .{
-//             .step = std.build.Step.init(.{
-//                 .id = .install_artifact,
-//                 .name = "Copy Step",
-//                 .owner = b,
-//             }),
-//             .source = source_path,
-//             .dest = dest_path,
-//         };
-//     }
-
-//     pub fn copy(step: *std.Build.Step) !void {
-//         const self = @fieldParentPtr(CopyStep, "step", step);
-
-//         _ = try std.fs.updateFileAbsolute(self.source, self.dest, .{});
-//     }
-// };

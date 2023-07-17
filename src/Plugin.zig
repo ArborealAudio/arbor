@@ -10,7 +10,7 @@ const Params = @import("Params.zig");
 const Gui = @import("gui/Gui.zig");
 const Reverb = @import("zig-dsp/Reverb.zig");
 
-pub const Format = enum { CLAP, VST3 };
+pub const Format = enum { CLAP, VST3, Standalone };
 const format = build_options.format;
 // const format = std.build.option(Format, "format", "Plugin format");
 
@@ -23,6 +23,7 @@ pub const Description = struct {
     pub const format_desc = switch (format) {
         .CLAP => FormatDesc.clap_desc,
         .VST3 => FormatDesc.vst3_desc,
+        .Standalone => {},
     };
 
     // TODO: Make a clean way to define features, ideally
@@ -77,7 +78,7 @@ gui: ?*Gui = null,
 
 sampleRate: f64 = 44100.0,
 numChannels: u32 = 2,
-maxNumSamples: u32 = undefined,
+maxNumSamples: u32 = 128,
 
 latency: u32 = 0,
 
@@ -85,7 +86,10 @@ latency: u32 = 0,
 pub fn init(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
     self.sampleRate = sample_rate;
     self.maxNumSamples = max_frames;
-    self.reverb.init(allocator, self, self.sampleRate, @floatCast(0.125 * self.sampleRate)) catch unreachable;
+    self.reverb.init(allocator, self, self.sampleRate, @floatCast(0.125 * self.sampleRate)) catch {
+        std.log.err("Failed to initialize reverb\n", .{});
+        std.process.exit(1);
+    };
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {

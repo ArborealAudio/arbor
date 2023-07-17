@@ -59,8 +59,11 @@ const BACKGROUND_COLOR = rl.Color{
 };
 
 pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
-    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_WINDOW_UNDECORATED | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT);
+    var window_flags: u32 = rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT;
+    if (build_options.format != .Standalone) window_flags |= rl.FLAG_WINDOW_UNDECORATED;
+    rl.SetConfigFlags(window_flags);
     rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, Plugin.Description.plugin_name);
+    rl.SetTargetFPS(60);
     rl.SetGesturesEnabled(rl.GESTURE_DRAG);
     const ptr = try allocator.create(Gui);
     ptr.* = .{
@@ -68,7 +71,10 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .components = try allocator.alloc(*Components.Knob, Params.numParams),
         // This gets the UI into proper event state
         .state = .Idle,
-        .window = c_cast(*Window, rl.GetWindowHandle().?),
+        .window = c_cast(*Window, rl.GetWindowHandle() orelse {
+            std.log.err("Failed to initialize window\n", .{});
+            std.process.exit(1);
+        }),
     };
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters

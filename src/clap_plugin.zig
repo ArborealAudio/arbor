@@ -11,7 +11,6 @@ const ClapGui = @import("gui/clap_gui.zig");
 const rl = ClapGui.rl;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-// var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 pub const allocator = gpa.allocator();
 
 pub const clap = @cImport({

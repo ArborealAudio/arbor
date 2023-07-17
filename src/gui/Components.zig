@@ -35,7 +35,7 @@ pub const Knob = struct {
     label: Label,
 
     const Label = struct {
-        text: []const u8,
+        text: [:0]const u8,
         size: f32,
         position: Position = .Below,
         spacing: i32 = 5,
@@ -79,14 +79,14 @@ pub const Knob = struct {
 
         if (self.flags.draw_label) {
             var label = self.label.text;
-            const max_chars = 3;
+            const max_chars = 4;
             if (self.is_mouse_over) {
                 var buf: [max_chars + 1]u8 = undefined;
-                label = std.fmt.bufPrint(&buf, "{d:.2}", .{self.value}) catch @panic("Buffer write error");
+                label = std.fmt.bufPrintZ(&buf, "{d:.2}", .{self.value}) catch @panic("Buffer write error");
             }
-            const text_width = rl.MeasureTextEx(Gui.font, label.ptr, self.label.size, 1.5);
+            const text_width = rl.MeasureTextEx(Gui.font, label, self.label.size, 1.5);
             const half_text = text_width.x / 2.0;
-            rl.DrawTextEx(Gui.font, label.ptr, .{ .x = @as(f32, @floatFromInt(self.centerX)) - half_text, .y = @as(f32, @floatFromInt(self.centerY + self.label.spacing)) + radius }, self.label.size, 1.5, rl.RAYWHITE);
+            rl.DrawTextEx(Gui.font, label, .{ .x = @as(f32, @floatFromInt(self.centerX)) - half_text, .y = @as(f32, @floatFromInt(self.centerY + self.label.spacing)) + radius }, self.label.size, 1.5, rl.RAYWHITE);
         }
     }
 };
