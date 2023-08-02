@@ -8,7 +8,6 @@ const Mutex = std.Thread.Mutex;
 const Reverb = @import("zig-dsp/Reverb.zig");
 const Gui = @import("gui/Gui.zig");
 const ClapGui = @import("gui/clap_gui.zig");
-const rl = ClapGui.rl;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 pub const allocator = gpa.allocator();
@@ -144,7 +143,7 @@ const Timer = struct {
         // MAYBE: we should check if a repaint is needed
         // so that means moving the interaction logic to here
         // BUT: It doesn't work! Never gets a gesture
-        if (rl.IsWindowReady() and !rl.WindowShouldClose() and plug.gui != null) {
+        if (plug.gui != null) {
             plug.gui.?.render();
             // self.need_repaint = false;
         }

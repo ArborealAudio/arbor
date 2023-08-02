@@ -5,20 +5,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const c_cast = std.zig.c_translation.cast;
-const rl = @cImport({
-    @cInclude("raylib.h");
-});
-pub const glfw = @cImport({
-    @cInclude("GLFW/glfw3.h");
-    switch (builtin.os.tag) {
-        .linux => @cDefine("GLFW_EXPOSE_NATIVE_X11", {}),
-        .macos => @cDefine("GLFW_EXPOSE_NATIVE_COCOA", {}),
-        .windows => @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {}),
-        else => @panic("Unsupported OS"),
-    }
-    @cInclude("GLFW/glfw3native.h");
-});
-pub const Window = glfw.GLFWwindow;
 const Plugin = @import("../Plugin.zig");
 const Params = @import("../Params.zig");
 const Components = @import("Components.zig");
@@ -29,52 +15,37 @@ pub const GUI_HEIGHT: c_uint = 500;
 const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
 const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
 
-pub var font: rl.Font = undefined;
+window: *anyopaque = undefined, // ISSUE: I hate undefined fields! Figure out a better way to organize this
+bits: []u32,
+
+plugin: *Plugin,
+
+// slice representing all parameter knobs. Access via ID
+components: []*Components.Knob,
+
+state: State = .Idle,
+
+// index to last component adjusted
+last_component: ?u32 = null,
 
 const State = enum {
-    // TODO: Implement a state system to manage updates in a cleaner way
+    // TODO: Improve state system to manage updates in a cleaner way
     GestureDetected,
     GestureContinue,
     GestureProcessed,
     Idle,
 };
 
-state: State = .Idle,
-
-plugin: *Plugin,
-
-window: *Window,
-
-// slice representing all parameter knobs. Access via ID
-components: []*Components.Knob,
-
-// index to last component adjusted
-last_component: ?u32 = null,
-
-const BACKGROUND_COLOR = rl.Color{
-    .r = 24,
-    .g = 43,
-    .b = 51,
-    .a = 255,
-};
+const BACKGROUND_COLOR = 0x18_2b_33_ff;
 
 pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
-    var window_flags: u32 = rl.FLAG_WINDOW_RESIZABLE | rl.FLAG_VSYNC_HINT | rl.FLAG_MSAA_4X_HINT;
-    if (build_options.format != .Standalone) window_flags |= rl.FLAG_WINDOW_UNDECORATED;
-    rl.SetConfigFlags(window_flags);
-    rl.InitWindow(GUI_WIDTH, GUI_HEIGHT, Plugin.Description.plugin_name);
-    rl.SetTargetFPS(60);
-    rl.SetGesturesEnabled(rl.GESTURE_DRAG);
     const ptr = try allocator.create(Gui);
     ptr.* = .{
         .plugin = plugin,
         .components = try allocator.alloc(*Components.Knob, Params.numParams),
         // This gets the UI into proper event state
         .state = .Idle,
-        .window = c_cast(*Window, rl.GetWindowHandle() orelse {
-            std.log.err("Failed to initialize window\n", .{});
-            std.process.exit(1);
-        }),
+        .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_WIDTH * 4),
     };
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
@@ -94,7 +65,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .centerX = centerX - 75.0,
         .centerY = centerY,
         .width = 100.0,
-        .color = rl.RAYWHITE,
+        .color = 0xff_ff_ff_ff,
         .flags = .{
             .filled = true,
             .draw_label = true,
@@ -109,7 +80,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .centerX = centerX + 75.0,
         .centerY = centerY,
         .width = 100.0,
-        .color = rl.RAYWHITE,
+        .color = 0xff_ff_ff_ff,
         .flags = .{
             .filled = true,
             .draw_label = true,
@@ -117,8 +88,8 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     };
 
     // set default font
-    const font_file = @embedFile("res/Sora-Regular.ttf");
-    font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
+    // const font_file = @embedFile("res/Sora-Regular.ttf");
+    // font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
 
     return ptr;
 }
@@ -135,24 +106,21 @@ pub fn render(self: *Gui) void {
     // IDEA: What if we handle GUI events here, i.e. mouse clicks, and passing parameter changes to UI
     // can still happen in the plugin's timer?
     // UPDATE: Mostly did that, except parameter changes from host are processed in plugin wrapper, not timer
-    _ = self.update() catch @panic("GUI update error");
-    rl.BeginDrawing();
-
-    rl.ClearBackground(BACKGROUND_COLOR);
+    // _ = self.update() catch @panic("GUI update error");
 
     for (self.components) |c| {
         c.draw();
     }
 
-    const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
-    rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
-    const format_text_size = rl.MeasureTextEx(font, @tagName(build_options.format), 13.0, 1.0);
-    rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
+    // const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
+    // rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
+    // const format_text_size = rl.MeasureTextEx(font, @tagName(build_options.format), 13.0, 1.0);
+    // rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
 
-    if (builtin.mode == .Debug)
-        rl.DrawFPS(5, 5);
+    // if (builtin.mode == .Debug)
+    //     rl.DrawFPS(5, 5);
 
-    rl.EndDrawing();
+    // rl.EndDrawing();
 }
 
 /// function for getting mouse events, checking parameters
@@ -175,10 +143,10 @@ pub fn update(self: *Gui) !bool {
                     }
                 }
                 // check for gestures
-                if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
-                    self.state = .GestureDetected;
-                    break;
-                } else exit = true;
+                // if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
+                //     self.state = .GestureDetected;
+                //     break;
+                // } else exit = true;
                 // TODO: Check for mouse clicks and plain ol mouse over
             },
             .GestureDetected => {
@@ -188,10 +156,10 @@ pub fn update(self: *Gui) !bool {
                 exit = try self.processGesture(true);
             },
             .GestureProcessed => {
-                if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
-                    self.state = .GestureContinue;
-                    break;
-                }
+                // if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
+                //     self.state = .GestureContinue;
+                //     break;
+                // }
                 self.state = .Idle;
                 if (self.last_component != null)
                     self.components[self.last_component.?].is_mouse_over = false;
@@ -204,24 +172,24 @@ pub fn update(self: *Gui) !bool {
 }
 
 fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
-    const vec = rl.GetMouseDelta();
-    const pos = rl.GetMousePosition();
+    // const vec = rl.GetMouseDelta();
+    // const pos = rl.GetMousePosition();
     // check if still processing gesture on last component
     var comp: ?*Components.Knob = null;
     if (gesture_rendered)
         comp = self.components[self.last_component.?] // is_mouse_over should still be true
     else {
         // if not, get pointer to component which mouse is over
-        outer: for (self.components) |c| {
-            if (rl.CheckCollisionPointCircle(pos, .{
-                .x = @as(f32, @floatFromInt(c.centerX)),
-                .y = @as(f32, @floatFromInt(c.centerY)),
-            }, c.width / 2.0)) {
-                comp = c;
-                comp.?.is_mouse_over = true;
-                break :outer;
-            }
-        }
+        // outer: for (self.components) |c| {
+        //     if (rl.CheckCollisionPointCircle(pos, .{
+        //         .x = @as(f32, @floatFromInt(c.centerX)),
+        //         .y = @as(f32, @floatFromInt(c.centerY)),
+        //     }, c.width / 2.0)) {
+        //         comp = c;
+        //         comp.?.is_mouse_over = true;
+        //         break :outer;
+        //     }
+        // }
     }
     // otherwise, mouse event not on a component
     if (comp == null)
@@ -233,7 +201,7 @@ fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
     var p_val = try self.plugin.params.idToValue(id);
     const p_min = Params.list[id].minValue;
     const p_max = Params.list[id].maxValue;
-    p_val += @as(f64, @floatCast(-vec.y * 0.01));
+    // p_val += @as(f64, @floatCast(-vec.y * 0.01));
     p_val = @min(p_max, @max(p_min, p_val));
 
     // change parameter

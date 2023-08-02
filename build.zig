@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const raylib = @import("lib/raylib/src/build.zig");
 const Plugin = @import("src/Plugin.zig");
 const Format = Plugin.Format;
 
@@ -77,16 +76,14 @@ pub fn build(b: *std.Build) void {
     // } else std.log.info("sysroot: {s}\n", .{b.sysroot.?});
 
     plugin.linkLibC();
-    plugin.linkLibrary(raylib.addRaylib(b, target, optimize, .{}));
     if (plugin.target.isDarwin()) {
+        plugin.linkFramework("Cocoa");
         plugin.addCSourceFile("src/gui/gui_mac.m", &[_][]const u8{"-ObjC"});
     } else if (plugin.target.isWindows())
         plugin.addCSourceFile("src/gui/gui_w32.c", &[_][]const u8{"-std=c99"})
     else if (plugin.target.isLinux())
         plugin.addCSourceFile("src/gui/gui_x11.c", &[_][]const u8{"-std=c99"});
     plugin.addIncludePath(sdk_include);
-    plugin.addIncludePath("lib/raylib/src");
-    plugin.addIncludePath("lib/raylib/src/external/glfw/include");
 
     if (system_install != null and system_install.?)
         b.lib_dir = install_dir;

@@ -2,9 +2,6 @@
 //! Module for drawing GUI widgets
 
 const std = @import("std");
-const rl = @cImport({
-    @cInclude("raylib.h");
-});
 const Params = @import("../Params.zig");
 const Gui = @import("Gui.zig");
 
@@ -18,7 +15,7 @@ pub const Knob = struct {
     centerX: i32,
     centerY: i32,
     width: f32,
-    color: rl.Color,
+    color: u32,
 
     // pointer length as a fraction of radius
     pointer_length: f32 = 0.5,
@@ -56,10 +53,10 @@ pub const Knob = struct {
 
     pub fn draw(self: *Knob) void {
         const radius: f32 = self.width / 2.0;
-        if (self.flags.filled)
-            rl.DrawCircle(self.centerX, self.centerY, radius, self.color)
-        else
-            rl.DrawCircleLines(self.centerX, self.centerY, radius, self.color);
+        // if (self.flags.filled)
+        //     rl.DrawCircle(self.centerX, self.centerY, radius, self.color)
+        // else
+        //     rl.DrawCircleLines(self.centerX, self.centerY, radius, self.color);
 
         const min_knob_pos: f32 = std.math.pi * 0.75;
         const max_knob_pos: f32 = std.math.pi * 2.25;
@@ -68,14 +65,18 @@ pub const Knob = struct {
         const cos = @cos(pointer_angle);
         const sin = @sin(pointer_angle);
         const x1 = @as(f32, @floatFromInt(self.centerX)) + (cos * radius);
+        _ = x1;
         const y1 = @as(f32, @floatFromInt(self.centerY)) + (sin * radius);
+        _ = y1;
 
         const r2 = radius - (self.pointer_length * radius);
         const x2 = @as(f32, @floatFromInt(self.centerX)) + (cos * r2);
+        _ = x2;
         const y2 = @as(f32, @floatFromInt(self.centerY)) + (sin * r2);
+        _ = y2;
 
-        const pointer_color = if (self.flags.filled) rl.ColorContrast(self.color, -1.0) else self.color;
-        rl.DrawLineEx(.{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, self.pointer_thickness, pointer_color);
+        // const pointer_color = if (self.flags.filled) rl.ColorContrast(self.color, -1.0) else self.color;
+        // rl.DrawLineEx(.{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, self.pointer_thickness, pointer_color);
 
         if (self.flags.draw_label) {
             var label = self.label.text;
@@ -84,9 +85,9 @@ pub const Knob = struct {
                 var buf: [max_chars + 1]u8 = undefined;
                 label = std.fmt.bufPrintZ(&buf, "{d:.2}", .{self.value}) catch @panic("Buffer write error");
             }
-            const text_width = rl.MeasureTextEx(Gui.font, label, self.label.size, 1.5);
-            const half_text = text_width.x / 2.0;
-            rl.DrawTextEx(Gui.font, label, .{ .x = @as(f32, @floatFromInt(self.centerX)) - half_text, .y = @as(f32, @floatFromInt(self.centerY + self.label.spacing)) + radius }, self.label.size, 1.5, rl.RAYWHITE);
+            // const text_width = rl.MeasureTextEx(Gui.font, label, self.label.size, 1.5);
+            // const half_text = text_width.x / 2.0;
+            // rl.DrawTextEx(Gui.font, label, .{ .x = @as(f32, @floatFromInt(self.centerX)) - half_text, .y = @as(f32, @floatFromInt(self.centerY + self.label.spacing)) + radius }, self.label.size, 1.5, rl.RAYWHITE);
         }
     }
 };
