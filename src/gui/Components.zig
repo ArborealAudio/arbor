@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const Params = @import("../Params.zig");
-const Gui = @import("Gui.zig");
+const Gui = @import("../Gui.zig");
 
 pub fn getComponentID(param_name: []const u8) u32 {
     return Params.nameToID(param_name) catch @panic("Component not found");

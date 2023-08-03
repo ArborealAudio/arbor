@@ -6,7 +6,7 @@ const Plugin = @import("Plugin.zig");
 const Params = @import("Params.zig");
 const Mutex = std.Thread.Mutex;
 const Reverb = @import("zig-dsp/Reverb.zig");
-const Gui = @import("gui/Gui.zig");
+const Gui = @import("Gui.zig");
 const ClapGui = @import("gui/clap_gui.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};

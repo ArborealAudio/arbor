@@ -7,7 +7,7 @@ const clap = @cImport({
     @cInclude("clap/clap.h");
 });
 const Params = @import("Params.zig");
-const Gui = @import("gui/Gui.zig");
+const Gui = @import("Gui.zig");
 const Reverb = @import("zig-dsp/Reverb.zig");
 
 pub const Format = enum { CLAP, VST3, Standalone };

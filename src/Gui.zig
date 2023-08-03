@@ -5,13 +5,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const c_cast = std.zig.c_translation.cast;
-const Plugin = @import("../Plugin.zig");
-const Params = @import("../Params.zig");
-const Components = @import("Components.zig");
+const Plugin = @import("Plugin.zig");
+const Params = @import("Params.zig");
+const Components = @import("gui/Components.zig");
 const Gui = @This();
 
-pub const GUI_WIDTH: c_uint = 400;
-pub const GUI_HEIGHT: c_uint = 500;
+pub const GUI_WIDTH = 400;
+pub const GUI_HEIGHT = 500;
 const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
 const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
 
@@ -45,7 +45,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .components = try allocator.alloc(*Components.Knob, Params.numParams),
         // This gets the UI into proper event state
         .state = .Idle,
-        .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_WIDTH * 4),
+        .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_HEIGHT * 4),
     };
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
@@ -108,9 +108,16 @@ pub fn render(self: *Gui) void {
     // UPDATE: Mostly did that, except parameter changes from host are processed in plugin wrapper, not timer
     // _ = self.update() catch @panic("GUI update error");
 
-    for (self.components) |c| {
-        c.draw();
-    }
+    self.drawRect(.{
+        .x = 0,
+        .y = 0,
+        .width = GUI_WIDTH,
+        .height = GUI_HEIGHT,
+    }, 0x80_80_00, 0xc0_f0_c0, 5);
+
+    // for (self.components) |c| {
+    //     c.draw();
+    // }
 
     // const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
     // rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
@@ -169,6 +176,28 @@ pub fn update(self: *Gui) !bool {
     }
 
     return may_repaint;
+}
+
+const Rect = struct {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+};
+
+fn drawRect(self: *Gui, rect: Rect, fill: u32, border: u32, border_thickness: f32) void {
+    var y = rect.y;
+    const bot = rect.y + rect.height;
+    const right = rect.x + rect.width;
+    while (y < bot) : (y += 1) {
+        var x = rect.x;
+        while (x < right) : (x += 1) {
+            self.bits[@intFromFloat(y * GUI_WIDTH + x)] = if (y <= rect.y + border_thickness or
+                y >= bot - border_thickness - 1 or
+                x <= rect.x + border_thickness or
+                x >= right - border_thickness - 1) border else fill;
+        }
+    }
 }
 
 fn processGesture(self: *Gui, gesture_rendered: bool) !bool {

@@ -7,7 +7,7 @@ const ClapPlugin = @import("../clap_plugin.zig");
 const alloc = ClapPlugin.allocator;
 const clap = ClapPlugin.clap;
 const Plugin = @import("../Plugin.zig");
-const Gui = @import("Gui.zig");
+const Gui = @import("../Gui.zig");
 const GUI_WIDTH = Gui.GUI_WIDTH;
 const GUI_HEIGHT = Gui.GUI_HEIGHT;
 
@@ -27,7 +27,9 @@ export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8
     _ = button;
     _ = cursorY;
     _ = cursorX;
-    _ = plugin;
+    std.debug.assert(plugin.gui != null);
+    plugin.gui.?.render();
+    implGuiRender(plugin.gui.?.window);
 }
 
 const c_cast = std.zig.c_translation.cast;
