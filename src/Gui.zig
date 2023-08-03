@@ -115,6 +115,9 @@ pub fn render(self: *Gui) void {
         .height = GUI_HEIGHT,
     }, 0x80_80_00, 0xc0_f0_c0, 5);
 
+    // self.drawCircle(.{ .x = centerX, .y = centerY }, 100, 0x0000ff, 0, 0);
+    self.drawCircleCustom(.{ .x = centerX, .y = centerY }, 100, 0x0000ff, 0, 2.5);
+
     // for (self.components) |c| {
     //     c.draw();
     // }
@@ -178,6 +181,11 @@ pub fn update(self: *Gui) !bool {
     return may_repaint;
 }
 
+const Vec2 = struct {
+    x: f32,
+    y: f32,
+};
+
 const Rect = struct {
     x: f32,
     y: f32,
@@ -196,6 +204,73 @@ fn drawRect(self: *Gui, rect: Rect, fill: u32, border: u32, border_thickness: f3
                 y >= bot - border_thickness - 1 or
                 x <= rect.x + border_thickness or
                 x >= right - border_thickness - 1) border else fill;
+        }
+    }
+}
+
+fn drawCircleCustom(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border_thickness: f32) void {
+    const cx = pos.x;
+    const cy = pos.y;
+    const left = cx - radius;
+
+    var y = cy - radius;
+    var right = cx + radius;
+    var bot = cy + radius;
+    while (y < bot) : (y += 1) {
+        var x = left;
+        while (x < right) : (x += 1) {
+            const adj = cx - x;
+            const opp = cy - y;
+            const hyp = @sqrt(adj * adj + opp * opp);
+            const abs = @fabs(hyp);
+            if (abs <= radius - border_thickness) {
+                self.bits[@intFromFloat(y * GUI_WIDTH + x)] = fill;
+            } else if (abs <= radius and abs >= radius - border_thickness)
+                self.bits[@intFromFloat(y * GUI_WIDTH + x)] = border;
+        }
+    }
+}
+
+// Midpoint algo
+// ISSUE: How do we fill the circle?
+fn drawCircle(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border_thickness: f32) void {
+    _ = fill;
+    _ = border_thickness;
+    const cx: i32 = @intFromFloat(pos.x);
+    const cy: i32 = @intFromFloat(pos.y);
+    var x: i32 = @intFromFloat(radius);
+    var y: i32 = 0;
+
+    if (radius > 0) {
+        self.bits[@intCast((cy - y) * GUI_WIDTH + x + cx)] = border;
+        self.bits[@intCast((cx + y) * GUI_WIDTH + x + cy)] = border;
+        self.bits[@intCast((cx - y) * GUI_WIDTH + x + cy)] = border;
+    }
+
+    var d: i32 = 1 - @as(i32, @intFromFloat(radius));
+
+    while (x > y) {
+        y += 1;
+
+        if (d <= 0)
+            d += 2 * y + 1
+        else {
+            x -= 1;
+            d += 2 * y - 2 * x + 1;
+        }
+
+        if (x < y) break;
+
+        self.bits[@intCast((cy + y) * GUI_WIDTH + cx + x)] = border;
+        self.bits[@intCast((cy + y) * GUI_WIDTH + cx - x)] = border;
+        self.bits[@intCast((cy - y) * GUI_WIDTH + cx + x)] = border;
+        self.bits[@intCast((cy - y) * GUI_WIDTH + cx - x)] = border;
+
+        if (x != y) {
+            self.bits[@intCast((cy + x) * GUI_WIDTH + cx + y)] = border;
+            self.bits[@intCast((cy + x) * GUI_WIDTH + cx - y)] = border;
+            self.bits[@intCast((cy - x) * GUI_WIDTH + cx + y)] = border;
+            self.bits[@intCast((cy - x) * GUI_WIDTH + cx - y)] = border;
         }
     }
 }
