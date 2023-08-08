@@ -10,7 +10,7 @@ const Params = @import("Params.zig");
 const Gui = @import("Gui.zig");
 const Reverb = @import("zig-dsp/Reverb.zig");
 
-pub const Format = enum { CLAP, VST3, Standalone };
+pub const Format = enum { CLAP, VST3, VST2, Standalone };
 const format = build_options.format;
 // const format = std.build.option(Format, "format", "Plugin format");
 

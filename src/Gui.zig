@@ -65,9 +65,9 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .centerX = centerX - 75.0,
         .centerY = centerY,
         .width = 100.0,
-        .color = 0xff_ff_ff_ff,
+        .fill_color = 0xff_ff_ff_ff,
+        .border_color = 0,
         .flags = .{
-            .filled = true,
             .draw_label = true,
         },
     };
@@ -80,9 +80,9 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .centerX = centerX + 75.0,
         .centerY = centerY,
         .width = 100.0,
-        .color = 0xff_ff_ff_ff,
+        .fill_color = 0xff_ff_ff_ff,
+        .border_color = 0,
         .flags = .{
-            .filled = true,
             .draw_label = true,
         },
     };
@@ -108,19 +108,16 @@ pub fn render(self: *Gui) void {
     // UPDATE: Mostly did that, except parameter changes from host are processed in plugin wrapper, not timer
     // _ = self.update() catch @panic("GUI update error");
 
-    self.drawRect(.{
+    Gui.drawRect(self.bits, .{
         .x = 0,
         .y = 0,
         .width = GUI_WIDTH,
         .height = GUI_HEIGHT,
     }, 0x80_80_00, 0xc0_f0_c0, 5);
 
-    // self.drawCircle(.{ .x = centerX, .y = centerY }, 100, 0x0000ff, 0, 0);
-    self.drawCircleCustom(.{ .x = centerX, .y = centerY }, 100, 0x0000ff, 0, 2.5);
-
-    // for (self.components) |c| {
-    //     c.draw();
-    // }
+    for (self.components) |c| {
+        c.draw(self.bits);
+    }
 
     // const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
     // rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
@@ -193,14 +190,19 @@ const Rect = struct {
     height: f32,
 };
 
-fn drawRect(self: *Gui, rect: Rect, fill: u32, border: u32, border_thickness: f32) void {
+const Circle = struct {
+    pos: Vec2, // center pos
+    radius: f32,
+};
+
+pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thickness: f32) void {
     var y = rect.y;
     const bot = rect.y + rect.height;
     const right = rect.x + rect.width;
     while (y < bot) : (y += 1) {
         var x = rect.x;
         while (x < right) : (x += 1) {
-            self.bits[@intFromFloat(y * GUI_WIDTH + x)] = if (y <= rect.y + border_thickness or
+            bits[@intFromFloat(y * GUI_WIDTH + x)] = if (y <= rect.y + border_thickness or
                 y >= bot - border_thickness - 1 or
                 x <= rect.x + border_thickness or
                 x >= right - border_thickness - 1) border else fill;
@@ -208,14 +210,22 @@ fn drawRect(self: *Gui, rect: Rect, fill: u32, border: u32, border_thickness: f3
     }
 }
 
-fn drawCircleCustom(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border_thickness: f32) void {
-    const cx = pos.x;
-    const cy = pos.y;
-    const left = cx - radius;
+pub fn drawLine(bits: []u32, p1: Vec2, p2: Vec2, color: u32, thickness: f32) void {
+    _ = thickness;
+    _ = color;
+    _ = p2;
+    _ = p1;
+    _ = bits;
+}
 
-    var y = cy - radius;
-    var right = cx + radius;
-    var bot = cy + radius;
+pub fn drawCircle(bits: []u32, circle: Circle, fill: u32, border: u32, border_thickness: f32) void {
+    const cx = circle.pos.x;
+    const cy = circle.pos.y;
+    const left = cx - circle.radius;
+
+    var y = cy - circle.radius;
+    var right = cx + circle.radius;
+    var bot = cy + circle.radius;
     while (y < bot) : (y += 1) {
         var x = left;
         while (x < right) : (x += 1) {
@@ -223,17 +233,17 @@ fn drawCircleCustom(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, 
             const opp = cy - y;
             const hyp = @sqrt(adj * adj + opp * opp);
             const abs = @fabs(hyp);
-            if (abs <= radius - border_thickness) {
-                self.bits[@intFromFloat(y * GUI_WIDTH + x)] = fill;
-            } else if (abs <= radius and abs >= radius - border_thickness)
-                self.bits[@intFromFloat(y * GUI_WIDTH + x)] = border;
+            if (abs <= circle.radius - border_thickness) {
+                bits[@intFromFloat(y * GUI_WIDTH + x)] = fill;
+            } else if (abs <= circle.radius and abs >= circle.radius - border_thickness)
+                bits[@intFromFloat(y * GUI_WIDTH + x)] = border;
         }
     }
 }
 
 // Midpoint algo
 // ISSUE: How do we fill the circle?
-fn drawCircle(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border_thickness: f32) void {
+fn drawCircleMidpoint(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border_thickness: f32) void {
     _ = fill;
     _ = border_thickness;
     const cx: i32 = @intFromFloat(pos.x);
@@ -252,14 +262,15 @@ fn drawCircle(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border
     while (x > y) {
         y += 1;
 
-        if (d <= 0)
-            d += 2 * y + 1
-        else {
+        // midpoint is inside or on the perimeter
+        if (d <= 0) {
+            d += 2 * y + 1;
+        } else { // midoint is outside the perimeter
             x -= 1;
             d += 2 * y - 2 * x + 1;
         }
 
-        if (x < y) break;
+        if (x < y) break; // all border points have been drawn
 
         self.bits[@intCast((cy + y) * GUI_WIDTH + cx + x)] = border;
         self.bits[@intCast((cy + y) * GUI_WIDTH + cx - x)] = border;
@@ -275,26 +286,26 @@ fn drawCircle(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border
     }
 }
 
-fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
-    // const vec = rl.GetMouseDelta();
-    // const pos = rl.GetMousePosition();
+pub fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
+    _ = mouse_pos;
+    _ = mouse_button;
     // check if still processing gesture on last component
     var comp: ?*Components.Knob = null;
-    if (gesture_rendered)
-        comp = self.components[self.last_component.?] // is_mouse_over should still be true
-    else {
-        // if not, get pointer to component which mouse is over
-        // outer: for (self.components) |c| {
-        //     if (rl.CheckCollisionPointCircle(pos, .{
-        //         .x = @as(f32, @floatFromInt(c.centerX)),
-        //         .y = @as(f32, @floatFromInt(c.centerY)),
-        //     }, c.width / 2.0)) {
-        //         comp = c;
-        //         comp.?.is_mouse_over = true;
-        //         break :outer;
-        //     }
-        // }
-    }
+    // if (gesture_rendered)
+    //     comp = self.components[self.last_component.?] // is_mouse_over should still be true
+    // else {
+    // if not, get pointer to component which mouse is over
+    // outer: for (self.components) |c| {
+    //     if (rl.CheckCollisionPointCircle(pos, .{
+    //         .x = @as(f32, @floatFromInt(c.centerX)),
+    //         .y = @as(f32, @floatFromInt(c.centerY)),
+    //     }, c.width / 2.0)) {
+    //         comp = c;
+    //         comp.?.is_mouse_over = true;
+    //         break :outer;
+    //     }
+    // }
+    // }
     // otherwise, mouse event not on a component
     if (comp == null)
         return true;
@@ -316,4 +327,16 @@ fn processGesture(self: *Gui, gesture_rendered: bool) !bool {
     std.debug.assert(self.last_component.? < self.components.len);
     self.state = .GestureProcessed;
     return true;
+}
+
+extern fn implGuiCreate(plugin: *Plugin, bits: [*]u32, w: u32, h: u32) callconv(.C) ?*anyopaque;
+extern fn implGuiDestroy(main: *anyopaque) callconv(.C) void;
+extern fn implGuiSetParent(display: ?*anyopaque, main: *anyopaque, window: ?*anyopaque) callconv(.C) void;
+extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible: bool) callconv(.C) void;
+extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
+export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
+    std.debug.assert(plugin.gui != null);
+    _ = plugin.gui.?.processGesture(button, .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) }) catch unreachable;
+    plugin.gui.?.render();
+    implGuiRender(plugin.gui.?.window);
 }

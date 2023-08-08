@@ -322,7 +322,7 @@ const Factory = struct {
             // PROBLEM: This segfaults sometimes
             var c_plugin = allocator.create(Self) catch unreachable;
             c_plugin.* = .{
-                .plugin = allocator.create(Plugin) catch unreachable,
+                .plugin = allocator.create(Plugin) catch unreachable, // heap alloc first
                 .clap_plugin = .{
                     .desc = &PluginDesc,
                     .plugin_data = c_plugin,
@@ -346,7 +346,7 @@ const Factory = struct {
                 .host_timer_support = null,
                 .timer_id = undefined,
             };
-            c_plugin.plugin.* = .{ .reverb = .{ .plugin = c_plugin.plugin } };
+            c_plugin.plugin.* = .{ .reverb = .{ .plugin = c_plugin.plugin } }; // define "outer" plugin after
             return &c_plugin.clap_plugin;
         }
         return null;

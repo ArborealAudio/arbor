@@ -24,14 +24,19 @@ pub fn build(b: *std.Build) void {
     const filename = switch (format.?) {
         .CLAP => plugin_name ++ ".clap",
         .VST3 => plugin_name ++ ".vst3",
+        .VST2 => plugin_name ++ ".vst",
         .Standalone => plugin_name,
     };
     const root_file = switch (format.?) {
         .CLAP => "src/clap_plugin.zig",
         .VST3 => "src/vst3_plugin.zig",
+        .VST2 => "src/vst2_plugin.zig",
         .Standalone => "src/standalone.zig",
     };
-    const sdk_include = if (format.? == .CLAP) "lib/clap/include" else "";
+    const sdk_include = switch (format.?) {
+        .CLAP => "lib/clap/include",
+        else => "",
+    };
     const install_dir = switch (format.?) {
         .CLAP => switch (target.getOsTag()) {
             .linux => "/home/alex/.clap/",
@@ -51,15 +56,19 @@ pub fn build(b: *std.Build) void {
                 std.process.exit(1);
             },
         },
+        .VST2 => switch (target.getOsTag()) {
+            .linux => "/home/alex/.vst/",
+            .macos => "/Users/alex/Library/Audio/Plug-Ins/VST/",
+            .windows => "/Program Files/Common Files/VST/",
+            else => {
+                std.log.err("Unsupported OS\n", .{});
+                std.process.exit(1);
+            },
+        },
         .Standalone => "/Users/alex/Applications/",
     };
 
-    const plugin = if (format.? != .Standalone) b.addSharedLibrary(.{
-        .name = plugin_name,
-        .root_source_file = .{ .path = root_file },
-        .target = target,
-        .optimize = optimize,
-    }) else b.addExecutable(.{
+    const plugin = b.addSharedLibrary(.{
         .name = plugin_name,
         .root_source_file = .{ .path = root_file },
         .target = target,
@@ -78,16 +87,16 @@ pub fn build(b: *std.Build) void {
     plugin.linkLibC();
     if (plugin.target.isDarwin()) {
         plugin.linkFramework("Cocoa");
-        plugin.addCSourceFile("src/gui/gui_mac.m", &[_][]const u8{"-ObjC"});
+        plugin.addCSourceFile(.{ .file = .{ .path = "src/gui/gui_mac.m" }, .flags = &[_][]const u8{"-ObjC"} });
     } else if (plugin.target.isWindows())
-        plugin.addCSourceFile("src/gui/gui_w32.c", &[_][]const u8{"-std=c99"})
+        plugin.addCSourceFile(.{ .file = .{ .path = "src/gui/gui_w32.c" }, .flags = &[_][]const u8{"-std=c99"} })
     else if (plugin.target.isLinux())
-        plugin.addCSourceFile("src/gui/gui_x11.c", &[_][]const u8{"-std=c99"});
-    plugin.addIncludePath(sdk_include);
+        plugin.addCSourceFile(.{ .file = .{ .path = "src/gui/gui_x11.c" }, .flags = &[_][]const u8{"-std=c99"} });
+    plugin.addIncludePath(.{ .path = sdk_include });
 
     if (system_install != null and system_install.?)
         b.lib_dir = install_dir;
-    const output = b.addInstallArtifact(plugin);
+    const output = b.addInstallArtifact(plugin, .{});
     output.dest_sub_path = filename;
     b.getInstallStep().dependOn(&output.step);
 

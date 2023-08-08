@@ -15,7 +15,10 @@ pub const Knob = struct {
     centerX: i32,
     centerY: i32,
     width: f32,
-    color: u32,
+
+    fill_color: u32,
+    border_color: u32,
+    border_size: f32 = 0,
 
     // pointer length as a fraction of radius
     pointer_length: f32 = 0.5,
@@ -46,17 +49,20 @@ pub const Knob = struct {
     };
 
     const Flags = packed struct {
-        filled: bool = false,
         draw_label: bool = true,
         drop_shadow: bool = false,
     };
 
-    pub fn draw(self: *Knob) void {
+    pub fn draw(self: *Knob, bits: []u32) void {
         const radius: f32 = self.width / 2.0;
         // if (self.flags.filled)
         //     rl.DrawCircle(self.centerX, self.centerY, radius, self.color)
         // else
         //     rl.DrawCircleLines(self.centerX, self.centerY, radius, self.color);
+        Gui.drawCircle(bits, .{
+            .pos = .{ .x = @floatFromInt(self.centerX), .y = @floatFromInt(self.centerY) },
+            .radius = self.width,
+        }, self.fill_color, self.border_color, self.border_size);
 
         const min_knob_pos: f32 = std.math.pi * 0.75;
         const max_knob_pos: f32 = std.math.pi * 2.25;
@@ -65,18 +71,15 @@ pub const Knob = struct {
         const cos = @cos(pointer_angle);
         const sin = @sin(pointer_angle);
         const x1 = @as(f32, @floatFromInt(self.centerX)) + (cos * radius);
-        _ = x1;
         const y1 = @as(f32, @floatFromInt(self.centerY)) + (sin * radius);
-        _ = y1;
 
         const r2 = radius - (self.pointer_length * radius);
         const x2 = @as(f32, @floatFromInt(self.centerX)) + (cos * r2);
-        _ = x2;
         const y2 = @as(f32, @floatFromInt(self.centerY)) + (sin * r2);
-        _ = y2;
 
         // const pointer_color = if (self.flags.filled) rl.ColorContrast(self.color, -1.0) else self.color;
         // rl.DrawLineEx(.{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, self.pointer_thickness, pointer_color);
+        Gui.drawLine(bits, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, self.border_color, self.pointer_thickness);
 
         if (self.flags.draw_label) {
             var label = self.label.text;

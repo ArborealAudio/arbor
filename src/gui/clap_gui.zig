@@ -18,20 +18,6 @@ pub const GUI_API = switch (builtin.os.tag) {
     else => @panic("Unsupported OS"),
 };
 
-extern fn implGuiCreate(plugin: *Plugin, bits: [*]u32, w: u32, h: u32) callconv(.C) ?*anyopaque;
-extern fn implGuiDestroy(main: *anyopaque) callconv(.C) void;
-extern fn implGuiSetParent(display: ?*anyopaque, main: *anyopaque, window: ?*anyopaque) callconv(.C) void;
-extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible: bool) callconv(.C) void;
-extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
-export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
-    _ = button;
-    _ = cursorY;
-    _ = cursorX;
-    std.debug.assert(plugin.gui != null);
-    plugin.gui.?.render();
-    implGuiRender(plugin.gui.?.window);
-}
-
 const c_cast = std.zig.c_translation.cast;
 
 fn isAPISupported(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floating: bool) callconv(.C) bool {
@@ -54,7 +40,7 @@ fn createGUI(plugin: [*c]const clap.clap_plugin_t, api: [*c]const u8, is_floatin
     std.debug.assert(plug.gui == null);
     plug.gui = Gui.init(alloc, plug) catch unreachable;
     // plug.gui.?.bits = alloc.alloc(u32, GUI_WIDTH * GUI_HEIGHT * 4);
-    if (implGuiCreate(plug, plug.gui.?.bits.ptr, GUI_WIDTH, GUI_HEIGHT)) |disp|
+    if (Gui.implGuiCreate(plug, plug.gui.?.bits.ptr, GUI_WIDTH, GUI_HEIGHT)) |disp|
         plug.gui.?.window = disp;
     plug.gui.?.render();
     return true;
@@ -67,7 +53,7 @@ fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
     std.debug.print("Destroying GUI...\n", .{});
     std.debug.assert(plug.gui != null);
     plug.gui.?.deinit(ClapPlugin.allocator);
-    implGuiDestroy(plug.gui.?.window);
+    Gui.implGuiDestroy(plug.gui.?.window);
     alloc.free(plug.gui.?.bits);
     ClapPlugin.allocator.destroy(plug.gui.?);
     plug.gui = null;
@@ -117,7 +103,7 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
         .linux => clap_window.*.unnamed_0.x11,
         else => @panic("Unsupported OS"),
     };
-    implGuiSetParent(null, plug.gui.?.window, parent_window);
+    Gui.implGuiSetParent(null, plug.gui.?.window, parent_window);
     return true;
 }
 
@@ -134,13 +120,13 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
-    implGuiSetVisible(null, plug.gui.?.window, true);
+    Gui.implGuiSetVisible(null, plug.gui.?.window, true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
-    implGuiSetVisible(null, plug.gui.?.window, false);
+    Gui.implGuiSetVisible(null, plug.gui.?.window, false);
     return true;
 }
 
