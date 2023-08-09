@@ -46,8 +46,8 @@ fn processReplacing(effect: *vst2.AEffect, inputs: [*][*]f32, outputs: [*][*]f32
     _ = effect;
     var i: u32 = 0;
     while (i < frames) : (i += 1) {
-        outputs[0][i] = std.math.tanh(inputs[1][i]);
-        outputs[1][i] = std.math.tanh(inputs[0][i]);
+        outputs[0][i] = std.math.tanh(inputs[0][i]);
+        outputs[1][i] = std.math.tanh(inputs[1][i]);
     }
 }
 fn processDoubleReplacing(effect: *vst2.AEffect, inputs: [*][*]f64, outputs: [*][*]f64, frames: i32) callconv(.C) void {

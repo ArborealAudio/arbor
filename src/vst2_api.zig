@@ -46,11 +46,9 @@ pub const AEffect = extern struct {
 
     dispatcher: Dispatch,
 
-    processReplacing: Process,
-    processDoubleReplacing: ProcessDouble,
+    deprecated_process: Process = deprecatedProcess,
 
     setParameter: SetParameter,
-
     getParameter: GetParameter,
 
     num_programs: i32,
@@ -65,13 +63,27 @@ pub const AEffect = extern struct {
 
     initial_delay: i32,
 
+    _real_qualities: i32 = 0,
+    _off_qualities: i32 = 0,
+    _io_ratio: i32 = 0,
+
     object: ?*anyopaque = null,
     user: ?*anyopaque = null,
 
     uniqueID: i32,
     version: i32,
 
+    processReplacing: Process,
+    processDoubleReplacing: ProcessDouble,
+
     future: [56]u8 = [_]u8{0} ** 56,
+
+    fn deprecatedProcess(effect: *AEffect, inputs: [*][*]f32, outputs: [*][*]f32, frames: i32) callconv(.C) void {
+        _ = frames;
+        _ = outputs;
+        _ = inputs;
+        _ = effect;
+    }
 };
 
 pub const Opcode = enum(i32) {
