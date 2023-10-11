@@ -30,7 +30,14 @@ pub const Type = enum {
 };
 
 /// initialize filter coefficients
-pub fn init(self: *Filter, allocator: std.mem.Allocator, numChannels: u32, sample_rate: f32, cutoff: f32, reso: f32) void {
+pub fn init(
+    self: *Filter,
+    allocator: std.mem.Allocator,
+    numChannels: u32,
+    sample_rate: f32,
+    cutoff: f32,
+    reso: f32,
+) void {
     self.reso = reso;
     self.cutoff = cutoff;
     self.sample_rate = sample_rate;
@@ -112,6 +119,7 @@ pub fn setCoeffs(self: *Filter) void {
 }
 
 pub fn processSample(self: *Filter, ch: u32, in: f32) f32 {
+    std.debug.assert(ch < self.xn.len and ch < self.yn.len);
     const b = self.coeffs.b0 * in + self.coeffs.b1 * self.xn[ch][0] + self.coeffs.b2 * self.xn[ch][1];
     const a = -self.coeffs.a1 * self.yn[ch][0] - self.coeffs.a2 * self.yn[ch][1];
     const out = a + b;
