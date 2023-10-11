@@ -14,6 +14,7 @@ pub const clap = @cImport({
 });
 
 const c_cast = std.zig.c_translation.cast;
+const allocator = std.heap.page_allocator;
 
 pub const PluginDesc = Plugin.Description.format_desc;
 
@@ -113,24 +114,32 @@ pub const Latency = struct {
 
 // state
 const State = struct {
-    pub fn save(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_ostream_t) callconv(.C) bool {
-        _ = stream;
+    pub fn save(
+        plugin: [*c]const clap.clap_plugin_t,
+        stream: [*c]const clap.clap_ostream_t,
+    ) callconv(.C) bool {
         const plug = c_cast(*Self, plugin.*.plugin_data).plugin;
-        _ = plug;
         const numParams = Params.num_params;
-        _ = numParams;
         // PROBLEM: This crashes the plugin!
-        // return @sizeOf(f32) * numParams == stream.*.write.?(stream, c_cast([*c]const f32, &plug.*.params), @sizeOf(f32) * numParams);
-        return true;
+        return @sizeOf(f32) * numParams == stream.*.write.?(stream, c_cast(
+            [*c]const f32,
+            &plug.*.params,
+        ), @sizeOf(f32) * numParams);
     }
 
-    pub fn load(plugin: [*c]const clap.clap_plugin_t, stream: [*c]const clap.clap_istream_t) callconv(.C) bool {
+    pub fn load(
+        plugin: [*c]const clap.clap_plugin_t,
+        stream: [*c]const clap.clap_istream_t,
+    ) callconv(.C) bool {
         const plug = c_cast(*Self, plugin.*.plugin_data).plugin;
         var mutex = Mutex{};
         mutex.lock();
         defer mutex.unlock();
         const numParams = Params.num_params;
-        return @sizeOf(f32) * numParams == stream.*.read.?(stream, c_cast([*c]f32, &plug.params), @sizeOf(f32) * numParams);
+        return @sizeOf(f32) * numParams == stream.*.read.?(stream, c_cast(
+            [*c]f32,
+            &plug.params,
+        ), @sizeOf(f32) * numParams);
     }
 
     const Data = clap.clap_plugin_state_t{
@@ -205,9 +214,9 @@ pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     var self = c_cast(*Self, plugin.*.plugin_data);
     if (self.*.host_timer_support != null and self.*.host_timer_support.*.unregister_timer != null)
         _ = self.*.host_timer_support.*.unregister_timer.?(self.*.host, self.*.timer_id);
-    self.plugin.deinit(std.heap.page_allocator);
-    std.heap.page_allocator.destroy(self.plugin);
-    std.heap.page_allocator.destroy(self);
+    self.plugin.deinit(allocator);
+    allocator.destroy(self.plugin);
+    allocator.destroy(self);
 }
 
 pub fn activate(
@@ -217,7 +226,7 @@ pub fn activate(
     max_frames_count: u32,
 ) callconv(.C) bool {
     var plug = c_cast(*Self, plugin.*.plugin_data).plugin;
-    plug.init(std.heap.page_allocator, sample_rate, max_frames_count) catch unreachable;
+    plug.init(allocator, sample_rate, max_frames_count) catch unreachable;
     _ = min_frames_count;
     return true;
 }
@@ -248,7 +257,10 @@ pub fn processEvent(self: *Self, event: [*c]const clap.clap_event_header_t) call
     }
 }
 
-pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.clap_process_t) callconv(.C) clap.clap_process_status {
+pub fn process(
+    plugin: [*c]const clap.clap_plugin,
+    processInfo: [*c]const clap.clap_process_t,
+) callconv(.C) clap.clap_process_status {
     var self = c_cast(*Self, plugin.*.plugin_data);
     var plug = self.plugin;
     const numFrames = processInfo.*.frames_count;
@@ -326,7 +338,10 @@ const Factory = struct {
         return 1;
     }
 
-    fn getPluginDescriptor(factory: [*c]const clap.clap_plugin_factory, index: u32) callconv(.C) [*c]const clap.clap_plugin_descriptor_t {
+    fn getPluginDescriptor(
+        factory: [*c]const clap.clap_plugin_factory,
+        index: u32,
+    ) callconv(.C) [*c]const clap.clap_plugin_descriptor_t {
         _ = factory;
         return if (index == 0) &PluginDesc else null;
     }
@@ -341,9 +356,9 @@ const Factory = struct {
             return null;
         if (std.mem.orderZ(u8, plugin_id, PluginDesc.id).compare(.eq)) {
             // PROBLEM: This segfaults sometimes
-            var c_plugin = std.heap.page_allocator.create(Self) catch unreachable;
+            var c_plugin = allocator.create(Self) catch unreachable;
             c_plugin.* = .{
-                .plugin = std.heap.page_allocator.create(Plugin) catch unreachable, // heap alloc first
+                .plugin = allocator.create(Plugin) catch unreachable, // heap alloc first
                 .clap_plugin = .{
                     .desc = &PluginDesc,
                     .plugin_data = c_plugin,
