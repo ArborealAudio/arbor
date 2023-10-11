@@ -1,11 +1,13 @@
 //! vst2_api.zig
 
+pub const MagicNumber: i32 = ('V' << 24) | ('s' << 16) | ('t' << 8) | 'P';
+
 pub const AEffect = extern struct {
-    magic: i32 = ('V' << 24) | ('s' << 16) | ('t' << 8) | 'P',
+    magic: i32 = MagicNumber,
 
     dispatcher: Dispatch,
 
-    deprecated_process: Process = deprecatedProcess,
+    deprecated_process: DeprecatedProcess = null,
 
     setParameter: SetParameter,
     getParameter: GetParameter,
@@ -20,11 +22,11 @@ pub const AEffect = extern struct {
     resvd1: isize = 0,
     resvd2: isize = 0,
 
-    initial_delay: i32,
+    latency: i32,
 
-    _real_qualities: i32 = 0,
-    _off_qualities: i32 = 0,
-    _io_ratio: i32 = 0,
+    deprecated1: i32 = 0,
+    deprecated2: i32 = 0,
+    deprecated3: f32 = 0,
 
     object: ?*anyopaque = null,
     user: ?*anyopaque = null,
@@ -35,14 +37,7 @@ pub const AEffect = extern struct {
     processReplacing: Process,
     processDoubleReplacing: ProcessDouble,
 
-    future: [56]u8 = [_]u8{0} ** 56,
-
-    fn deprecatedProcess(effect: *AEffect, inputs: [*][*]f32, outputs: [*][*]f32, frames: i32) callconv(.C) void {
-        _ = frames;
-        _ = outputs;
-        _ = inputs;
-        _ = effect;
-    }
+    future: [56]i8 = [_]i8{0} ** 56,
 };
 
 pub const StringConstants = struct {
@@ -73,6 +68,8 @@ pub const VstEvents = struct {
     events: [2]*Event,
 };
 
+/// I think what this is for is so we can manually call the host
+/// Gets passed in thru VSTPluginMain, hang onto it if you need it
 pub const HostCallback = *const fn (
     effect: *AEffect,
     opcode: i32,
@@ -82,6 +79,7 @@ pub const HostCallback = *const fn (
     opt: f32,
 ) callconv(.C) isize;
 
+/// Host->plugin communication. How the API wants to handle most things outside of major function ptrs
 pub const Dispatch = *const fn (
     effect: *AEffect,
     opcode: i32,
@@ -97,12 +95,13 @@ pub const Process = *const fn (
     outputs: [*][*]f32,
     frames: i32,
 ) callconv(.C) void;
-pub const ProcessDouble = *const fn (
+pub const ProcessDouble = ?*const fn (
     effect: *AEffect,
     inputs: [*][*]f64,
     outputs: [*][*]f64,
     frames: i32,
 ) callconv(.C) void;
+pub const DeprecatedProcess = ?*const fn () callconv(.C) void;
 
 pub const SetParameter = *const fn (
     effect: *AEffect,
@@ -122,42 +121,30 @@ pub const Opcode = enum(c_int) {
     SetProgramName,
     GetProgramName,
 
-    GetParamLabel,
-    GetParamDisplay,
+    GetParamText = 7,
     GetParamName,
 
-    SetSampleRate,
-    SetBlockSize,
-    MainsChanged,
+    SetSampleRate = 10,
 
-    EditGetRect,
+    EditGetRect = 13,
     EditOpen,
     EditClose,
+    EditRedraw = 19,
 
-    EditIdle,
-
-    GetChunk,
+    GetChunk = 23,
     SetChunk,
 
     ProcessEvents, // MIDI events
 
-    CanBeAutomated,
-    String2Parameter,
+    CanBeAutomated = 26,
 
-    GetInputProperties = 33,
-    GetOutputProperties,
-    GetPlugCategory,
-    SetBypass = 44,
-    GetEffectName,
+    GetPlugCategory = 35,
     GetVendorString = 47,
     GetProductString,
     GetVendorVersion,
-    CanDo = 50,
-    GetTailSize,
+    CanDo = 51,
     GetParameterProperties = 56,
     GetVstVersion = 58,
-    EditKeyDown,
-    EditKeyUp,
     SetProcessPrecision = 77,
 };
 
@@ -198,6 +185,11 @@ pub const ParameterFlags = enum(c_int) {
     CanRamp = 1 << 6,
 };
 
+pub const MAX_NUM_PARAMS = 128;
+pub const PluginState = struct {
+    param: [MAX_NUM_PARAMS]f32,
+};
+
 pub const PinProperties = struct {
     label: [StringConstants.MaxLabelLen]u8,
     flags: i32,
@@ -214,11 +206,11 @@ pub const PinPropertiesFlags = enum(c_int) {
 
 pub const Flags = enum(c_int) {
     HasEditor = 1 << 0,
-    CanReplacing = 1 << 4,
-    ProgramChunks = 1 << 5,
+    HasReplacing = 1 << 4,
+    HasStateChunk = 1 << 5,
     IsSynth = 1 << 8,
     NoSoundInStop = 1 << 9,
-    CanDoubleReplacing = 1 << 12,
+    HasDoubleReplacing = 1 << 12,
 
     pub fn toInt(flags: []const Flags) i32 {
         var i: i32 = 0;
