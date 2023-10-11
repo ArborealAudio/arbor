@@ -77,31 +77,35 @@ pub fn build(b: *std.Build) void {
 
     plugin.addOptions("build_options", build_options);
 
-    if (plugin.optimize == .ReleaseFast)
-        plugin.strip = true;
+    // TODO: Configuring OSX sysroot
 
-    // if (b.sysroot == null) {
-    //     std.log.warn("No sysroot defined. Building for MacOS may have undefined symbols\n", .{});
-    // } else std.log.info("sysroot: {s}\n", .{b.sysroot.?});
-
-    plugin.linkLibC();
     if (plugin.target.isDarwin()) {
         plugin.linkFramework("Cocoa");
-        plugin.addCSourceFile(.{ .file = .{ .path = "src/gui/gui_mac.m" }, .flags = &[_][]const u8{"-ObjC"} });
+        plugin.addCSourceFile(.{
+            .file = .{ .path = "src/gui/gui_mac.m" },
+            .flags = &[_][]const u8{"-ObjC"},
+        });
     } else if (plugin.target.isWindows())
-        plugin.addCSourceFile(.{ .file = .{ .path = "src/gui/gui_w32.c" }, .flags = &[_][]const u8{"-std=c99"} })
+        plugin.addCSourceFile(.{
+            .file = .{ .path = "src/gui/gui_w32.c" },
+            .flags = &[_][]const u8{"-std=c99"},
+        })
     else if (plugin.target.isLinux())
-        plugin.addCSourceFile(.{ .file = .{ .path = "src/gui/gui_x11.c" }, .flags = &[_][]const u8{"-std=c99"} });
+        plugin.addCSourceFile(.{
+            .file = .{ .path = "src/gui/gui_x11.c" },
+            .flags = &[_][]const u8{"-std=c99"},
+        });
     plugin.addIncludePath(.{ .path = sdk_include });
 
-    if (system_install != null and system_install.?)
+    if (system_install) |_| {
         b.lib_dir = install_dir;
+    }
     const output = b.addInstallArtifact(plugin, .{});
     output.dest_sub_path = filename;
     b.getInstallStep().dependOn(&output.step);
 
     // Creates a step for unit testing.
-    const main_tests = b.addTest(.{
+    const clap_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/clap_plugin.zig" },
         .target = target,
         .optimize = optimize,
@@ -117,6 +121,6 @@ pub fn build(b: *std.Build) void {
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&clap_tests.step);
     test_step.dependOn(&vst3_tests.step);
 }
