@@ -15,7 +15,7 @@ pub const GUI_HEIGHT = 500;
 const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
 const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
 
-window: *anyopaque = undefined, // ISSUE: I hate undefined fields! Figure out a better way to organize this
+window: *anyopaque = undefined,
 bits: []u32,
 
 plugin: *Plugin,
@@ -42,11 +42,14 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     const ptr = try allocator.create(Gui);
     ptr.* = .{
         .plugin = plugin,
-        .components = try allocator.alloc(*Components.Knob, Params.numParams),
+        .components = try allocator.alloc(*Components.Knob, Params.num_params),
         // This gets the UI into proper event state
         .state = .Idle,
         .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_HEIGHT * 4),
     };
+    // define window separately bc it relies on `bits`
+    if (implGuiCreate(plugin, ptr.bits.ptr, GUI_WIDTH, GUI_HEIGHT)) |disp|
+        ptr.window = disp;
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
     for (ptr.components, 0..) |_, i| {
@@ -100,6 +103,9 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
         allocator.destroy(c);
     // free component slice
     allocator.free(self.components);
+    Gui.implGuiDestroy(self.window);
+    allocator.free(self.bits);
+    allocator.destroy(self);
 }
 
 pub fn render(self: *Gui) void {
@@ -329,11 +335,12 @@ pub fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
     return true;
 }
 
-extern fn implGuiCreate(plugin: *Plugin, bits: [*]u32, w: u32, h: u32) callconv(.C) ?*anyopaque;
-extern fn implGuiDestroy(main: *anyopaque) callconv(.C) void;
-extern fn implGuiSetParent(display: ?*anyopaque, main: *anyopaque, window: ?*anyopaque) callconv(.C) void;
-extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible: bool) callconv(.C) void;
-extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
+// OS-specific UI handling functions
+pub extern fn implGuiCreate(plugin: *Plugin, bits: [*]u32, w: u32, h: u32) callconv(.C) ?*anyopaque;
+pub extern fn implGuiDestroy(main: *anyopaque) callconv(.C) void;
+pub extern fn implGuiSetParent(display: ?*anyopaque, main: *anyopaque, window: ?*anyopaque) callconv(.C) void;
+pub extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible: bool) callconv(.C) void;
+pub extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
 export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
     std.debug.assert(plugin.gui != null);
     _ = plugin.gui.?.processGesture(button, .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) }) catch unreachable;
