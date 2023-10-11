@@ -18,12 +18,13 @@ pub const Description = struct {
     pub const plugin_name = "ZigVerb";
     pub const vendor_name = "Arboreal Audio";
     pub const version = "0.1";
+    pub const version_int = 0x000100;
     pub const url = "https://arborealaudio.com";
     pub const contact_address = "contact@arborealaudio.com";
     pub const format_desc = switch (format) {
         .CLAP => FormatDesc.clap_desc,
         .VST3 => FormatDesc.vst3_desc,
-        .Standalone => {},
+        else => {},
     };
 
     // TODO: Make a clean way to define features, ideally
@@ -63,7 +64,7 @@ pub const Description = struct {
     };
 };
 
-pub var parameter_changed = [_]bool{false} ** Params.numParams;
+pub var parameter_changed = [_]bool{false} ** Params.num_params;
 
 pub fn onParamChange(self: *Self, id: u32) void {
     if (id == Params.nameToID("feedback") catch @panic("Param not found"))
@@ -96,7 +97,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.reverb.deinit(allocator);
 }
 
-pub fn processAudio(self: *Self, in: [2][*]f32, out: [2][*]f32, numFrames: u32) void {
+pub fn processAudio(self: *Self, in: [*][*]f32, out: [*][*]f32, numFrames: u32) void {
     var i: u32 = 0;
     const mix = self.params.values.mix;
     while (i < numFrames) : (i += 1) {
