@@ -80,6 +80,7 @@ fn dispatch(
                     return -1;
                 };
                 if (ptr) |p| {
+                    // ISSUE: This will sometimes print trailing garbage
                     var buf: [*]u8 = @ptrCast(p);
                     @memcpy(buf[0..name.len], name);
                 }
@@ -95,8 +96,9 @@ fn dispatch(
                     return -1;
                 };
                 if (ptr) |p| {
+                    // ISSUE: This only prints value for Feedback param
                     var buf: [*]u8 = @ptrCast(p);
-                    _ = std.fmt.bufPrintZ(buf[0..6], "{d:.2}", .{val}) catch |e| {
+                    _ = std.fmt.bufPrintZ(buf[0..5], "{d:.2}", .{val}) catch |e| {
                         std.log.err("{}\n", .{e});
                         return -1;
                     };
@@ -168,10 +170,11 @@ fn dispatch(
             return 1;
         },
         .EditClose => {
-            if (self.plugin.gui) |gui| {
-                gui.deinit(allocator);
-                return 1;
-            }
+            std.debug.assert(self.plugin.gui != null);
+            std.debug.print("Closing GUI\n", .{});
+            self.plugin.gui.?.deinit(allocator);
+            self.plugin.gui = null;
+            return 1;
         },
         .GetVstVersion => return 2400,
         .CanDo => return -1,
