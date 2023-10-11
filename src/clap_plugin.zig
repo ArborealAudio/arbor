@@ -9,9 +9,6 @@ const Reverb = @import("zig-dsp/Reverb.zig");
 const Gui = @import("Gui.zig");
 const ClapGui = @import("gui/clap_gui.zig");
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-pub const allocator = gpa.allocator();
-
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
 });
@@ -44,7 +41,12 @@ const AudioPorts = struct {
         return 1;
     }
 
-    fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_audio_port_info_t) callconv(.C) bool {
+    fn get(
+        plugin: [*c]const clap.clap_plugin_t,
+        index: u32,
+        is_input: bool,
+        info: [*c]clap.clap_audio_port_info_t,
+    ) callconv(.C) bool {
         _ = is_input;
         if (index > 1)
             return false;
@@ -75,7 +77,12 @@ const NotePorts = struct {
         return 0;
     }
 
-    fn get(plugin: [*c]const clap.clap_plugin_t, index: u32, is_input: bool, info: [*c]clap.clap_note_port_info_t) callconv(.C) bool {
+    fn get(
+        plugin: [*c]const clap.clap_plugin_t,
+        index: u32,
+        is_input: bool,
+        info: [*c]clap.clap_note_port_info_t,
+    ) callconv(.C) bool {
         _ = is_input;
         _ = plugin;
         if (index > 0)
@@ -110,7 +117,7 @@ const State = struct {
         _ = stream;
         const plug = c_cast(*Self, plugin.*.plugin_data).plugin;
         _ = plug;
-        const numParams = Params.numParams;
+        const numParams = Params.num_params;
         _ = numParams;
         // PROBLEM: This crashes the plugin!
         // return @sizeOf(f32) * numParams == stream.*.write.?(stream, c_cast([*c]const f32, &plug.*.params), @sizeOf(f32) * numParams);
@@ -122,7 +129,7 @@ const State = struct {
         var mutex = Mutex{};
         mutex.lock();
         defer mutex.unlock();
-        const numParams = Params.numParams;
+        const numParams = Params.num_params;
         return @sizeOf(f32) * numParams == stream.*.read.?(stream, c_cast([*c]f32, &plug.params), @sizeOf(f32) * numParams);
     }
 
@@ -195,19 +202,22 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
 }
 
 pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
-    defer _ = gpa.deinit();
     var self = c_cast(*Self, plugin.*.plugin_data);
     if (self.*.host_timer_support != null and self.*.host_timer_support.*.unregister_timer != null)
         _ = self.*.host_timer_support.*.unregister_timer.?(self.*.host, self.*.timer_id);
-    // arena.deinit();
-    self.plugin.deinit(allocator);
-    allocator.destroy(self.plugin);
-    allocator.destroy(self);
+    self.plugin.deinit(std.heap.page_allocator);
+    std.heap.page_allocator.destroy(self.plugin);
+    std.heap.page_allocator.destroy(self);
 }
 
-pub fn activate(plugin: [*c]const clap.clap_plugin, sample_rate: f64, min_frames_count: u32, max_frames_count: u32) callconv(.C) bool {
+pub fn activate(
+    plugin: [*c]const clap.clap_plugin,
+    sample_rate: f64,
+    min_frames_count: u32,
+    max_frames_count: u32,
+) callconv(.C) bool {
     var plug = c_cast(*Self, plugin.*.plugin_data).plugin;
-    plug.init(allocator, sample_rate, max_frames_count) catch unreachable;
+    plug.init(std.heap.page_allocator, sample_rate, max_frames_count) catch unreachable;
     _ = min_frames_count;
     return true;
 }
@@ -265,12 +275,19 @@ pub fn process(plugin: [*c]const clap.clap_plugin, processInfo: [*c]const clap.c
             }
         }
 
-        const in = [_][*]f32{ processInfo.*.audio_inputs[0].data32[0], processInfo.*.audio_inputs[0].data32[1] };
-        const out = [_][*]f32{ processInfo.*.audio_outputs[0].data32[0], processInfo.*.audio_outputs[0].data32[1] };
+        // TODO: Instead of an array, just copy the pointers to a double multi-ptr
+        var in = [_][*]f32{
+            processInfo.*.audio_inputs[0].data32[0],
+            processInfo.*.audio_inputs[0].data32[1],
+        };
+        var out = [_][*]f32{
+            processInfo.*.audio_outputs[0].data32[0],
+            processInfo.*.audio_outputs[0].data32[1],
+        };
         // process audio in frame
         while (i < nextEventFrame) {
             const frames_to_process = nextEventFrame - i;
-            plug.processAudio(in, out, frames_to_process);
+            plug.processAudio(&in, &out, frames_to_process);
             i += frames_to_process;
         }
     }
@@ -314,15 +331,19 @@ const Factory = struct {
         return if (index == 0) &PluginDesc else null;
     }
 
-    fn createPlugin(factory: [*c]const clap.clap_plugin_factory, host: [*c]const clap.clap_host_t, plugin_id: [*c]const u8) callconv(.C) [*c]const clap.clap_plugin_t {
+    fn createPlugin(
+        factory: [*c]const clap.clap_plugin_factory,
+        host: [*c]const clap.clap_host_t,
+        plugin_id: [*c]const u8,
+    ) callconv(.C) [*c]const clap.clap_plugin_t {
         _ = factory;
         if (host.*.clap_version.major < 1)
             return null;
         if (std.mem.orderZ(u8, plugin_id, PluginDesc.id).compare(.eq)) {
             // PROBLEM: This segfaults sometimes
-            var c_plugin = allocator.create(Self) catch unreachable;
+            var c_plugin = std.heap.page_allocator.create(Self) catch unreachable;
             c_plugin.* = .{
-                .plugin = allocator.create(Plugin) catch unreachable, // heap alloc first
+                .plugin = std.heap.page_allocator.create(Plugin) catch unreachable, // heap alloc first
                 .clap_plugin = .{
                     .desc = &PluginDesc,
                     .plugin_data = c_plugin,
