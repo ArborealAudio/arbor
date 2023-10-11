@@ -18,7 +18,7 @@ pub fn FloatClamp01(x: anytype) @TypeOf(x) {
 }
 
 values: Values = Values{},
-pub const numParams: u32 = std.meta.fields(Values).len;
+pub const num_params: u32 = std.meta.fields(Values).len;
 /// structure for plugin parameters
 /// stored as named values
 pub const Values = struct {
@@ -36,7 +36,8 @@ pub const ParamInfo = struct {
     defaultValue: f64,
 };
 
-pub const list = [std.meta.fields(Values).len]ParamInfo{
+// TODO: Turn this into a comptime fn where we populate the info fields based on type info from Values
+pub const list = [_]ParamInfo{
     .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
     .{ .id = 1, .name = "Feedback", .minValue = 0.001, .maxValue = 0.35, .defaultValue = 0.2 },
     // .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
@@ -46,7 +47,7 @@ pub const list = [std.meta.fields(Values).len]ParamInfo{
 
 pub fn count(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {
     _ = plugin;
-    return std.meta.fields(Values).len;
+    return num_params;
 }
 
 fn getInfo(plugin: [*c]const clap.clap_plugin_t, index: u32, info: [*c]clap.clap_param_info_t) callconv(.C) bool {
@@ -84,7 +85,7 @@ pub fn getNormalizedValue(self: *Self, id: u32) !f64 {
 }
 
 pub fn idToName(id: u32) ![]u8 {
-    std.debug.assert(id < numParams);
+    std.debug.assert(id < num_params);
     inline for (list) |info| {
         if (info.id == id)
             return @constCast(info.name);
@@ -93,7 +94,7 @@ pub fn idToName(id: u32) ![]u8 {
 }
 
 pub fn idToValue(self: *Self, id: u32) !f64 {
-    std.debug.assert(id < numParams);
+    std.debug.assert(id < num_params);
     const values = std.meta.fields(Values);
     inline for (values, 0..) |v, i| {
         if (list[i].id == id) {
@@ -164,7 +165,6 @@ fn flush(plugin: [*c]const clap.clap_plugin_t, in: [*c]const clap.clap_input_eve
     _ = out;
     var c_plugin = c_cast(*ClapPlugin, plugin.*.plugin_data);
     const eventCount = in.*.size.?(in);
-    // plug.syncMainToAudio(out);
 
     var eventIndex: u32 = 0;
     while (eventIndex < eventCount) : (eventIndex += 1) {
