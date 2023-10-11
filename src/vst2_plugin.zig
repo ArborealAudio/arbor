@@ -7,10 +7,7 @@ const Plugin = @import("Plugin.zig");
 const Params = @import("Params.zig");
 const Gui = @import("Gui.zig");
 
-// var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-// const allocator = gpa.allocator();
-var arena: std.heap.ArenaAllocator = undefined;
-var allocator: std.mem.Allocator = undefined;
+const allocator = std.heap.page_allocator;
 
 const Self = @This();
 
@@ -50,9 +47,8 @@ fn dispatch(
             return 1;
         },
         .Close => {
-            // self.deinit(allocator);
+            self.deinit(allocator);
             // _ = gpa.deinit();
-            arena.deinit();
             return 1;
         },
         .GetVendorString => {
@@ -158,19 +154,17 @@ fn dispatch(
         },
         .EditOpen => {
             // ptr = native parent window (HWND, NSView/NSWindow?)
-            // std.debug.assert(self.plugin.gui == null);
+            std.debug.assert(self.plugin.gui == null);
             self.plugin.gui = Gui.init(allocator, self.plugin) catch |e| {
                 std.log.err("GUI init failed: {}\n", .{e});
                 std.process.exit(1);
             };
-            // PROBLEM: The gui seems to be invalid memory
-            // OR: Something else inside the plugin. Since, when we try to print the plugin, it crashes at some point while accessing it
-            // Probably to do with the fact that we never call init() on it, so some of the memory locations are bunk
-            // if (ptr) |p|
-            //     Gui.implGuiSetParent(null, self.plugin.gui.?.window, p)
-            // else
-            //     return 0;
-            // self.plugin.gui.?.render();
+
+            if (ptr) |p|
+                Gui.implGuiSetParent(null, self.plugin.gui.?.window, p)
+            else
+                return 0;
+            self.plugin.gui.?.render();
             return 1;
         },
         .EditClose => {
@@ -256,7 +250,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .num_params = Params.num_params,
         .num_inputs = 2, // TODO: Get num channels (and other stuff below) from Config
         .num_outputs = 2,
-        .flags = vst2.Flags.toInt(&[_]vst2.Flags{.HasReplacing}),
+        .flags = vst2.Flags.toInt(&[_]vst2.Flags{ .HasReplacing, .HasEditor }),
         .latency = 0,
         .uniqueID = 0x666,
         .version = Plugin.Description.version_int,
@@ -274,7 +268,5 @@ fn deinit(self: *Self, alloc: std.mem.Allocator) void {
 }
 
 export fn VSTPluginMain(callback: vst2.HostCallback) callconv(.C) ?*anyopaque {
-    arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    allocator = arena.allocator();
     return init(allocator, callback) catch return null;
 }
