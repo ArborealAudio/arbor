@@ -18,7 +18,7 @@ pub fn FloatClamp01(x: anytype) @TypeOf(x) {
 }
 
 values: Values = Values{},
-pub const num_params: u32 = std.meta.fields(Values).len;
+pub const num_params = std.meta.fields(Values).len;
 /// structure for plugin parameters
 /// stored as named values
 pub const Values = struct {

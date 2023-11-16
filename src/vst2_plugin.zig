@@ -22,8 +22,9 @@ host_callback: *const fn (
 ) callconv(.C) isize,
 plugin: *Plugin, // our specific plugin data
 state: vst2.PluginState = undefined,
+rect: vst2.Rect,
 
-fn ptrCast(effect: *vst2.AEffect) *Self {
+fn plugCast(effect: *vst2.AEffect) *Self {
     return @ptrCast(@alignCast(effect.object));
 }
 
@@ -36,11 +37,11 @@ fn dispatch(
     opt: f32,
 ) callconv(.C) isize {
     _ = value;
-    var self = ptrCast(effect);
+    var self = plugCast(effect);
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
-            self.plugin.init(allocator, 44100, 128) catch |e| {
+            self.plugin.prepare(allocator, 44100, 128) catch |e| {
                 std.log.err("Plugin init error {}\n", .{e});
                 std.process.exit(1);
             };
@@ -55,7 +56,10 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const vendor = Plugin.Description.vendor_name;
-                @memcpy(buf[0..vendor.len], vendor);
+                _ = std.fmt.bufPrintZ(buf[0..vendor.len], "{s}", .{vendor}) catch |e| {
+                    std.log.err("{}\n", .{e});
+                    return -1;
+                };
                 return 1;
             }
         },
@@ -66,7 +70,10 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const name = Plugin.Description.plugin_name;
-                @memcpy(buf[0..name.len], name);
+                _ = std.fmt.bufPrintZ(buf[0..name.len], "{s}", .{name}) catch |e| {
+                    std.log.err("{}\n", .{e});
+                    return -1;
+                };
                 return 1;
             }
         },
@@ -82,7 +89,10 @@ fn dispatch(
                 if (ptr) |p| {
                     // ISSUE: This will sometimes print trailing garbage
                     var buf: [*]u8 = @ptrCast(p);
-                    @memcpy(buf[0..name.len], name);
+                    _ = std.fmt.bufPrintZ(buf[0..name.len], "{s}", .{name}) catch |e| {
+                        std.log.err("{}\n", .{e});
+                        return -1;
+                    };
                 }
                 return 1;
             }
@@ -107,39 +117,6 @@ fn dispatch(
             }
             return 0;
         },
-        // .GetParameterProperties => {
-        //     if (index >= 0 and index < Params.num_params) {
-        //         var prop = c_cast(*vst2.ParameterProperties, ptr);
-        //         const param: Params.ParamInfo = Params.list[@intCast(index)];
-        //         const param_type = @TypeOf(param.defaultValue);
-        //         switch (@typeInfo(param_type)) {
-        //             .Int, .Enum => {
-        //                 prop.flags = @intFromEnum(vst2.ParameterFlags.UsesIntStep) | @intFromEnum(vst2.ParameterFlags.UsesIntegerMax);
-        //                 prop.minInteger = @as(param_type, param.minValue);
-        //                 prop.maxInteger = @as(param_type, param.maxValue);
-        //                 prop.stepInteger = 1; // TODO: Implement different sized integer steps I guess?
-        //             },
-        //             .Bool => {
-        //                 prop.flags = @intFromEnum(vst2.ParameterFlags.IsSwitch);
-        //             },
-        //             .Float => {
-        //                 prop.flags = @intFromEnum(vst2.ParameterFlags.UseFloatStep);
-        //                 prop.stepFloat = 0.01;
-        //                 std.log.warn("TODO: Implement variable stepping for float params\n", .{});
-        //             },
-        //             else => {
-        //                 std.log.err("Unsupported parameter type: {}\n", .{param_type});
-        //                 std.process.exit(1);
-        //             },
-        //         }
-
-        //         const label = param.name;
-        //         @memcpy(prop.label[0..label.len], label);
-
-        //         return 1;
-        //     }
-        //     return 0;
-        // },
         .SetSampleRate => {
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
             self.plugin.sampleRate = @floatCast(opt);
@@ -152,14 +129,20 @@ fn dispatch(
         //     return 1;
         // },
         .EditGetRect => {
-            // set rect size & copy to ptr
+            // copy to ptr
+            if (ptr) |*p| {
+                var dest = p;
+                dest = @alignCast(@ptrCast(&self.rect));
+                return 1;
+            }
         },
         .EditOpen => {
+            // Init GUI
             // ptr = native parent window (HWND, NSView/NSWindow?)
             std.debug.assert(self.plugin.gui == null);
             self.plugin.gui = Gui.init(allocator, self.plugin) catch |e| {
                 std.log.err("GUI init failed: {}\n", .{e});
-                std.process.exit(1);
+                return -1;
             };
 
             if (ptr) |p|
@@ -169,7 +152,14 @@ fn dispatch(
             self.plugin.gui.?.render();
             return 1;
         },
+        .EditRedraw => {
+            // Update & Draw GUI
+            // Probably need to check whether redraw is needed
+            std.debug.assert(self.plugin.gui != null);
+            self.plugin.gui.?.render();
+        },
         .EditClose => {
+            // Close GUI
             std.debug.assert(self.plugin.gui != null);
             std.debug.print("Closing GUI\n", .{});
             self.plugin.gui.?.deinit(allocator);
@@ -199,7 +189,7 @@ fn processReplacing(
     outputs: [*][*]f32,
     frames: i32,
 ) callconv(.C) void {
-    const self = ptrCast(effect);
+    const self = plugCast(effect);
     self.plugin.processAudio(inputs, outputs, @intCast(frames));
 }
 fn processDoubleReplacing(
@@ -215,15 +205,21 @@ fn processDoubleReplacing(
 }
 
 fn setParameter(effect: *vst2.AEffect, index: i32, value: f32) callconv(.C) void {
-    const self = ptrCast(effect);
+    const self = plugCast(effect);
     if (index >= 0 and index < Params.num_params) {
         // TODO: Wrap in mutex
         self.plugin.params.setValue(@intCast(index), @floatCast(value));
+        // if (self.plugin.gui) |gui| {
+        //     gui.components[@intCast(index)].value =
+        //         self.plugin.params.getNormalizedValue(@intCast(index)) catch {
+        //         @panic("Couldn't find param\n");
+        //     };
+        // }
         self.plugin.onParamChange(@intCast(index));
     }
 }
 fn getParameter(effect: *vst2.AEffect, index: i32) callconv(.C) f32 {
-    const self = ptrCast(effect);
+    const self = plugCast(effect);
     if (index >= 0 and index < Params.num_params) {
         // TODO: Wrap in mutex
         const val = self.plugin.params.getNormalizedValue(@intCast(index)) catch {
@@ -239,8 +235,9 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
     var self = try alloc.create(Self);
     self.* = .{
         .effect = try alloc.create(vst2.AEffect),
-        .plugin = try alloc.create(Plugin),
+        .plugin = Plugin.init(alloc),
         .host_callback = host_callback,
+        .rect = .{ .top = 0, .left = 0, .bottom = Gui.GUI_HEIGHT, .right = Gui.GUI_WIDTH },
     };
     self.effect.* = .{
         .dispatcher = dispatch,
@@ -259,13 +256,11 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .version = Plugin.Description.version_int,
         .object = self,
     };
-    self.plugin.* = .{ .reverb = .{ .plugin = self.plugin } };
     return self.effect;
 }
 
 fn deinit(self: *Self, alloc: std.mem.Allocator) void {
     self.plugin.deinit(alloc);
-    alloc.destroy(self.plugin);
     alloc.destroy(self.effect);
     alloc.destroy(self);
 }

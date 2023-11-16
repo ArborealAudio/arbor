@@ -10,7 +10,7 @@ const Params = @import("Params.zig");
 const Gui = @import("Gui.zig");
 const Reverb = @import("zig-dsp/Reverb.zig");
 
-pub const Format = enum { CLAP, VST3, VST2, Standalone };
+pub const Format = enum { CLAP, VST3, VST2 };
 const format = build_options.format;
 // const format = std.build.option(Format, "format", "Plugin format");
 
@@ -67,7 +67,7 @@ pub const Description = struct {
 pub var parameter_changed = [_]bool{false} ** Params.num_params;
 
 pub fn onParamChange(self: *Self, id: u32) void {
-    if (id == Params.nameToID("feedback") catch @panic("Param not found"))
+    if (id == Params.nameToID("feedback") catch @panic("Param not found\n"))
         self.reverb.update_feedback = true;
 }
 
@@ -83,18 +83,29 @@ maxNumSamples: u32 = 128,
 
 latency: u32 = 0,
 
+/// function called on plugin creation
+pub fn init(allocator: std.mem.Allocator) *Self {
+    var plugin = allocator.create(Self) catch |e| {
+        std.log.err("{}\n", .{e});
+        std.process.exit(1);
+    };
+    plugin.* = .{ .reverb = .{ .plugin = plugin } };
+    return plugin;
+}
+
 /// setup plugin for processing
-pub fn init(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
+pub fn prepare(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
     self.sampleRate = sample_rate;
     self.maxNumSamples = max_frames;
-    self.reverb.init(allocator, self, self.sampleRate, @floatCast(0.125 * self.sampleRate)) catch {
-        std.log.err("Failed to initialize reverb\n", .{});
+    self.reverb.prepare(allocator, self, self.sampleRate, @floatCast(0.125 * self.sampleRate)) catch |e| {
+        std.log.err("Failed to initialize reverb: {}\n", .{e});
         std.process.exit(1);
     };
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.reverb.deinit(allocator);
+    allocator.destroy(self);
 }
 
 pub fn processAudio(self: *Self, in: [*][*]f32, out: [*][*]f32, numFrames: u32) void {

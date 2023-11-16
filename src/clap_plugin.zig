@@ -215,7 +215,6 @@ pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
     if (self.*.host_timer_support != null and self.*.host_timer_support.*.unregister_timer != null)
         _ = self.*.host_timer_support.*.unregister_timer.?(self.*.host, self.*.timer_id);
     self.plugin.deinit(allocator);
-    allocator.destroy(self.plugin);
     allocator.destroy(self);
 }
 
@@ -226,7 +225,7 @@ pub fn activate(
     max_frames_count: u32,
 ) callconv(.C) bool {
     var plug = c_cast(*Self, plugin.*.plugin_data).plugin;
-    plug.init(allocator, sample_rate, max_frames_count) catch unreachable;
+    plug.prepare(allocator, sample_rate, max_frames_count) catch unreachable;
     _ = min_frames_count;
     return true;
 }
@@ -355,10 +354,12 @@ const Factory = struct {
         if (host.*.clap_version.major < 1)
             return null;
         if (std.mem.orderZ(u8, plugin_id, PluginDesc.id).compare(.eq)) {
-            // PROBLEM: This segfaults sometimes
-            var c_plugin = allocator.create(Self) catch unreachable;
+            var c_plugin = allocator.create(Self) catch |e| {
+                std.log.err("{}\n", .{e});
+                std.process.exit(1);
+            };
             c_plugin.* = .{
-                .plugin = allocator.create(Plugin) catch unreachable, // heap alloc first
+                .plugin = Plugin.init(allocator),
                 .clap_plugin = .{
                     .desc = &PluginDesc,
                     .plugin_data = c_plugin,
@@ -382,7 +383,6 @@ const Factory = struct {
                 .host_timer_support = null,
                 .timer_id = undefined,
             };
-            c_plugin.plugin.* = .{ .reverb = .{ .plugin = c_plugin.plugin } }; // define "outer" plugin after
             return &c_plugin.clap_plugin;
         }
         return null;

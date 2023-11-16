@@ -38,7 +38,7 @@ update_feedback: bool = false,
 /// early reflection delays in ms
 const early_ref_time = [EARLY_REF_ORDER]f32{ 32, 54, 23, 69 };
 
-pub fn init(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, maxDelaySamples: f32) !void {
+pub fn prepare(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, maxDelaySamples: f32) !void {
     self.plugin = _plugin;
     var rand = std.rand.DefaultPrng.init(69);
 

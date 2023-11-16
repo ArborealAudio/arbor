@@ -7,7 +7,7 @@ const build_options = @import("build_options");
 const c_cast = std.zig.c_translation.cast;
 const Plugin = @import("Plugin.zig");
 const Params = @import("Params.zig");
-const Components = @import("gui/Components.zig");
+const Components = @import("Components.zig");
 const Gui = @This();
 
 pub const GUI_WIDTH = 400;
@@ -22,21 +22,11 @@ plugin: *Plugin,
 
 // slice representing all parameter knobs. Access via ID
 components: []*Components.Knob,
+last_component: ?*Components.Knob = null,
+last_mouse_pos: Vec2 = undefined,
 
-state: State = .Idle,
-
-// index to last component adjusted
-last_component: ?u32 = null,
-
-const State = enum {
-    // TODO: Improve state system to manage updates in a cleaner way
-    GestureDetected,
-    GestureContinue,
-    GestureProcessed,
-    Idle,
-};
-
-const BACKGROUND_COLOR = 0x18_2b_33_ff;
+const BACKGROUND_COLOR = 0xff_80_80_00;
+const BORDER_COLOR = 0xff_c0_f0_c0;
 
 pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     const ptr = try allocator.create(Gui);
@@ -44,51 +34,37 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .plugin = plugin,
         .components = try allocator.alloc(*Components.Knob, Params.num_params),
         // This gets the UI into proper event state
-        .state = .Idle,
         .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_HEIGHT * 4),
     };
     // define window separately bc it relies on `bits`
     if (implGuiCreate(plugin, ptr.bits.ptr, GUI_WIDTH, GUI_HEIGHT)) |disp|
         ptr.window = disp;
+
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
+    // setup unique properties here
+    const knob_width = GUI_WIDTH / Params.num_params;
     for (ptr.components, 0..) |_, i| {
         ptr.components[i] = try allocator.create(Components.Knob);
-        ptr.components[i].id = @intCast(i);
-        ptr.components[i].value = try plugin.params.getNormalizedValue(@intCast(i));
+        ptr.components[i].* = .{
+            .id = @intCast(i),
+            .value = try plugin.params.idToValue(@intCast(i)),
+            .label = .{
+                .text = try Params.idToName(@intCast(i)),
+                .size = 25,
+                .spacing = 7,
+            },
+            .width = @as(f32, @floatFromInt(knob_width)) * 0.45,
+            .centerX = @as(f32, @floatFromInt(i * knob_width + (knob_width / 2))),
+            .centerY = GUI_HEIGHT / 2,
+            .fill_color = 0xff_ff_ff_ff,
+            .border_color = 0xff_00_00_00,
+            .border_size = 2,
+        };
     }
 
-    // setup unique properties here
-    ptr.components[Components.getComponentID("mix")].* = .{
-        .label = .{
-            .text = "Mix",
-            .size = 25.0,
-            .spacing = 7,
-        },
-        .centerX = centerX - 75.0,
-        .centerY = centerY,
-        .width = 100.0,
-        .fill_color = 0xff_ff_ff_ff,
-        .border_color = 0,
-        .flags = .{
-            .draw_label = true,
-        },
-    };
-    ptr.components[Components.getComponentID("feedback")].* = .{
-        .label = .{
-            .text = "Delay",
-            .size = 25.0,
-            .spacing = 7,
-        },
-        .centerX = centerX + 75.0,
-        .centerY = centerY,
-        .width = 100.0,
-        .fill_color = 0xff_ff_ff_ff,
-        .border_color = 0,
-        .flags = .{
-            .draw_label = true,
-        },
-    };
+    // std.debug.print("{d}: Mix\n", .{ptr.components[Components.getComponentID("mix")].id});
+    // std.debug.print("{d}: Feedback\n", .{ptr.components[Components.getComponentID("feedback")].id});
 
     // set default font
     // const font_file = @embedFile("res/Sora-Regular.ttf");
@@ -109,17 +85,12 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
 }
 
 pub fn render(self: *Gui) void {
-    // IDEA: What if we handle GUI events here, i.e. mouse clicks, and passing parameter changes to UI
-    // can still happen in the plugin's timer?
-    // UPDATE: Mostly did that, except parameter changes from host are processed in plugin wrapper, not timer
-    // _ = self.update() catch @panic("GUI update error");
-
     Gui.drawRect(self.bits, .{
         .x = 0,
         .y = 0,
         .width = GUI_WIDTH,
         .height = GUI_HEIGHT,
-    }, 0x80_80_00, 0xc0_f0_c0, 5);
+    }, BACKGROUND_COLOR, BORDER_COLOR, 5);
 
     for (self.components) |c| {
         c.draw(self.bits);
@@ -136,67 +107,19 @@ pub fn render(self: *Gui) void {
     // rl.EndDrawing();
 }
 
-/// function for getting mouse events, checking parameters
-pub fn update(self: *Gui) !bool {
-    // TODO: replace with proper events query
-
-    var may_repaint = false;
-    var exit = false;
-
-    while (!exit) {
-        switch (self.state) {
-            .Idle => {
-                // check param changes
-                for (&Plugin.parameter_changed, 0..) |*p, i| {
-                    // set the associated component value based off the current param value
-                    if (p.*) {
-                        self.components[i].value = try self.plugin.params.getNormalizedValue(@as(u32, @intCast(i)));
-                        p.* = false;
-                        may_repaint = true;
-                    }
-                }
-                // check for gestures
-                // if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
-                //     self.state = .GestureDetected;
-                //     break;
-                // } else exit = true;
-                // TODO: Check for mouse clicks and plain ol mouse over
-            },
-            .GestureDetected => {
-                exit = try self.processGesture(false);
-            },
-            .GestureContinue => {
-                exit = try self.processGesture(true);
-            },
-            .GestureProcessed => {
-                // if (rl.IsGestureDetected(rl.GESTURE_DRAG)) {
-                //     self.state = .GestureContinue;
-                //     break;
-                // }
-                self.state = .Idle;
-                if (self.last_component != null)
-                    self.components[self.last_component.?].is_mouse_over = false;
-                exit = true;
-            },
-        }
-    }
-
-    return may_repaint;
-}
-
-const Vec2 = struct {
+pub const Vec2 = struct {
     x: f32,
     y: f32,
 };
 
-const Rect = struct {
+pub const Rect = struct {
     x: f32,
     y: f32,
     width: f32,
     height: f32,
 };
 
-const Circle = struct {
+pub const Circle = struct {
     pos: Vec2, // center pos
     radius: f32,
 };
@@ -218,10 +141,20 @@ pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thicknes
 
 pub fn drawLine(bits: []u32, p1: Vec2, p2: Vec2, color: u32, thickness: f32) void {
     _ = thickness;
-    _ = color;
-    _ = p2;
-    _ = p1;
-    _ = bits;
+    // Bresenham's line algorithm
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    var d = 2 * dy - dx;
+    var y: u32 = @intFromFloat(p1.y);
+    var x: u32 = @intFromFloat(p1.x);
+    while (x < @as(u32, @intFromFloat(p2.x))) : (x += 1) {
+        bits[y * GUI_WIDTH + x] = color;
+        if (d > 0) {
+            y += 1;
+            d -= 2 * dx;
+        }
+        d += 2 * dy;
+    }
 }
 
 pub fn drawCircle(bits: []u32, circle: Circle, fill: u32, border: u32, border_thickness: f32) void {
@@ -241,8 +174,9 @@ pub fn drawCircle(bits: []u32, circle: Circle, fill: u32, border: u32, border_th
             const abs = @fabs(hyp);
             if (abs <= circle.radius - border_thickness) {
                 bits[@intFromFloat(y * GUI_WIDTH + x)] = fill;
-            } else if (abs <= circle.radius and abs >= circle.radius - border_thickness)
+            } else if (abs <= circle.radius and abs >= circle.radius - border_thickness) {
                 bits[@intFromFloat(y * GUI_WIDTH + x)] = border;
+            }
         }
     }
 }
@@ -292,29 +226,41 @@ fn drawCircleMidpoint(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32
     }
 }
 
-pub fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
-    _ = mouse_pos;
-    _ = mouse_button;
-    // check if still processing gesture on last component
+fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
     var comp: ?*Components.Knob = null;
-    // if (gesture_rendered)
-    //     comp = self.components[self.last_component.?] // is_mouse_over should still be true
-    // else {
-    // if not, get pointer to component which mouse is over
-    // outer: for (self.components) |c| {
-    //     if (rl.CheckCollisionPointCircle(pos, .{
-    //         .x = @as(f32, @floatFromInt(c.centerX)),
-    //         .y = @as(f32, @floatFromInt(c.centerY)),
-    //     }, c.width / 2.0)) {
-    //         comp = c;
-    //         comp.?.is_mouse_over = true;
-    //         break :outer;
-    //     }
-    // }
-    // }
-    // otherwise, mouse event not on a component
-    if (comp == null)
-        return true;
+    var mouse_delta: Vec2 = .{ .x = 0, .y = 0 };
+    switch (mouse_button) {
+        -1 => {
+            // Mouse up
+            self.last_component = null;
+            std.debug.print("Mouse up\n", .{});
+            return false;
+        },
+        0 => {
+            // Mouse dragging
+            if (self.last_component) |_| {
+                comp = self.last_component;
+                mouse_delta.x = mouse_pos.x - self.last_mouse_pos.x;
+                mouse_delta.y = mouse_pos.y - self.last_mouse_pos.y;
+                self.last_mouse_pos = mouse_pos;
+            }
+        },
+        1 => {
+            self.last_mouse_pos = mouse_pos;
+            // Mouse down
+            for (self.components) |c| {
+                if (c.isMouseDown(mouse_pos)) {
+                    comp = c;
+                    self.last_component = comp;
+                    std.debug.print("Mouse on: {d}\n", .{comp.?.id});
+                    break;
+                }
+            }
+        },
+        else => @panic("Invalid mouse button\n"),
+    }
+
+    if (comp == null) return false;
 
     const id = comp.?.id;
 
@@ -322,16 +268,15 @@ pub fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
     var p_val = try self.plugin.params.idToValue(id);
     const p_min = Params.list[id].minValue;
     const p_max = Params.list[id].maxValue;
-    // p_val += @as(f64, @floatCast(-vec.y * 0.01));
+    p_val += @as(f64, @floatCast(mouse_delta.y * 0.01));
     p_val = @min(p_max, @max(p_min, p_val));
 
     // change parameter
     self.plugin.params.setValue(id, p_val);
     comp.?.value = try self.plugin.params.getNormalizedValue(id);
 
-    self.last_component = comp.?.id;
-    std.debug.assert(self.last_component.? < self.components.len);
-    self.state = .GestureProcessed;
+    // self.last_component = comp.?.id;
+    // std.debug.assert(self.last_component.? < self.components.len);
     return true;
 }
 
@@ -343,7 +288,12 @@ pub extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible:
 pub extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
 export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
     std.debug.assert(plugin.gui != null);
-    _ = plugin.gui.?.processGesture(button, .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) }) catch unreachable;
+    _ = plugin.gui.?.processGesture(
+        button,
+        .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) },
+    ) catch |e| {
+        std.log.err("{}\n", .{e});
+    };
     plugin.gui.?.render();
     implGuiRender(plugin.gui.?.window);
 }

@@ -25,13 +25,11 @@ pub fn build(b: *std.Build) void {
         .CLAP => plugin_name ++ ".clap",
         .VST3 => plugin_name ++ ".vst3",
         .VST2 => plugin_name ++ ".vst",
-        .Standalone => plugin_name,
     };
     const root_file = switch (format.?) {
         .CLAP => "src/clap_plugin.zig",
         .VST3 => "src/vst3_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
-        .Standalone => "src/standalone.zig",
     };
     const sdk_include = switch (format.?) {
         .CLAP => "lib/clap/include",
