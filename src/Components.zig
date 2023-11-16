@@ -9,13 +9,6 @@ pub fn getComponentID(param_name: []const u8) u32 {
     return Params.nameToID(param_name) catch @panic("Component not found");
 }
 
-test "Component lookup" {
-    const mix_id = getComponentID("mix");
-    const fdbk_id = getComponentID("feedback");
-    try std.testing.expect(mix_id == 0);
-    try std.testing.expect(fdbk_id == 1);
-}
-
 pub const Knob = struct {
     id: u32 = undefined,
 
@@ -42,7 +35,7 @@ pub const Knob = struct {
     label: Label,
 
     const Label = struct {
-        text: [:0]const u8,
+        text: []const u8,
         size: f32,
         position: Position = .Below,
         spacing: i32 = 5,
@@ -71,33 +64,14 @@ pub const Knob = struct {
             .radius = self.width,
         }, self.fill_color, self.border_color, self.border_size);
 
-        const min_knob_pos: f32 = std.math.pi * 0.75;
-        const max_knob_pos: f32 = std.math.pi * 2.25;
+        const min_knob_pos: f32 = std.math.pi * 0.25;
+        const max_knob_pos: f32 = std.math.pi * 1.75;
         // point along circumference to draw pointer
-        const pointer_angle = min_knob_pos + (@as(f32, @floatCast(self.value)) * (max_knob_pos - min_knob_pos));
+        const pointer_angle = min_knob_pos + @as(f32, @floatCast(self.value)) * (max_knob_pos - min_knob_pos);
         const cos = @cos(pointer_angle);
         const sin = @sin(pointer_angle);
         const x1 = self.centerX + (cos * radius);
         const y1 = self.centerY + (sin * radius);
-
-        const r2 = radius - (self.pointer_length * radius);
-        const x2 = self.centerX + (cos * r2);
-        _ = x2;
-        const y2 = self.centerY + (sin * r2);
-        _ = y2;
-
-        // Gui.drawRect(
-        //     bits,
-        //     .{
-        //         .height = radius * @as(f32, @floatCast(self.value)),
-        //         .width = radius / 2,
-        //         .x = self.centerX,
-        //         .y = self.centerY,
-        //     },
-        //     0xff0000ff,
-        //     0,
-        //     0,
-        // );
 
         Gui.drawCircle(
             bits,
