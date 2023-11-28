@@ -7,7 +7,11 @@ const build_options = @import("build_options");
 const c_cast = std.zig.c_translation.cast;
 const Plugin = @import("Plugin.zig");
 const Params = @import("Params.zig");
-const Components = @import("Components.zig");
+const Component = @import("Component.zig");
+const o = @cImport({
+    @cDefine("OLIVEC_IMPLEMENTATION", "");
+    @cInclude("olive.c");
+});
 const Gui = @This();
 
 pub const GUI_WIDTH = 400;
@@ -15,14 +19,32 @@ pub const GUI_HEIGHT = 500;
 const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
 const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
 
+pub const Vec2 = struct {
+    x: f32,
+    y: f32,
+};
+
+pub const Rect = struct {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+};
+
+pub const Circle = struct {
+    pos: Vec2, // center pos
+    radius: f32,
+};
+
 window: *anyopaque = undefined,
+canvas: o.Olivec_Canvas,
 bits: []u32,
 
 plugin: *Plugin,
 
-// slice representing all parameter knobs. Access via ID
-components: []*Components.Knob,
-last_component: ?*Components.Knob = null,
+// slice representing all parameter controllers. Access via ID
+components: []*Component,
+last_component: ?*Component = null,
 last_mouse_pos: Vec2 = undefined,
 
 const BACKGROUND_COLOR = 0xff_80_80_00;
@@ -32,9 +54,10 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     const ptr = try allocator.create(Gui);
     ptr.* = .{
         .plugin = plugin,
-        .components = try allocator.alloc(*Components.Knob, Params.num_params),
+        .components = try allocator.alloc(*Component, Params.num_params),
         // This gets the UI into proper event state
         .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_HEIGHT * 4),
+        .canvas = o.olivec_canvas(ptr.bits.ptr, GUI_WIDTH, GUI_HEIGHT, GUI_WIDTH),
     };
     // define window separately bc it relies on `bits`
     if (implGuiCreate(plugin, ptr.bits.ptr, GUI_WIDTH, GUI_HEIGHT)) |disp|
@@ -45,26 +68,27 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     // setup unique properties here
     const knob_width = GUI_WIDTH / Params.num_params;
     for (ptr.components, 0..) |_, i| {
-        ptr.components[i] = try allocator.create(Components.Knob);
+        ptr.components[i] = try allocator.create(Component);
         ptr.components[i].* = .{
+            .canvas = &ptr.canvas,
             .id = @intCast(i),
-            .value = try plugin.params.idToValue(@intCast(i)),
-            .label = .{
-                .text = try Params.idToName(@intCast(i)),
-                .size = 25,
-                .spacing = 7,
+            .type = .{ .slider = .{} },
+            .draw = Component.Slider.draw,
+            .value = @as(f32, @floatCast(try plugin.params.idToValue(@intCast(i)))),
+            .pos = .{
+                .x = @floatFromInt(i * knob_width + 50),
+                .y = GUI_HEIGHT / 2 - 100,
             },
-            .width = @as(f32, @floatFromInt(knob_width)) * 0.45,
-            .centerX = @as(f32, @floatFromInt(i * knob_width + (knob_width / 2))),
-            .centerY = GUI_HEIGHT / 2,
-            .fill_color = 0xff_ff_ff_ff,
-            .border_color = 0xff_00_00_00,
+            .width = @as(f32, @floatFromInt(knob_width)) * 0.3,
+            .height = 200,
+            .fill_color = 0xff_cc_cc_cc,
+            .border_color = 0xff_70_70_00,
             .border_size = 2,
         };
     }
 
-    // std.debug.print("{d}: Mix\n", .{ptr.components[Components.getComponentID("mix")].id});
-    // std.debug.print("{d}: Feedback\n", .{ptr.components[Components.getComponentID("feedback")].id});
+    // std.debug.print("{d}: Mix\n", .{ptr.components[Component.getComponentID("mix")].id});
+    // std.debug.print("{d}: Feedback\n", .{ptr.components[Component.getComponentID("feedback")].id});
 
     // set default font
     // const font_file = @embedFile("res/Sora-Regular.ttf");
@@ -85,15 +109,10 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
 }
 
 pub fn render(self: *Gui) void {
-    Gui.drawRect(self.bits, .{
-        .x = 0,
-        .y = 0,
-        .width = GUI_WIDTH,
-        .height = GUI_HEIGHT,
-    }, BACKGROUND_COLOR, BORDER_COLOR, 5);
+    o.olivec_fill(self.canvas, BACKGROUND_COLOR);
 
     for (self.components) |c| {
-        c.draw(self.bits);
+        c.draw(c.*, self.bits);
     }
 
     // const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
@@ -107,23 +126,6 @@ pub fn render(self: *Gui) void {
     // rl.EndDrawing();
 }
 
-pub const Vec2 = struct {
-    x: f32,
-    y: f32,
-};
-
-pub const Rect = struct {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-};
-
-pub const Circle = struct {
-    pos: Vec2, // center pos
-    radius: f32,
-};
-
 pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thickness: f32) void {
     var y = rect.y;
     const bot = rect.y + rect.height;
@@ -131,7 +133,8 @@ pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thicknes
     while (y < bot) : (y += 1) {
         var x = rect.x;
         while (x < right) : (x += 1) {
-            bits[@intFromFloat(y * GUI_WIDTH + x)] = if (y <= rect.y + border_thickness or
+            var pix = &bits[@intFromFloat(y * GUI_WIDTH + x)];
+            pix.* = if (y <= rect.y + border_thickness or
                 y >= bot - border_thickness - 1 or
                 x <= rect.x + border_thickness or
                 x >= right - border_thickness - 1) border else fill;
@@ -227,7 +230,7 @@ fn drawCircleMidpoint(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32
 }
 
 fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
-    var comp: ?*Components.Knob = null;
+    var comp: ?*Component = null;
     var mouse_delta: Vec2 = .{ .x = 0, .y = 0 };
     switch (mouse_button) {
         -1 => {
@@ -249,7 +252,7 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
             self.last_mouse_pos = mouse_pos;
             // Mouse down
             for (self.components) |c| {
-                if (c.isMouseDown(mouse_pos)) {
+                if (c.hit_test(mouse_pos)) {
                     comp = c;
                     self.last_component = comp;
                     std.debug.print("Mouse on: {d}\n", .{comp.?.id});
@@ -273,7 +276,7 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
 
     // change parameter
     self.plugin.params.setValue(id, p_val);
-    comp.?.value = try self.plugin.params.getNormalizedValue(id);
+    comp.?.value = @as(f32, @floatCast(try self.plugin.params.getNormalizedValue(id)));
 
     // self.last_component = comp.?.id;
     // std.debug.assert(self.last_component.? < self.components.len);

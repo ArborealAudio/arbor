@@ -63,7 +63,6 @@ pub fn build(b: *std.Build) void {
                 std.process.exit(1);
             },
         },
-        .Standalone => "/Users/alex/Applications/",
     };
 
     const plugin = b.addSharedLibrary(.{
@@ -83,16 +82,18 @@ pub fn build(b: *std.Build) void {
             .file = .{ .path = "src/gui/gui_mac.m" },
             .flags = &[_][]const u8{"-ObjC"},
         });
-    } else if (plugin.target.isWindows())
+    } else if (plugin.target.isWindows()) {
         plugin.addCSourceFile(.{
             .file = .{ .path = "src/gui/gui_w32.c" },
             .flags = &[_][]const u8{"-std=c99"},
-        })
-    else if (plugin.target.isLinux())
+        });
+    } else if (plugin.target.isLinux()) {
         plugin.addCSourceFile(.{
             .file = .{ .path = "src/gui/gui_x11.c" },
             .flags = &[_][]const u8{"-std=c99"},
         });
+    }
+    plugin.addIncludePath(.{ .path = "src" });
     plugin.addIncludePath(.{ .path = sdk_include });
 
     if (system_install) |_| {
