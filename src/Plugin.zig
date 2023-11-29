@@ -67,8 +67,9 @@ pub const Description = struct {
 pub var parameter_changed = [_]bool{false} ** Params.num_params;
 
 pub fn onParamChange(self: *Self, id: u32) void {
-    if (id == Params.nameToID("feedback") catch @panic("Param not found\n"))
+    if (id == Params.nameToID("feedback") catch @panic("Param not found\n")) {
         self.reverb.update_feedback = true;
+    }
 }
 
 params: Params = Params{},
@@ -108,10 +109,10 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     allocator.destroy(self);
 }
 
-pub fn processAudio(self: *Self, in: [*][*]f32, out: [*][*]f32, numFrames: u32) void {
+pub fn processAudio(self: *Self, in: [*][*]f32, out: [*][*]f32, num_frames: u32) void {
     var i: u32 = 0;
     const mix = self.params.values.mix;
-    while (i < numFrames) : (i += 1) {
+    while (i < num_frames) : (i += 1) {
         const rev_out = self.reverb.processSample([_]f32{ in[0][i], in[1][i] });
 
         const wet_level = if (mix < 0.5) mix * 2.0 else 1.0;

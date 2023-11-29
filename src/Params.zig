@@ -36,7 +36,7 @@ pub const ParamInfo = struct {
     defaultValue: f64,
 };
 
-// TODO: Turn this into a comptime fn where we populate the info fields based on type info from Values
+// TODO: Turn this into a comptime fn where we populate the info fields based on type info & default values from Values
 pub const list = [_]ParamInfo{
     .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
     .{ .id = 1, .name = "Feedback", .minValue = 0.001, .maxValue = 0.35, .defaultValue = 0.2 },

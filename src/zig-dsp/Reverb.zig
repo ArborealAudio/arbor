@@ -35,7 +35,7 @@ m_ff: [2]f32 = undefined,
 
 update_feedback: bool = false,
 
-/// early reflection delays in ms
+// early reflection delays in ms
 const early_ref_time = [EARLY_REF_ORDER]f32{ 32, 54, 23, 69 };
 
 pub fn prepare(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, maxDelaySamples: f32) !void {
@@ -152,7 +152,6 @@ fn processSubSection(self: *Reverb, index: u32, ch: u32, dry: f32, fIn: f32) f32
     return self.m_sum[ch];
 }
 
-/// for now, will mono the input and process mono internally
 pub fn processSample(self: *Reverb, in: [2]f32) [2]f32 {
     if (self.update_feedback) {
         self.updateFeedback();
@@ -182,4 +181,13 @@ pub fn processSample(self: *Reverb, in: [2]f32) [2]f32 {
     }
 
     return [_]f32{ self.m_sum[0] + er[0], self.m_sum[1] + er[1] };
+}
+
+pub fn process(self: *Reverb, in: [*][*]f32, num_samples: usize) void {
+    var i: u32 = 0;
+    while (i < num_samples) : (i += 1) {
+        const out = self.processSample(&[_]f32{ in[0][i], in[1][i] });
+        in[0][i] = out[0][i];
+        in[1][i] = out[1][i];
+    }
 }

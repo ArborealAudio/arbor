@@ -184,52 +184,7 @@ pub fn drawCircle(bits: []u32, circle: Circle, fill: u32, border: u32, border_th
     }
 }
 
-// Midpoint algo
-// ISSUE: How do we fill the circle?
-fn drawCircleMidpoint(self: *Gui, pos: Vec2, radius: f32, fill: u32, border: u32, border_thickness: f32) void {
-    _ = fill;
-    _ = border_thickness;
-    const cx: i32 = @intFromFloat(pos.x);
-    const cy: i32 = @intFromFloat(pos.y);
-    var x: i32 = @intFromFloat(radius);
-    var y: i32 = 0;
-
-    if (radius > 0) {
-        self.bits[@intCast((cy - y) * GUI_WIDTH + x + cx)] = border;
-        self.bits[@intCast((cx + y) * GUI_WIDTH + x + cy)] = border;
-        self.bits[@intCast((cx - y) * GUI_WIDTH + x + cy)] = border;
-    }
-
-    var d: i32 = 1 - @as(i32, @intFromFloat(radius));
-
-    while (x > y) {
-        y += 1;
-
-        // midpoint is inside or on the perimeter
-        if (d <= 0) {
-            d += 2 * y + 1;
-        } else { // midoint is outside the perimeter
-            x -= 1;
-            d += 2 * y - 2 * x + 1;
-        }
-
-        if (x < y) break; // all border points have been drawn
-
-        self.bits[@intCast((cy + y) * GUI_WIDTH + cx + x)] = border;
-        self.bits[@intCast((cy + y) * GUI_WIDTH + cx - x)] = border;
-        self.bits[@intCast((cy - y) * GUI_WIDTH + cx + x)] = border;
-        self.bits[@intCast((cy - y) * GUI_WIDTH + cx - x)] = border;
-
-        if (x != y) {
-            self.bits[@intCast((cy + x) * GUI_WIDTH + cx + y)] = border;
-            self.bits[@intCast((cy + x) * GUI_WIDTH + cx - y)] = border;
-            self.bits[@intCast((cy - x) * GUI_WIDTH + cx + y)] = border;
-            self.bits[@intCast((cy - x) * GUI_WIDTH + cx - y)] = border;
-        }
-    }
-}
-
-fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
+fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !void {
     var comp: ?*Component = null;
     var mouse_delta: Vec2 = .{ .x = 0, .y = 0 };
     switch (mouse_button) {
@@ -237,7 +192,7 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
             // Mouse up
             self.last_component = null;
             std.debug.print("Mouse up\n", .{});
-            return false;
+            return;
         },
         0 => {
             // Mouse dragging
@@ -263,7 +218,7 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
         else => @panic("Invalid mouse button\n"),
     }
 
-    if (comp == null) return false;
+    if (comp == null) return;
 
     const id = comp.?.id;
 
@@ -277,10 +232,10 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !bool {
     // change parameter
     self.plugin.params.setValue(id, p_val);
     comp.?.value = @as(f32, @floatCast(try self.plugin.params.getNormalizedValue(id)));
+    self.plugin.onParamChange(id);
 
     // self.last_component = comp.?.id;
     // std.debug.assert(self.last_component.? < self.components.len);
-    return true;
 }
 
 // OS-specific UI handling functions
@@ -291,7 +246,7 @@ pub extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible:
 pub extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
 export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
     std.debug.assert(plugin.gui != null);
-    _ = plugin.gui.?.processGesture(
+    plugin.gui.?.processGesture(
         button,
         .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) },
     ) catch |e| {

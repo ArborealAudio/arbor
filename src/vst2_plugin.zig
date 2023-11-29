@@ -41,6 +41,7 @@ fn dispatch(
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
+            // PROBLEM: Hardcoding srate and block size
             self.plugin.prepare(allocator, 44100, 128) catch |e| {
                 std.log.err("Plugin init error {}\n", .{e});
                 std.process.exit(1);
@@ -87,9 +88,9 @@ fn dispatch(
                     return -1;
                 };
                 if (ptr) |p| {
-                    // ISSUE: This will sometimes print trailing garbage
                     var buf: [*]u8 = @ptrCast(p);
-                    _ = std.fmt.bufPrintZ(buf[0..name.len], "{s}", .{name}) catch |e| {
+                    // name.len + 1 for null-terminator
+                    _ = std.fmt.bufPrintZ(buf[0 .. name.len + 1], "{s}", .{name}) catch |e| {
                         std.log.err("{}\n", .{e});
                         return -1;
                     };
@@ -100,13 +101,12 @@ fn dispatch(
         },
         // Param value as text
         .GetParamText => {
-            if (index > 0 and index < Params.num_params) {
+            if (index >= 0 and index < Params.num_params) {
                 const val = self.plugin.params.idToValue(@intCast(index)) catch {
                     std.log.err("Can't find param\n", .{});
                     return -1;
                 };
                 if (ptr) |p| {
-                    // ISSUE: This only prints value for Feedback param
                     var buf: [*]u8 = @ptrCast(p);
                     _ = std.fmt.bufPrintZ(buf[0..5], "{d:.2}", .{val}) catch |e| {
                         std.log.err("{}\n", .{e});
@@ -120,6 +120,10 @@ fn dispatch(
         .SetSampleRate => {
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
             self.plugin.sampleRate = @floatCast(opt);
+            self.plugin.prepare(allocator, self.plugin.sampleRate, self.plugin.maxNumSamples) catch |e| {
+                std.log.err("Plugin init error: {}\n", .{e});
+                std.process.exit(1);
+            };
             return 1;
         },
         .CanBeAutomated => return 1,
