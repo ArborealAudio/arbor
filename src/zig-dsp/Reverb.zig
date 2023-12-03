@@ -14,7 +14,7 @@ const EARLY_REF_ORDER = 4;
 const TAIL_ORDER = 9; // number of delay lines and assoc. parameters for reverb tail
 const DELAYS_PER_BLOCK = 3;
 const TAIL_BLOCKS = TAIL_ORDER / DELAYS_PER_BLOCK;
-const MOD_RATE = 3.0; // mod rate in Hz
+
 plugin: *Plugin,
 
 early_ref: [EARLY_REF_ORDER]Delay = undefined,
@@ -38,27 +38,35 @@ update_feedback: bool = false,
 // early reflection delays in ms
 const early_ref_time = [EARLY_REF_ORDER]f32{ 32, 54, 23, 69 };
 
-pub fn prepare(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f64, maxDelaySamples: f32) !void {
+pub fn prepare(
+    self: *Reverb,
+    alloc: Allocator,
+    _plugin: *Plugin,
+    s_rate: f64,
+    max_delay: f32,
+) !void {
     self.plugin = _plugin;
     var rand = std.rand.DefaultPrng.init(69);
 
-    const max_early_ref_delay: u32 = @intFromFloat(0.1 * sampleRate);
+    const max_early_ref_delay: u32 = @intFromFloat(0.1 * s_rate);
 
     const max_feedback: f32 = @floatCast(self.plugin.params.values.feedback);
 
+    const srate_f: f32 = @floatCast(s_rate);
+
     for (&self.early_ref, 0..) |*d, i| {
-        try d.init(alloc, max_early_ref_delay, 1);
-        d.delay_time = (early_ref_time[i] / 1000.0) * @as(f32, @floatCast(sampleRate));
+        d.* = try Delay.init(alloc, srate_f, max_early_ref_delay, 1);
+        d.delay_time = (early_ref_time[i] / 1000.0) * srate_f;
     }
 
     for (&self.input_diff, 0..) |*d, i| {
-        try d.init(alloc, 500, 2);
+        d.* = try Delay.init(alloc, srate_f, 500, 2);
         d.delay_time = 500.0 / (@as(f32, @floatFromInt(i + 1)));
     }
 
     for (&self.tail_delay, 0..) |*d, i| {
-        try d.init(alloc, @as(u32, @intFromFloat(maxDelaySamples)), 2);
-        self.tail_delayTime[i] = @sqrt(@as(f32, @floatFromInt(TAIL_ORDER)) / @as(f32, @floatFromInt(i + 1))) * maxDelaySamples;
+        d.* = try Delay.init(alloc, srate_f, @as(u32, @intFromFloat(max_delay)), 2);
+        self.tail_delayTime[i] = @sqrt(@as(f32, @floatFromInt(TAIL_ORDER)) / @as(f32, @floatFromInt(i + 1))) * max_delay;
         d.delay_time = self.tail_delayTime[i];
         self.inversion[i] = if (rand.next() % 2 == 0) 1.0 else -1.0;
     }
@@ -69,11 +77,17 @@ pub fn prepare(self: *Reverb, alloc: Allocator, _plugin: *Plugin, sampleRate: f6
 
     for (&self.tail_filter, 0..) |*f, j| {
         f.filter_type = .Lowpass;
-        f.init(alloc, 2, @as(f32, @floatCast(sampleRate)), 8000.0 * @sqrt(@as(f32, @floatFromInt(TAIL_BLOCKS)) / @as(f32, @floatFromInt(j + 1))), std.math.sqrt1_2);
+        f.init(
+            alloc,
+            2,
+            srate_f,
+            8000.0 * @sqrt(@as(f32, @floatFromInt(TAIL_BLOCKS)) / @as(f32, @floatFromInt(j + 1))),
+            std.math.sqrt1_2,
+        );
     }
 
     self.input_filter.filter_type = .Lowpass;
-    self.input_filter.init(alloc, 2, @as(f32, @floatCast(sampleRate)), 12000.0, std.math.sqrt1_2);
+    self.input_filter.init(alloc, 2, srate_f, 12e3, std.math.sqrt1_2);
 }
 
 pub fn updateFeedback(self: *Reverb) void {
@@ -93,16 +107,6 @@ pub fn deinit(self: *Reverb, alloc: Allocator) void {
     for (&self.tail_delay) |*d|
         d.deinit(alloc);
     self.input_filter.deinit(alloc);
-}
-
-fn processHouseholderMatrix(in: []f32) void {
-    const h_mult = -2.0 / @as(f32, @floatFromInt(in.len));
-    var sum: f32 = 0;
-    for (in, 0..) |_, i|
-        sum += in[i];
-    sum *= h_mult;
-    for (in, 0..) |_, i|
-        in[i] += sum;
 }
 
 fn processEarlyReflections(self: *Reverb, in: [2]f32) [2]f32 {
@@ -134,21 +138,20 @@ fn processInputDiffusion(self: *Reverb, in: [2]f32) [2]f32 {
 /// dry: input sample from outer function
 /// fIn: forward-fed output of last allpass block
 /// returns forward output
-fn processSubSection(self: *Reverb, index: u32, ch: u32, dry: f32, fIn: f32) f32 {
-    var d = self.tail_delay[index].popSample(ch);
-    var sum = dry + fIn + (d * -0.5);
+fn processSubSection(self: *Reverb, index: u32, ch: u32, dry: f32, f_in: f32) f32 {
+    var d = self.tail_delay[index].popSampleWithMod(ch);
+    var sum = dry + f_in + (d * -0.5);
     self.tail_delay[index].pushSample(ch, sum);
     var out = sum * 0.5 + d;
 
-    var d2 = self.tail_delay[index + 1].popSample(ch);
+    var d2 = self.tail_delay[index + 1].popSampleWithMod(ch);
     out += d2 * -0.5;
     self.tail_delay[index + 1].pushSample(ch, out);
     var out2 = out * 0.5 + d2;
 
     self.tail_delay[index + 2].pushSample(ch, out2);
 
-    self.m_sum[ch] += self.tail_delay[index + 2].popSample(ch);
-    // self.m_sum[1] += self.tail_delay[index + 2].popSample(1);
+    self.m_sum[ch] += self.tail_delay[index + 2].popSampleWithMod(ch);
     return self.m_sum[ch];
 }
 
