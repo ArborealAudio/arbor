@@ -119,8 +119,8 @@ fn dispatch(
         },
         .SetSampleRate => {
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
-            self.plugin.sampleRate = @floatCast(opt);
-            self.plugin.prepare(allocator, self.plugin.sampleRate, self.plugin.maxNumSamples) catch |e| {
+            self.plugin.sample_rate = @floatCast(opt);
+            self.plugin.prepare(allocator, self.plugin.sample_rate, self.plugin.maxNumSamples) catch |e| {
                 std.log.err("Plugin init error: {}\n", .{e});
                 std.process.exit(1);
             };

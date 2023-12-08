@@ -263,20 +263,20 @@ pub fn processEvent(self: *Self, event: [*c]const clap.clap_event_header_t) call
 
 pub fn process(
     plugin: [*c]const clap.clap_plugin,
-    process_info: [*c]const clap.clap_process_t,
+    process_info: ?*const clap.clap_process_t,
 ) callconv(.C) clap.clap_process_status {
     var self = plug_cast(plugin.*.plugin_data);
     var plug = self.plugin;
-    const num_frames = process_info.*.frames_count;
-    const num_events = process_info.*.in_events.*.size.?(process_info.*.in_events);
+    const num_frames = process_info.?.frames_count;
+    const num_events = process_info.?.in_events.*.size.?(process_info.?.in_events);
     var event_index: u32 = 0;
     var next_event_frame: u32 = if (num_events > 0) 0 else num_frames;
 
     var i: u32 = 0;
-    while (i < num_frames) {
+    for (0..num_frames) |_| {
         // handle all events at frame i
         while (event_index < num_events and next_event_frame == i) {
-            const header = process_info.*.in_events.*.get.?(process_info.*.in_events, event_index);
+            const header = process_info.?.in_events.*.get.?(process_info.?.in_events, event_index);
             if (header.*.time != i) {
                 next_event_frame = header.*.time;
                 break;
@@ -293,15 +293,15 @@ pub fn process(
 
         // TODO: Instead of an array, just copy the pointers to a double multi-ptr
         var in = [_][*]f32{
-            process_info.*.audio_inputs[0].data32[0],
-            process_info.*.audio_inputs[0].data32[1],
+            process_info.?.audio_inputs[0].data32[0],
+            process_info.?.audio_inputs[0].data32[1],
         };
         var out = [_][*]f32{
-            process_info.*.audio_outputs[0].data32[0],
-            process_info.*.audio_outputs[0].data32[1],
+            process_info.?.audio_outputs[0].data32[0],
+            process_info.?.audio_outputs[0].data32[1],
         };
         // process audio in frame
-        while (i < next_event_frame) {
+        for (i..next_event_frame) |_| {
             const frames_to_process = next_event_frame - i;
             plug.processAudio(&in, &out, frames_to_process);
             i += frames_to_process;

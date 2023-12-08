@@ -1,4 +1,4 @@
-//! Stereo Delay processor
+//! Stereo Delay processor with modulation
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -7,8 +7,8 @@ const Delay = @This();
 
 const Mod = struct {
     mod_rate: f32, // time in Hz
-    mod_depth: f32,
-    mod_inc: f32 = undefined,
+    mod_depth: f32, // essentially num samples to mod delay by
+    mod_inc: f32,
     mod_i: f32 = 0,
 
     pub fn init(rate: f32, depth: f32, srate: f32) Mod {
@@ -33,39 +33,51 @@ buffer: [][]f32,
 
 max_delay: u32,
 
-write_pos: []usize,
-read_pos: []usize,
+write_pos: [2]usize = [_]usize{ 0, 0 },
+read_pos: [2]usize = [_]usize{ 0, 0 },
 
 mod: Mod,
 
 /// setup delay processor, allocate internal buffers
-pub fn init(alloc: Allocator, srate: f32, max_delay: u32, num_channels: usize) !Delay {
+pub fn init(
+    alloc: Allocator,
+    srate: f32,
+    max_delay: u32,
+    num_channels: usize,
+    mod_rate: f32,
+    mod_depth: f32,
+) !Delay {
     var delay: Delay = .{
         .max_delay = max_delay,
         .buffer = try alloc.alloc([]f32, num_channels),
-        .write_pos = try alloc.alloc(usize, num_channels),
-        .read_pos = try alloc.alloc(usize, num_channels),
-        .mod = Mod.init(0.5, 10, srate),
+        .mod = Mod.init(mod_rate, mod_depth, srate),
     };
     for (delay.buffer) |*ch| {
         ch.* = try alloc.alloc(f32, 2 * delay.max_delay);
     }
-    for (delay.write_pos) |*p| p.* = 0;
-    for (delay.read_pos) |*p| p.* = 0;
+    for (&delay.write_pos) |*p| p.* = 0;
+    for (&delay.read_pos) |*p| p.* = 0;
 
     return delay;
 }
 
 pub fn deinit(self: *Delay, alloc: Allocator) void {
-    for (self.buffer, 0..) |_, i| {
-        alloc.free(self.buffer[i]);
+    for (self.buffer) |*b| {
+        alloc.free(b.*);
     }
     alloc.free(self.buffer);
 }
 
-// get modulated delay time according to mod settings
-pub fn modulate(self: *Delay) f32 {
-    return self.delay_time + self.mod.next();
+pub fn modDelay(self: *Delay) void {
+    // ISSUE: We're sometimes getting < 0 delay values in
+    // std.debug.assert(delay >= 0);
+    const m = self.mod.next();
+    const delay = m + self.delay_time;
+    if (delay < 0) {
+        std.debug.print("Delay < 0\nIn: {d} Current: {d}\n", .{ delay, self.delay_time });
+        std.debug.assert(false);
+    }
+    self.delay_time = @min(delay, @as(f32, @floatFromInt(self.max_delay)));
 }
 
 pub fn pushSample(self: *Delay, ch: usize, input: f32) void {
@@ -74,23 +86,32 @@ pub fn pushSample(self: *Delay, ch: usize, input: f32) void {
 }
 
 pub fn popSample(self: *Delay, ch: usize) f32 {
-    var out: f32 = 0;
-    var delay_pos = @as(usize, @intFromFloat(self.delay_time)) + self.read_pos[ch];
-    if (delay_pos + 1 >= self.max_delay) {
-        delay_pos %= self.max_delay;
-    }
-    out = self.buffer[ch][delay_pos];
+    var out = self.interpolate(ch);
     self.read_pos[ch] = (self.read_pos[ch] + self.max_delay - 1) % self.max_delay;
     return out;
 }
 
 pub fn popSampleWithMod(self: *Delay, ch: usize) f32 {
-    var out: f32 = 0;
-    var delay_pos = @as(usize, @intFromFloat(self.modulate())) + self.read_pos[ch];
-    if (delay_pos + 1 >= self.max_delay) {
-        delay_pos %= self.max_delay;
-    }
-    out = self.buffer[ch][delay_pos];
+    if (ch == self.buffer.len - 1)
+        self.modDelay();
+    var out = self.interpolate(ch);
     self.read_pos[ch] = (self.read_pos[ch] + self.max_delay - 1) % self.max_delay;
     return out;
+}
+
+// perform linear interpolation
+fn interpolate(self: *Delay, ch: usize) f32 {
+    const delay_int: usize = @intFromFloat(self.delay_time);
+    const delay_frac: f32 = self.delay_time - @as(f32, @floatFromInt(delay_int));
+    var index1 = self.read_pos[ch] + delay_int;
+    var index2 = index1 + 1;
+    if (index2 >= self.max_delay) {
+        index1 %= self.max_delay;
+        index2 %= self.max_delay;
+    }
+
+    const value1 = self.buffer[ch][index1];
+    const value2 = self.buffer[ch][index2];
+
+    return value1 + delay_frac * (value2 - value1);
 }

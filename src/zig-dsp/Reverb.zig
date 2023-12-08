@@ -13,7 +13,12 @@ const EARLY_REF_ORDER = 4;
 
 const TAIL_ORDER = 9; // number of delay lines and assoc. parameters for reverb tail
 const DELAYS_PER_BLOCK = 3;
-const TAIL_BLOCKS = TAIL_ORDER / DELAYS_PER_BLOCK;
+const TAIL_BLOCKS = TAIL_ORDER / DELAYS_PER_BLOCK; // each block represents an output tap
+
+const MAX_FEEDBACK = 0.35;
+
+const MOD_RATE_BASE = 0.1;
+const MOD_DEPTH_BASE = 0.1;
 
 plugin: *Plugin,
 
@@ -23,15 +28,17 @@ input_diff: [INPUT_DIFF_ORDER]Delay = undefined,
 
 tail_delay: [TAIL_ORDER]Delay = undefined,
 tail_delayTime: [TAIL_ORDER]f32 = undefined,
+
 feedback: [TAIL_BLOCKS]f32 = undefined,
+feedback_param: *f64,
 inversion: [TAIL_ORDER]f32 = undefined,
 
 input_filter: Filter = undefined,
 
 tail_filter: [TAIL_BLOCKS]Filter = undefined,
 
-m_sum: [2]f32 = undefined,
-m_ff: [2]f32 = undefined,
+m_sum: [2]f32 = [_]f32{ 0.0, 0.0 },
+m_ff: [2]f32 = [_]f32{ 0.0, 0.0 },
 
 update_feedback: bool = false,
 
@@ -50,50 +57,72 @@ pub fn prepare(
 
     const max_early_ref_delay: u32 = @intFromFloat(0.1 * s_rate);
 
-    const max_feedback: f32 = @floatCast(self.plugin.params.values.feedback);
+    const max_feedback: f32 = @floatCast(self.feedback_param.*);
 
     const srate_f: f32 = @floatCast(s_rate);
 
     for (&self.early_ref, 0..) |*d, i| {
-        d.* = try Delay.init(alloc, srate_f, max_early_ref_delay, 1);
+        d.* = try Delay.init(alloc, srate_f, max_early_ref_delay, 1, 0, 0);
         d.delay_time = (early_ref_time[i] / 1000.0) * srate_f;
     }
 
     for (&self.input_diff, 0..) |*d, i| {
-        d.* = try Delay.init(alloc, srate_f, 500, 2);
+        d.* = try Delay.init(alloc, srate_f, 500, 2, 0, 0);
         d.delay_time = 500.0 / (@as(f32, @floatFromInt(i + 1)));
     }
 
     for (&self.tail_delay, 0..) |*d, i| {
-        d.* = try Delay.init(alloc, srate_f, @as(u32, @intFromFloat(max_delay)), 2);
-        self.tail_delayTime[i] = @sqrt(@as(f32, @floatFromInt(TAIL_ORDER)) / @as(f32, @floatFromInt(i + 1))) * max_delay;
+        d.* = try Delay.init(
+            alloc,
+            srate_f,
+            @as(u32, @intFromFloat(max_delay)),
+            2,
+            MOD_RATE_BASE,
+            MOD_DEPTH_BASE,
+        );
+        self.updateModRate(i, @floatCast(MAX_FEEDBACK * self.feedback_param.*));
+        // self.updateModDepth(i);
+        self.tail_delayTime[i] = @sqrt(@as(f32, @floatFromInt(i + 1)) / TAIL_ORDER) * max_delay;
+        std.debug.print("Delay {d}: {d}\n", .{ i, self.tail_delayTime[i] });
         d.delay_time = self.tail_delayTime[i];
         self.inversion[i] = if (rand.next() % 2 == 0) 1.0 else -1.0;
     }
 
     for (&self.feedback, 0..) |*f, i| {
-        f.* = @sqrt(@as(f32, @floatFromInt(TAIL_BLOCKS)) / @as(f32, @floatFromInt(i + 1))) * max_feedback;
+        f.* = @sqrt(TAIL_BLOCKS / @as(f32, @floatFromInt(i + 1))) * max_feedback;
     }
 
-    for (&self.tail_filter, 0..) |*f, j| {
+    for (&self.tail_filter, 0..) |*f, i| {
         f.filter_type = .Lowpass;
         f.init(
             alloc,
             2,
             srate_f,
-            8000.0 * @sqrt(@as(f32, @floatFromInt(TAIL_BLOCKS)) / @as(f32, @floatFromInt(j + 1))),
+            8000.0 * @sqrt(TAIL_BLOCKS / @as(f32, @floatFromInt(i + 1))),
             std.math.sqrt1_2,
         );
     }
 
     self.input_filter.filter_type = .Lowpass;
-    self.input_filter.init(alloc, 2, srate_f, 12e3, std.math.sqrt1_2);
+    self.input_filter.init(alloc, 2, srate_f, 12000.0, std.math.sqrt1_2);
+}
+
+fn updateModRate(self: *Reverb, i: usize, feedback: f32) void {
+    self.tail_delay[i].mod.mod_rate = MOD_RATE_BASE + feedback;
+}
+
+fn updateModDepth(self: *Reverb, i: usize) void {
+    self.tail_delay[i].mod.mod_depth = @as(f32, @floatFromInt(i)) + MOD_DEPTH_BASE * @as(f32, @floatFromInt(self.tail_delay.len));
 }
 
 pub fn updateFeedback(self: *Reverb) void {
-    const max_feedback: f32 = @floatCast(self.plugin.params.values.feedback);
+    const total_feedback: f32 = @floatCast(self.feedback_param.* * MAX_FEEDBACK);
     for (&self.feedback, 0..) |*f, i| {
-        f.* = @sqrt(@as(f32, TAIL_BLOCKS) / @as(f32, @floatFromInt(i + 1))) * max_feedback;
+        f.* = @sqrt(TAIL_BLOCKS / @as(f32, @floatFromInt(i + 1))) * total_feedback;
+    }
+    for (&self.tail_delay, 0..) |_, i| {
+        self.updateModRate(i, total_feedback);
+        // self.updateModDepth(i);
     }
 }
 
@@ -109,6 +138,7 @@ pub fn deinit(self: *Reverb, alloc: Allocator) void {
     self.input_filter.deinit(alloc);
 }
 
+// TODO: Add filtering
 fn processEarlyReflections(self: *Reverb, in: [2]f32) [2]f32 {
     var out = [2]f32{ 0, 0 };
     for (&self.early_ref, 0..) |*d, i| {
@@ -119,6 +149,7 @@ fn processEarlyReflections(self: *Reverb, in: [2]f32) [2]f32 {
     return out;
 }
 
+// TODO: Add filtering
 fn processInputDiffusion(self: *Reverb, in: [2]f32) [2]f32 {
     var out = [2]f32{ in[0], in[1] };
     for (&self.input_diff) |*d| {
@@ -174,11 +205,10 @@ pub fn processSample(self: *Reverb, in: [2]f32) [2]f32 {
 
     while (i < TAIL_ORDER) : (i += DELAYS_PER_BLOCK) {
         std.debug.assert(i + 2 < TAIL_ORDER);
-        var ch: u32 = 0;
-        while (ch < 2) : (ch += 1) {
-            self.m_ff[ch] = self.processSubSection(i, ch, diff[ch], self.m_ff[ch]);
-            self.m_ff[ch] = self.tail_filter[n].processSample(ch, self.m_ff[ch]);
-            self.m_ff[ch] *= self.feedback[n];
+        for (&self.m_ff, 0..) |*ff, ch| {
+            ff.* = self.processSubSection(i, @intCast(ch), diff[ch], ff.*);
+            ff.* = self.tail_filter[n].processSample(@intCast(ch), ff.*);
+            ff.* *= self.feedback[n];
         }
         n += 1;
     }
@@ -187,8 +217,7 @@ pub fn processSample(self: *Reverb, in: [2]f32) [2]f32 {
 }
 
 pub fn process(self: *Reverb, in: [*][*]f32, num_samples: usize) void {
-    var i: u32 = 0;
-    while (i < num_samples) : (i += 1) {
+    for (0..num_samples) |i| {
         const out = self.processSample(&[_]f32{ in[0][i], in[1][i] });
         in[0][i] = out[0][i];
         in[1][i] = out[1][i];

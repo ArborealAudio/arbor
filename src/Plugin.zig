@@ -78,7 +78,7 @@ reverb: Reverb,
 
 gui: ?*Gui = null,
 
-sampleRate: f64 = 44100.0,
+sample_rate: f64 = 44100.0,
 numChannels: u32 = 2,
 maxNumSamples: u32 = 128,
 
@@ -90,15 +90,15 @@ pub fn init(allocator: std.mem.Allocator) *Self {
         std.log.err("{}\n", .{e});
         std.process.exit(1);
     };
-    plugin.* = .{ .reverb = .{ .plugin = plugin } };
+    plugin.* = .{ .reverb = .{ .plugin = plugin, .feedback_param = &plugin.params.values.feedback } };
     return plugin;
 }
 
 /// setup plugin for processing
 pub fn prepare(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
-    self.sampleRate = sample_rate;
+    self.sample_rate = sample_rate;
     self.maxNumSamples = max_frames;
-    self.reverb.prepare(allocator, self, self.sampleRate, @floatCast(0.125 * self.sampleRate)) catch |e| {
+    self.reverb.prepare(allocator, self, self.sample_rate, @floatCast(0.125 * self.sample_rate)) catch |e| {
         std.log.err("Failed to initialize reverb: {}\n", .{e});
         std.process.exit(1);
     };
@@ -109,10 +109,9 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     allocator.destroy(self);
 }
 
-pub fn processAudio(self: *Self, in: [*][*]f32, out: [*][*]f32, num_frames: u32) void {
-    var i: u32 = 0;
+pub fn processAudio(self: *Self, in: [*][*]f32, out: [*][*]f32, num_frames: usize) void {
     const mix = self.params.values.mix;
-    while (i < num_frames) : (i += 1) {
+    for (0..num_frames) |i| {
         const rev_out = self.reverb.processSample([_]f32{ in[0][i], in[1][i] });
 
         const wet_level = if (mix < 0.5) mix * 2.0 else 1.0;

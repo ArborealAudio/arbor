@@ -39,7 +39,7 @@ pub const ParamInfo = struct {
 // TODO: Turn this into a comptime fn where we populate the info fields based on type info & default values from Values
 pub const list = [_]ParamInfo{
     .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
-    .{ .id = 1, .name = "Feedback", .minValue = 0.001, .maxValue = 0.35, .defaultValue = 0.2 },
+    .{ .id = 1, .name = "Feedback", .minValue = 0.001, .maxValue = 1.0, .defaultValue = 0.2 },
     // .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
     // .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
     // .{ .id = 3, .name = "Freq", .minValue = 20.0, .maxValue = 20000.0, .defaultValue = 1500.0 },
