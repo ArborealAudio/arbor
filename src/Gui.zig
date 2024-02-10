@@ -29,6 +29,15 @@ pub const Rect = struct {
     y: f32,
     width: f32,
     height: f32,
+
+    pub fn intersection(a: Rect, b: Rect) Rect {
+        var rect = Rect{ .x = 0, .y = 0, .width = 0, .height = 0 };
+        if (a.x < b.x) rect.x = b.x else rect.x = a.x;
+        if (a.y < b.y) rect.y = b.y else rect.x = a.x;
+        if (a.x + a.width > b.x + b.width) rect.width = b.width else rect.width = a.width;
+        if (a.y + a.height > b.y + b.height) rect.height = b.height else rect.height = a.height;
+        return rect;
+    }
 };
 
 pub const Circle = struct {
@@ -84,6 +93,10 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
             .fill_color = 0xff_cc_cc_cc,
             .border_color = 0xff_70_70_00,
             .border_size = 2,
+            .label = .{
+                .text = Params.idToName(@intCast(i)) catch @panic("Can't find param\n"),
+                .height = 2,
+            },
         };
     }
 
@@ -112,7 +125,7 @@ pub fn render(self: *Gui) void {
     o.olivec_fill(self.canvas, BACKGROUND_COLOR);
 
     for (self.components) |c| {
-        c.draw(c.*, self.bits);
+        c.draw(c.*);
     }
 
     // const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);

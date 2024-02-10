@@ -1,4 +1,4 @@
-//! Stereo Delay processor with modulation
+//! Stereo Delay processor with optional modulation
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -73,11 +73,11 @@ pub fn modDelay(self: *Delay) void {
     // std.debug.assert(delay >= 0);
     const m = self.mod.next();
     const delay = m + self.delay_time;
-    if (delay < 0) {
-        std.debug.print("Delay < 0\nIn: {d} Current: {d}\n", .{ delay, self.delay_time });
-        std.debug.assert(false);
-    }
-    self.delay_time = @min(delay, @as(f32, @floatFromInt(self.max_delay)));
+    // if (delay < 0) {
+    //     std.debug.print("Delay < 0\nIn: {d} Current: {d}\n", .{ delay, self.delay_time });
+    //     std.debug.assert(false);
+    // }
+    self.delay_time = @max(0, @min(delay, @as(f32, @floatFromInt(self.max_delay))));
 }
 
 pub fn pushSample(self: *Delay, ch: usize, input: f32) void {

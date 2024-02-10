@@ -30,7 +30,7 @@ pub const Values = struct {
 
 pub const ParamInfo = struct {
     id: u32,
-    name: []const u8,
+    name: [:0]const u8,
     minValue: f64,
     maxValue: f64,
     defaultValue: f64,
@@ -38,8 +38,8 @@ pub const ParamInfo = struct {
 
 // TODO: Turn this into a comptime fn where we populate the info fields based on type info & default values from Values
 pub const list = [_]ParamInfo{
-    .{ .id = 0, .name = "Mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
-    .{ .id = 1, .name = "Feedback", .minValue = 0.001, .maxValue = 1.0, .defaultValue = 0.2 },
+    .{ .id = 0, .name = "mix", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.5 },
+    .{ .id = 1, .name = "feedback", .minValue = 0.001, .maxValue = 1.0, .defaultValue = 0.2 },
     // .{ .id = 1, .name = "Delay", .minValue = 20.0, .maxValue = 2000.0, .defaultValue = 300.0 },
     // .{ .id = 2, .name = "Feedback", .minValue = 0.0, .maxValue = 1.0, .defaultValue = 0.0 },
     // .{ .id = 3, .name = "Freq", .minValue = 20.0, .maxValue = 20000.0, .defaultValue = 1500.0 },
@@ -84,11 +84,11 @@ pub fn getNormalizedValue(self: *Self, id: u32) !f64 {
     return val / (param.maxValue - param.minValue);
 }
 
-pub fn idToName(id: u32) ![]u8 {
+pub fn idToName(id: u32) ![:0]const u8 {
     std.debug.assert(id < num_params);
     inline for (list) |info| {
         if (info.id == id)
-            return @constCast(info.name);
+            return info.name;
     }
     return error.CantFindName;
 }

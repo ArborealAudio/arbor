@@ -57,7 +57,7 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const vendor = Plugin.Description.vendor_name;
-                _ = std.fmt.bufPrintZ(buf[0..vendor.len], "{s}", .{vendor}) catch |e| {
+                _ = std.fmt.bufPrintZ(buf[0..vendor.len :0], "{s}", .{vendor}) catch |e| {
                     std.log.err("{}\n", .{e});
                     return -1;
                 };
@@ -71,7 +71,7 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const name = Plugin.Description.plugin_name;
-                _ = std.fmt.bufPrintZ(buf[0..name.len], "{s}", .{name}) catch |e| {
+                _ = std.fmt.bufPrintZ(buf[0..name.len :0], "{s}", .{name}) catch |e| {
                     std.log.err("{}\n", .{e});
                     return -1;
                 };
@@ -83,13 +83,13 @@ fn dispatch(
         },
         .GetParamName => {
             if (index >= 0 and index < Params.num_params) {
-                const name = Params.idToName(@intCast(index)) catch {
-                    std.log.err("Can't find param\n", .{});
-                    return -1;
-                };
                 if (ptr) |p| {
+                    const name = Params.idToName(@intCast(index)) catch {
+                        std.log.err("Can't find param\n", .{});
+                        return -1;
+                    };
                     var buf: [*]u8 = @ptrCast(p);
-                    // name.len + 1 for null-terminator
+                    // name length + 1 for null terminator--using :0 doesn't work for some reason
                     _ = std.fmt.bufPrintZ(buf[0 .. name.len + 1], "{s}", .{name}) catch |e| {
                         std.log.err("{}\n", .{e});
                         return -1;

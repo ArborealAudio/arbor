@@ -18,7 +18,7 @@ const TAIL_BLOCKS = TAIL_ORDER / DELAYS_PER_BLOCK; // each block represents an o
 const MAX_FEEDBACK = 0.35;
 
 const MOD_RATE_BASE = 0.1;
-const MOD_DEPTH_BASE = 0.1;
+const MOD_DEPTH_BASE = 1.0;
 
 plugin: *Plugin,
 
@@ -48,11 +48,9 @@ const early_ref_time = [EARLY_REF_ORDER]f32{ 32, 54, 23, 69 };
 pub fn prepare(
     self: *Reverb,
     alloc: Allocator,
-    _plugin: *Plugin,
     s_rate: f64,
     max_delay: f32,
 ) !void {
-    self.plugin = _plugin;
     var rand = std.rand.DefaultPrng.init(69);
 
     const max_early_ref_delay: u32 = @intFromFloat(0.1 * s_rate);
@@ -80,7 +78,7 @@ pub fn prepare(
             MOD_RATE_BASE,
             MOD_DEPTH_BASE,
         );
-        self.updateModRate(i, @floatCast(MAX_FEEDBACK * self.feedback_param.*));
+        // self.updateModRate(i, @floatCast(MAX_FEEDBACK * self.feedback_param.*));
         // self.updateModDepth(i);
         self.tail_delayTime[i] = @sqrt(@as(f32, @floatFromInt(i + 1)) / TAIL_ORDER) * max_delay;
         std.debug.print("Delay {d}: {d}\n", .{ i, self.tail_delayTime[i] });
@@ -121,7 +119,8 @@ pub fn updateFeedback(self: *Reverb) void {
         f.* = @sqrt(TAIL_BLOCKS / @as(f32, @floatFromInt(i + 1))) * total_feedback;
     }
     for (&self.tail_delay, 0..) |_, i| {
-        self.updateModRate(i, total_feedback);
+        _ = i;
+        // self.updateModRate(i, total_feedback);
         // self.updateModDepth(i);
     }
 }

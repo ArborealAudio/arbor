@@ -98,7 +98,7 @@ pub fn init(allocator: std.mem.Allocator) *Self {
 pub fn prepare(self: *Self, allocator: std.mem.Allocator, sample_rate: f64, max_frames: u32) !void {
     self.sample_rate = sample_rate;
     self.maxNumSamples = max_frames;
-    self.reverb.prepare(allocator, self, self.sample_rate, @floatCast(0.125 * self.sample_rate)) catch |e| {
+    self.reverb.prepare(allocator, self.sample_rate, @floatCast(0.125 * self.sample_rate)) catch |e| {
         std.log.err("Failed to initialize reverb: {}\n", .{e});
         std.process.exit(1);
     };

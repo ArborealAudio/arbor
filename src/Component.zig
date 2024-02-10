@@ -9,8 +9,14 @@ const o = @cImport({
     @cInclude("olive.c");
 });
 const Vec2 = Gui.Vec2;
+const Text = @import("Text.zig");
 
 pub const Component = @This();
+
+const Label = struct {
+    text: []const u8,
+    height: u32,
+};
 
 canvas: *o.Olivec_Canvas,
 id: u32 = undefined,
@@ -27,9 +33,11 @@ border_size: u32 = 0,
 
 value: f32,
 
+label: ?Label,
+
 is_mouse_over: bool = false,
 
-draw: *const fn (self: Component, bits: []u32) void,
+draw: *const fn (self: Component) void,
 
 pub fn getComponentID(param_name: []const u8) u32 {
     return Params.nameToID(param_name) catch @panic("Component not found");
@@ -43,17 +51,20 @@ pub fn hit_test(self: Component, pt: Vec2) bool {
 }
 
 pub const Slider = struct {
-    pub fn draw(self: Component, bits: []u32) void {
-        _ = bits;
-        const height = self.height * self.value;
-        const top = self.pos.y + (self.height - height);
+    pub fn draw(self: Component) void {
+        const height = if (self.label == null)
+            self.height
+        else
+            self.height - @as(f32, @floatFromInt(self.label.?.height));
+        const val_height = height * self.value;
+        const top = self.pos.y + (height - val_height);
         // draw borders
         o.olivec_rect(
             self.canvas.*,
             @intFromFloat(self.pos.x),
             @intFromFloat(self.pos.y),
             @intFromFloat(self.width),
-            @intFromFloat(self.height),
+            @intFromFloat(height),
             self.border_color,
         );
 
@@ -62,9 +73,19 @@ pub const Slider = struct {
             @intFromFloat(self.pos.x),
             @intFromFloat(top),
             @intFromFloat(self.width),
-            @intFromFloat(height),
+            @intFromFloat(val_height),
             self.fill_color,
         );
+
+        // if (self.label) |l| {
+        //     const text_y = self.pos.y + height;
+        //     Text.draw_string(self.canvas.pixels, .{
+        //         .x = self.pos.x,
+        //         .y = text_y,
+        //         .width = self.width,
+        //         .height = @floatFromInt(l.height),
+        //     }, l.text, 0xffffffff, true);
+        // }
     }
 };
 
@@ -78,26 +99,26 @@ pub const Knob = struct {
 
     label: Label,
 
-    const Label = struct {
-        text: []const u8,
-        size: f32,
-        position: Position = .Below,
-        spacing: i32 = 5,
+    // const Label = struct {
+    //     text: []const u8,
+    //     size: f32,
+    //     position: Position = .Below,
+    //     spacing: i32 = 5,
 
-        const Position = enum {
-            Above,
-            Below,
-            Left,
-            Right,
-        };
-    };
+    //     const Position = enum {
+    //         Above,
+    //         Below,
+    //         Left,
+    //         Right,
+    //     };
+    // };
 
     const Flags = packed struct {
         draw_label: bool = true,
         drop_shadow: bool = false,
     };
 
-    pub fn draw(self: Component, bits: []u32) void {
+    pub fn draw(self: Component) void {
         const radius: f32 = self.width / 2.0;
         const centerX = self.pos.x + radius;
         const centerY = self.pos.y + radius;
@@ -105,10 +126,11 @@ pub const Knob = struct {
         //     rl.DrawCircle(self.centerX, self.centerY, radius, self.color)
         // else
         //     rl.DrawCircleLines(self.centerX, self.centerY, radius, self.color);
-        Gui.drawCircle(bits, .{
-            .pos = .{ .x = centerX, .y = centerY },
-            .radius = self.width,
-        }, self.fill_color, self.border_color, self.border_size);
+        // Gui.drawCircle(bits, .{
+        //     .pos = .{ .x = centerX, .y = centerY },
+        //     .radius = self.width,
+        // }, self.fill_color, self.border_color, self.border_size);
+        o.olivec_circle(self.canvas.*, centerX, centerY, @intFromFloat(radius), self.fill_color);
 
         const min_knob_pos: f32 = std.math.pi * 0.25;
         const max_knob_pos: f32 = std.math.pi * 1.75;
@@ -119,13 +141,15 @@ pub const Knob = struct {
         const x1 = centerX + (cos * radius);
         const y1 = centerY + (sin * radius);
 
-        Gui.drawCircle(
-            bits,
-            .{ .pos = .{ .x = x1, .y = y1 }, .radius = 10 },
-            0xffff0000,
-            0,
-            0,
-        );
+        o.olivec_circle(self.canvas.*, x1, y1, @intFromFloat(10), self.border_color);
+
+        // Gui.drawCircle(
+        //     bits,
+        //     .{ .pos = .{ .x = x1, .y = y1 }, .radius = 10 },
+        //     0xffff0000,
+        //     0,
+        //     0,
+        // );
 
         // if (self.flags.draw_label) {
         //     var label = self.label.text;
