@@ -236,7 +236,7 @@ fn getParameter(effect: *vst2.AEffect, index: i32) callconv(.C) f32 {
 }
 
 fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffect {
-    var self = try alloc.create(Self);
+    const self = try alloc.create(Self);
     self.* = .{
         .effect = try alloc.create(vst2.AEffect),
         .plugin = Plugin.init(alloc),

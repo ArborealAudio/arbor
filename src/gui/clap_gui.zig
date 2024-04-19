@@ -46,7 +46,7 @@ fn createGUI(
 ) callconv(.C) bool {
     if (!isAPISupported(plugin, api, is_floating))
         return false;
-    var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
+    const c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
     std.debug.assert(plug.gui == null);
     plug.gui = Gui.init(std.heap.page_allocator, plug) catch |e| {
@@ -59,7 +59,7 @@ fn createGUI(
 
 fn destroyGUI(plugin: [*c]const clap.clap_plugin_t) callconv(.C) void {
     // Impl.GUIDestroy(plug);
-    var c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
+    const c_plug = c_cast(*ClapPlugin, plugin.*.plugin_data);
     var plug = c_plug.plugin;
     std.debug.print("Destroying GUI...\n", .{});
     std.debug.assert(plug.gui != null);
@@ -103,7 +103,7 @@ fn setSize(plugin: [*c]const clap.clap_plugin_t, width: u32, height: u32) callco
 }
 
 fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.clap_window_t) callconv(.C) bool {
-    var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
+    const plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     std.debug.assert(std.mem.orderZ(u8, clap_window.*.api, &GUI_API).compare(.eq));
     const parent_window = switch (builtin.os.tag) {
         .macos => clap_window.*.unnamed_0.cocoa,
@@ -127,13 +127,13 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 }
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
+    const plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     Gui.implGuiSetVisible(null, plug.gui.?.window, true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
-    var plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
+    const plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
     Gui.implGuiSetVisible(null, plug.gui.?.window, false);
     return true;
 }

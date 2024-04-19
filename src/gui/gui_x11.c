@@ -11,7 +11,7 @@ Display *implGuiCreateDisplay()
     return XOpenDisplay(NULL);
 }
 
-void implGuiSetParent(void *display, void *main_window, void *parent_window)
+void implGuiSetParent(void *display, void *main_window, Window parent_window)
 {
     Display *_disp = (Display *) display;
     Window _win = (Window) main_window;

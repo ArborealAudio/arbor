@@ -130,7 +130,7 @@ pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thicknes
     while (y < bot) : (y += 1) {
         var x = rect.x;
         while (x < right) : (x += 1) {
-            var pix = &bits[@intFromFloat(y * GUI_WIDTH + x)];
+            const pix = &bits[@intFromFloat(y * GUI_WIDTH + x)];
             pix.* = if (y <= rect.y + border_thickness or
                 y >= bot - border_thickness - 1 or
                 x <= rect.x + border_thickness or
@@ -238,9 +238,11 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !void {
 // OS-specific UI handling functions
 pub extern fn implGuiCreate(plugin: *Plugin, bits: [*]u32, w: u32, h: u32) callconv(.C) ?*anyopaque;
 pub extern fn implGuiDestroy(main: *anyopaque) callconv(.C) void;
-pub extern fn implGuiSetParent(display: ?*anyopaque, main: *anyopaque, window: ?*anyopaque) callconv(.C) void;
-pub extern fn implGuiSetVisible(display: ?*anyopaque, main: *anyopaque, visible: bool) callconv(.C) void;
-pub extern fn implGuiRender(main: *anyopaque) callconv(.C) void;
+// TODO: Make the parent window param platform-dependent, since on Linux it is
+// not void* but uint
+pub extern fn implGuiSetParent(display: ?*anyopaque, main: ?*anyopaque, window: ?*anyopaque) callconv(.C) void;
+pub extern fn implGuiSetVisible(display: ?*anyopaque, main: ?*anyopaque, visible: bool) callconv(.C) void;
+pub extern fn implGuiRender(main: ?*anyopaque) callconv(.C) void;
 export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
     std.debug.assert(plugin.gui != null);
     plugin.gui.?.processGesture(

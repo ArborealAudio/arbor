@@ -35,6 +35,7 @@ pub fn build(b: *std.Build) void {
         .CLAP => "lib/clap/include",
         else => "",
     };
+    std.log.warn("Bro you are hard-coding your own home dir\n", .{});
     const install_dir = switch (format.?) {
         .CLAP => switch (target.getOsTag()) {
             .linux => "/home/alex/.clap/",
@@ -88,6 +89,7 @@ pub fn build(b: *std.Build) void {
             .flags = &[_][]const u8{"-std=c99"},
         });
     } else if (plugin.target.isLinux()) {
+        plugin.addSystemIncludePath(.{ .path = "/usr/include/" });
         plugin.addCSourceFile(.{
             .file = .{ .path = "src/gui/gui_x11.c" },
             .flags = &[_][]const u8{"-std=c99"},
