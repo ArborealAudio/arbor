@@ -24,6 +24,7 @@ pub const Vec2 = struct {
     y: f32,
 };
 
+// Does this need to be float? Makes most things more difficult
 pub const Rect = struct {
     x: f32,
     y: f32,
@@ -32,10 +33,10 @@ pub const Rect = struct {
 
     pub fn intersection(a: Rect, b: Rect) Rect {
         var rect = Rect{ .x = 0, .y = 0, .width = 0, .height = 0 };
-        if (a.x < b.x) rect.x = b.x else rect.x = a.x;
-        if (a.y < b.y) rect.y = b.y else rect.x = a.x;
-        if (a.x + a.width > b.x + b.width) rect.width = b.width else rect.width = a.width;
-        if (a.y + a.height > b.y + b.height) rect.height = b.height else rect.height = a.height;
+        rect.x = @max(b.x, a.x);
+        rect.y = @max(b.y, a.y);
+        rect.width = @min(a.width, b.width);
+        rect.height = @min(a.height, b.height);
         return rect;
     }
 };
@@ -95,17 +96,10 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
             .border_size = 2,
             .label = .{
                 .text = Params.idToName(@intCast(i)) catch @panic("Can't find param\n"),
-                .height = 2,
+                .height = 50,
             },
         };
     }
-
-    // std.debug.print("{d}: Mix\n", .{ptr.components[Component.getComponentID("mix")].id});
-    // std.debug.print("{d}: Feedback\n", .{ptr.components[Component.getComponentID("feedback")].id});
-
-    // set default font
-    // const font_file = @embedFile("res/Sora-Regular.ttf");
-    // font = rl.LoadFontFromMemory(".ttf", font_file, font_file.len, 32, null, 0);
 
     return ptr;
 }
@@ -127,16 +121,6 @@ pub fn render(self: *Gui) void {
     for (self.components) |c| {
         c.draw(c.*);
     }
-
-    // const ver_text_size = rl.MeasureTextEx(font, Plugin.Description.version, 13.0, 1.0);
-    // rl.DrawTextEx(font, Plugin.Description.version, .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - ver_text_size.x - 5, .y = 10 }, 13.0, 1.0, rl.WHITE);
-    // const format_text_size = rl.MeasureTextEx(font, @tagName(build_options.format), 13.0, 1.0);
-    // rl.DrawTextEx(font, @tagName(build_options.format), .{ .x = @as(f32, @floatFromInt(GUI_WIDTH)) - format_text_size.x - 5, .y = 10 + ver_text_size.y }, 13.0, 1.0, rl.WHITE);
-
-    // if (builtin.mode == .Debug)
-    //     rl.DrawFPS(5, 5);
-
-    // rl.EndDrawing();
 }
 
 pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thickness: f32) void {

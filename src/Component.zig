@@ -77,15 +77,15 @@ pub const Slider = struct {
             self.fill_color,
         );
 
-        // if (self.label) |l| {
-        //     const text_y = self.pos.y + height;
-        //     Text.draw_string(self.canvas.pixels, .{
-        //         .x = self.pos.x,
-        //         .y = text_y,
-        //         .width = self.width,
-        //         .height = @floatFromInt(l.height),
-        //     }, l.text, 0xffffffff, true);
-        // }
+        if (self.label) |l| {
+            const text_y = self.pos.y + height;
+            Text.draw_string(self.canvas.pixels, .{
+                .x = self.pos.x,
+                .y = text_y,
+                .width = self.width,
+                .height = @floatFromInt(l.height),
+            }, l.text, 0xffffffff, false);
+        }
     }
 };
 

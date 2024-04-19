@@ -1,12 +1,14 @@
 //! Text.zig
 //! Custom text rendering, based on: https://raw.githubusercontent.com/nakst/cdn/main/part7.c
 
+const std = @import("std");
 const Gui = @import("Gui.zig");
 const Rect = Gui.Rect;
 
 const GLYPH_WIDTH = 9;
 const GLYPH_HEIGHT = 16;
 
+// TODO: Uhh do this all from scratch?
 pub fn draw_string(
     bits: [*]u32,
     rect: Rect,
@@ -16,34 +18,38 @@ pub fn draw_string(
 ) void {
     var x: usize = @intFromFloat(rect.x);
     if (center_align) {
-        x += (@as(u32, @intFromFloat(rect.width)) - string.len * GLYPH_WIDTH) / 2;
+        x += (@as(usize, @intFromFloat(rect.width)) -
+            (string.len * GLYPH_WIDTH)) / 2;
     }
+    const y = @as(usize, @intFromFloat(rect.height)) -
+        GLYPH_HEIGHT / 2;
 
     for (string) |c| {
         var char = c;
         if (char > 127) char = '?';
         var glyph_rect = Rect.intersection(rect, .{
             .x = @floatFromInt(x),
-            .y = rect.y,
-            .width = @floatFromInt(x + 8),
-            .height = rect.y + 16,
+            .y = @floatFromInt(y),
+            .width = GLYPH_WIDTH,
+            .height = GLYPH_HEIGHT,
         });
-        const column: usize = @as(usize, char) * 16;
+        const column: usize = @as(usize, char) * GLYPH_HEIGHT;
         const data: [*]const u8 = @ptrCast(&font[column % font.len]);
 
         const gy: usize = @intFromFloat(glyph_rect.y);
         const gb: usize = @intFromFloat(glyph_rect.y + glyph_rect.height);
         const gx: usize = @intFromFloat(glyph_rect.x);
         const gr: usize = @intFromFloat(glyph_rect.x + glyph_rect.width);
-        var i: usize = 0;
-        for (gy..gb) |y| {
-            var pix: [*]u32 = bits + y * @as(usize, @intFromFloat(rect.width)) + gx;
-            const byte: u8 = data[y - @as(usize, @intFromFloat(rect.y))];
-            for (gx..gr) |j| {
-                if (byte & (@as(u8, 1) << @as(u3, @intCast(j - x))) > 0) {
-                    pix[i] = color;
+        var pix_idx: usize = 0;
+        for (gy..gb) |line| {
+            var pix: [*]u32 = bits + line *
+                @as(usize, @intFromFloat(rect.width)) + gx;
+            const byte: u8 = data[line - y];
+            for (gx..gr) |row| {
+                if (byte & (@as(u8, 1) << @as(u3, @truncate(row - x))) > 0) {
+                    pix[pix_idx] = color;
                 }
-                i += 1;
+                pix_idx += 1;
             }
         }
         x += GLYPH_WIDTH;
