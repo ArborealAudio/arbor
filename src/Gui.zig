@@ -2,6 +2,7 @@
 //! Where you layout GUI properties & behavior
 
 const std = @import("std");
+const stderr = std.log.err;
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const c_cast = std.zig.c_translation.cast;
@@ -13,13 +14,15 @@ const o = @cImport({
     @cInclude("olive.c");
 });
 const Gui = @This();
+const Platform = @import("platform");
+const GuiImpl = Platform.GuiImpl;
 
 pub const GUI_WIDTH = 400;
 pub const GUI_HEIGHT = 500;
 const centerX: f32 = @as(f32, GUI_WIDTH) / 2.0;
 const centerY: f32 = @as(f32, GUI_HEIGHT) / 2.0;
 
-pub const Vec2 = struct {
+pub const Vec2 = extern struct {
     x: f32,
     y: f32,
 };
@@ -46,10 +49,9 @@ pub const Circle = struct {
     radius: f32,
 };
 
-window: *anyopaque = undefined,
-canvas: o.Olivec_Canvas,
 bits: []u32,
-
+impl: *GuiImpl,
+canvas: o.Olivec_Canvas,
 plugin: *Plugin,
 
 // slice representing all parameter controllers. Access via ID
@@ -62,16 +64,14 @@ const BORDER_COLOR = 0xff_c0_f0_c0;
 
 pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
     const ptr = try allocator.create(Gui);
+    const bits = try allocator.alloc(u32, GUI_WIDTH * GUI_HEIGHT);
     ptr.* = .{
+        .bits = bits,
+        .impl = Platform.guiCreate(ptr, bits.ptr, GUI_WIDTH, GUI_HEIGHT),
         .plugin = plugin,
         .components = try allocator.alloc(*Component, Params.num_params),
-        // This gets the UI into proper event state
-        .bits = try allocator.alloc(u32, GUI_WIDTH * GUI_HEIGHT * 4),
-        .canvas = o.olivec_canvas(ptr.bits.ptr, GUI_WIDTH, GUI_HEIGHT, GUI_WIDTH),
+        .canvas = o.olivec_canvas(bits.ptr, GUI_WIDTH, GUI_HEIGHT, GUI_WIDTH),
     };
-    // define window separately bc it relies on `bits`
-    if (implGuiCreate(plugin, ptr.bits.ptr, GUI_WIDTH, GUI_HEIGHT)) |disp|
-        ptr.window = disp;
 
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
@@ -110,12 +110,13 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
         allocator.destroy(c);
     // free component slice
     allocator.free(self.components);
-    Gui.implGuiDestroy(self.window);
+    Platform.guiDestroy(self.impl);
     allocator.free(self.bits);
     allocator.destroy(self);
 }
 
-pub fn render(self: *Gui) void {
+// ISSUE: Now this does nothing...
+pub export fn render(self: *const Gui) void {
     o.olivec_fill(self.canvas, BACKGROUND_COLOR);
 
     for (self.components) |c| {
@@ -123,65 +124,11 @@ pub fn render(self: *Gui) void {
     }
 }
 
-pub fn drawRect(bits: []u32, rect: Rect, fill: u32, border: u32, border_thickness: f32) void {
-    var y = rect.y;
-    const bot = rect.y + rect.height;
-    const right = rect.x + rect.width;
-    while (y < bot) : (y += 1) {
-        var x = rect.x;
-        while (x < right) : (x += 1) {
-            const pix = &bits[@intFromFloat(y * GUI_WIDTH + x)];
-            pix.* = if (y <= rect.y + border_thickness or
-                y >= bot - border_thickness - 1 or
-                x <= rect.x + border_thickness or
-                x >= right - border_thickness - 1) border else fill;
-        }
-    }
-}
-
-pub fn drawLine(bits: []u32, p1: Vec2, p2: Vec2, color: u32, thickness: f32) void {
-    _ = thickness;
-    // Bresenham's line algorithm
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    var d = 2 * dy - dx;
-    var y: u32 = @intFromFloat(p1.y);
-    var x: u32 = @intFromFloat(p1.x);
-    while (x < @as(u32, @intFromFloat(p2.x))) : (x += 1) {
-        bits[y * GUI_WIDTH + x] = color;
-        if (d > 0) {
-            y += 1;
-            d -= 2 * dx;
-        }
-        d += 2 * dy;
-    }
-}
-
-pub fn drawCircle(bits: []u32, circle: Circle, fill: u32, border: u32, border_thickness: f32) void {
-    const cx = circle.pos.x;
-    const cy = circle.pos.y;
-    const left = cx - circle.radius;
-
-    var y = cy - circle.radius;
-    var right = cx + circle.radius;
-    var bot = cy + circle.radius;
-    while (y < bot) : (y += 1) {
-        var x = left;
-        while (x < right) : (x += 1) {
-            const adj = cx - x;
-            const opp = cy - y;
-            const hyp = @sqrt(adj * adj + opp * opp);
-            const abs = @fabs(hyp);
-            if (abs <= circle.radius - border_thickness) {
-                bits[@intFromFloat(y * GUI_WIDTH + x)] = fill;
-            } else if (abs <= circle.radius and abs >= circle.radius - border_thickness) {
-                bits[@intFromFloat(y * GUI_WIDTH + x)] = border;
-            }
-        }
-    }
-}
-
-fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !void {
+fn processGesture(
+    self: *Gui,
+    mouse_button: i8,
+    mouse_pos: Vec2,
+) !void {
     var comp: ?*Component = null;
     var mouse_delta: Vec2 = .{ .x = 0, .y = 0 };
     switch (mouse_button) {
@@ -228,29 +175,20 @@ fn processGesture(self: *Gui, mouse_button: i8, mouse_pos: Vec2) !void {
 
     // change parameter
     self.plugin.params.setValue(id, p_val);
-    comp.?.value = @as(f32, @floatCast(try self.plugin.params.getNormalizedValue(id)));
+    const norm_value: f32 = @floatCast(try self.plugin.params.getNormalizedValue(id));
+    comp.?.value = norm_value;
     self.plugin.onParamChange(id);
 
     // self.last_component = comp.?.id;
     // std.debug.assert(self.last_component.? < self.components.len);
 }
 
-// OS-specific UI handling functions
-pub extern fn implGuiCreate(plugin: *Plugin, bits: [*]u32, w: u32, h: u32) callconv(.C) ?*anyopaque;
-pub extern fn implGuiDestroy(main: *anyopaque) callconv(.C) void;
-// TODO: Make the parent window param platform-dependent, since on Linux it is
-// not void* but uint
-pub extern fn implGuiSetParent(display: ?*anyopaque, main: ?*anyopaque, window: ?*anyopaque) callconv(.C) void;
-pub extern fn implGuiSetVisible(display: ?*anyopaque, main: ?*anyopaque, visible: bool) callconv(.C) void;
-pub extern fn implGuiRender(main: ?*anyopaque) callconv(.C) void;
-export fn implInputEvent(plugin: *Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
-    std.debug.assert(plugin.gui != null);
-    plugin.gui.?.processGesture(
+export fn inputEvent(self: *Gui, cursorX: i32, cursorY: i32, button: i8) void {
+    self.processGesture(
         button,
         .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) },
     ) catch |e| {
-        std.log.err("{}\n", .{e});
+        stderr("{}\n", .{e});
     };
-    plugin.gui.?.render();
-    implGuiRender(plugin.gui.?.window);
+    Platform.guiRender(self.impl, true);
 }

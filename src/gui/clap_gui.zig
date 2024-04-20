@@ -9,6 +9,7 @@ const Plugin = @import("../Plugin.zig");
 const Gui = @import("../Gui.zig");
 const GUI_WIDTH = Gui.GUI_WIDTH;
 const GUI_HEIGHT = Gui.GUI_HEIGHT;
+const GuiPlatform = @import("platform");
 
 pub const GUI_API = switch (builtin.os.tag) {
     .linux => clap.CLAP_WINDOW_API_X11,
@@ -53,7 +54,8 @@ fn createGUI(
         std.log.err("GUI init error: {}\n", .{e});
         std.process.exit(1);
     };
-    plug.gui.?.render();
+    GuiPlatform.guiRender(plug.gui.?.impl, true);
+    // plug.gui.?.render();
     return true;
 }
 
@@ -111,7 +113,9 @@ fn setParent(plugin: [*c]const clap.clap_plugin_t, clap_window: [*c]const clap.c
         .linux => clap_window.*.unnamed_0.x11,
         else => @panic("Unsupported OS"),
     };
-    Gui.implGuiSetParent(null, plug.gui.?.window, parent_window);
+    if (plug.gui) |gui| {
+        GuiPlatform.guiSetParent(gui.impl, parent_window);
+    }
     return true;
 }
 
@@ -128,13 +132,15 @@ fn suggestTitle(plugin: [*c]const clap.clap_plugin_t, title: [*c]const u8) callc
 
 fn show(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     const plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
-    Gui.implGuiSetVisible(null, plug.gui.?.window, true);
+    if (plug.gui) |gui|
+        GuiPlatform.guiSetVisible(gui.impl, true);
     return true;
 }
 
 fn hide(plugin: [*c]const clap.clap_plugin_t) callconv(.C) bool {
     const plug = c_cast(*ClapPlugin, plugin.*.plugin_data).plugin;
-    Gui.implGuiSetVisible(null, plug.gui.?.window, false);
+    if (plug.gui) |gui|
+        GuiPlatform.guiSetVisible(gui.impl, false);
     return true;
 }
 

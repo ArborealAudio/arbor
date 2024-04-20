@@ -6,6 +6,7 @@ const vst2 = @import("vst2_api.zig");
 const Plugin = @import("Plugin.zig");
 const Params = @import("Params.zig");
 const Gui = @import("Gui.zig");
+const PlatformGui = @import("platform");
 
 const allocator = std.heap.page_allocator;
 
@@ -150,7 +151,7 @@ fn dispatch(
             };
 
             if (ptr) |p|
-                Gui.implGuiSetParent(null, self.plugin.gui.?.window, p)
+                PlatformGui.guiSetParent(self.plugin.gui.?.impl, p)
             else
                 return 0;
             self.plugin.gui.?.render();

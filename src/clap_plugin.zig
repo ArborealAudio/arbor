@@ -8,6 +8,7 @@ const Mutex = std.Thread.Mutex;
 const Reverb = @import("zig-dsp/Reverb.zig");
 const Gui = @import("Gui.zig");
 const ClapGui = @import("gui/clap_gui.zig");
+const PlatformGui = @import("platform");
 
 pub const clap = @cImport({
     @cInclude("clap/clap.h");
@@ -155,15 +156,16 @@ const State = struct {
 const Timer = struct {
     fn onTimer(plugin: [*c]const clap.clap_plugin_t, timerID: clap.clap_id) callconv(.C) void {
         _ = timerID;
-        var self = plug_cast(plugin.*.plugin_data);
-        var plug = self.plugin;
+        const self = plug_cast(plugin.*.plugin_data);
+        const plug = self.plugin;
 
         // currently just infinitely repainting...
         // MAYBE: we should check if a repaint is needed
         // so that means moving the interaction logic to here
         // BUT: It doesn't work! Never gets a gesture
-        if (plug.gui != null) {
-            plug.gui.?.render();
+        if (plug.gui) |gui| {
+            PlatformGui.guiRender(gui.impl, true);
+            // plug.gui.?.render();
             // self.need_repaint = false;
         }
     }
@@ -174,36 +176,36 @@ const Timer = struct {
 };
 
 pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
-    var c_plug = plug_cast(plugin.*.plugin_data);
+    const c_plug = plug_cast(plugin.*.plugin_data);
 
     {
-        var ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_LOG);
+        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_LOG);
         if (ptr != null)
             c_plug.*.host_log = @ptrCast(@alignCast(ptr));
     }
     {
-        var ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_THREAD_CHECK);
+        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_THREAD_CHECK);
         if (ptr != null)
             c_plug.*.host_thread_check = @ptrCast(@alignCast(ptr));
     }
     {
-        var ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_LATENCY);
+        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_LATENCY);
         if (ptr != null)
             c_plug.*.host_latency = @ptrCast(@alignCast(ptr));
     }
     {
-        var ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_STATE);
+        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_STATE);
         if (ptr != null)
             c_plug.*.host_state = @ptrCast(@alignCast(ptr));
     }
     {
-        var ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_PARAMS);
+        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_PARAMS);
         if (ptr != null) {
             c_plug.*.host_params = @ptrCast(@alignCast(ptr));
         }
     }
     {
-        var ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_TIMER_SUPPORT);
+        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_TIMER_SUPPORT);
         if (ptr != null) {
             c_plug.*.host_timer_support = @ptrCast(@alignCast(ptr));
             if (c_plug.*.host_timer_support.*.unregister_timer != null)
