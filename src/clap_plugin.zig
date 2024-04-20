@@ -35,6 +35,7 @@ host_thread_check: [*c]const clap.clap_host_thread_check_t,
 host_state: [*c]const clap.clap_host_state_t,
 host_params: [*c]const clap.clap_host_params_t,
 host_timer_support: [*c]const clap.clap_host_timer_support_t,
+host_fd_support: [*c]const clap.clap_host_posix_fd_support_t,
 timer_id: clap.clap_id,
 
 need_repaint: bool = false,
@@ -212,6 +213,14 @@ pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
                 _ = c_plug.*.host_timer_support.*.register_timer.?(c_plug.*.host, 16, &c_plug.*.timer_id);
         }
     }
+    {
+        const ptr = c_plug.*.host.*.get_extension.?(
+            c_plug.*.host,
+            &clap.CLAP_EXT_POSIX_FD_SUPPORT,
+        );
+        if (ptr != null)
+            c_plug.*.host_fd_support = @ptrCast(@alignCast(ptr));
+    }
     return true;
 }
 
@@ -328,8 +337,8 @@ pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callco
         return &ClapGui.Data;
     if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_TIMER_SUPPORT).compare(.eq))
         return &Timer.Data;
-    // if (std.cstr.cmp(id, &clap.CLAP_EXT_POSIX_FD_SUPPORT) == 0)
-    //     return &Gui.PosixFDSupport.Data;
+    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_POSIX_FD_SUPPORT).compare(.eq))
+        return &ClapGui.PosixFDSupport.Data;
     return null;
 }
 
@@ -388,6 +397,7 @@ const Factory = struct {
                 .host_log = null,
                 .host_thread_check = null,
                 .host_timer_support = null,
+                .host_fd_support = null,
                 .timer_id = undefined,
             };
             return &c_plugin.clap_plugin;

@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdio.h>
 
 typedef struct GuiImpl {
     Display *display;
@@ -20,15 +21,23 @@ typedef struct GuiImpl {
     void *user;
 } GuiImpl_t;
 
-typedef Window window_t;
-
-extern void inputEvent(void*, int32_t, int32_t, int8_t);
+/// button 0 = dragging, 1 = click, -1 = release
+extern void inputEvent(void* user, int32_t x, int32_t y, int8_t button);
 extern void render(void*);
+
+void guiRender(GuiImpl_t *gui, bool internal)
+{
+    if (internal) render(gui->user);
+    XPutImage(gui->display, gui->window, DefaultGC(gui->display, 0), gui->image,
+              0, 0, 0, 0, gui->width, gui->height);
+}
 
 GuiImpl_t *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
 {
     GuiImpl_t *gui = (GuiImpl_t*)calloc(1, sizeof(GuiImpl_t));
     gui->user = user;
+    gui->width = w;
+    gui->height = h;
     gui->display = XOpenDisplay(NULL);
     XSetWindowAttributes attributes = {};
     gui->window = XCreateWindow(gui->display, DefaultRootWindow(gui->display),
@@ -76,24 +85,27 @@ void processX11Event(GuiImpl_t *gui, XEvent *event)
     switch(event->type) {
     case Expose:
         if (event->xexpose.window == gui->window)
-            render(gui->user);
+            guiRender(gui, true);
         break;
     case MotionNotify:
+        printf("Mouse drag...\n");
         if (event->xmotion.window == gui->window)
             inputEvent(gui->user, event->xmotion.x, event->xmotion.y, 0);
         break;
     case ButtonPress:
+        printf("Mouse press...\n");
         if (event->xbutton.window == gui->window && event->xbutton.button == 1)
             inputEvent(gui->user, event->xbutton.x, event->xbutton.y, 1);
         break;
     case ButtonRelease:
+        printf("Mouse release...\n");
         if (event->xbutton.window == gui->window && event->xbutton.button == 1)
             inputEvent(gui->user, event->xbutton.x, event->xbutton.y, -1);
         break;
     }
 }
 
-void guiOnPosixFD(GuiImpl_t *gui)
+void guiOnPosixFd(GuiImpl_t *gui)
 {
     XFlush(gui->display);
 
@@ -113,7 +125,7 @@ void guiOnPosixFD(GuiImpl_t *gui)
         }
         processX11Event(gui, &event);
         XFlush(gui->display);
-        render(gui->user);
+        guiRender(gui, true);
     }
 }
 
@@ -141,11 +153,4 @@ void guiSetVisible(GuiImpl_t *gui, bool visible)
     if (visible) XMapRaised(gui->display, gui->window);
     else XUnmapWindow(gui->display, gui->window);
     XFlush(gui->display);
-}
-
-void guiRender(GuiImpl_t *gui, bool internal)
-{
-    if (internal) render(gui->user);
-    XPutImage(gui->display, gui->window, DefaultGC(gui->display, 0), gui->image,
-              0, 0, 0, 0, gui->image->width, gui->image->height); 
 }

@@ -123,7 +123,7 @@ fn dispatch(
             self.plugin.sample_rate = @floatCast(opt);
             self.plugin.prepare(allocator, self.plugin.sample_rate, self.plugin.maxNumSamples) catch |e| {
                 std.log.err("Plugin init error: {}\n", .{e});
-                std.process.exit(1);
+                return -1;
             };
             return 1;
         },
@@ -143,7 +143,7 @@ fn dispatch(
         },
         .EditOpen => {
             // Init GUI
-            // ptr = native parent window (HWND, NSView/NSWindow?)
+            // ptr = native parent window (HWND, NSView/NSWindow?, X Window)
             std.debug.assert(self.plugin.gui == null);
             self.plugin.gui = Gui.init(allocator, self.plugin) catch |e| {
                 std.log.err("GUI init failed: {}\n", .{e});
@@ -151,17 +151,17 @@ fn dispatch(
             };
 
             if (ptr) |p|
-                PlatformGui.guiSetParent(self.plugin.gui.?.impl, p)
+                PlatformGui.guiSetParent(self.plugin.gui.?.impl, @intFromPtr(p))
             else
                 return 0;
-            self.plugin.gui.?.render();
+            PlatformGui.guiRender(self.plugin.gui.?.impl, true);
             return 1;
         },
         .EditRedraw => {
             // Update & Draw GUI
             // Probably need to check whether redraw is needed
             std.debug.assert(self.plugin.gui != null);
-            self.plugin.gui.?.render();
+            PlatformGui.guiRender(self.plugin.gui.?.impl, true);
         },
         .EditClose => {
             // Close GUI

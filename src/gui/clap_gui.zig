@@ -161,3 +161,21 @@ pub const Data = clap.clap_plugin_gui_t{
     .show = show,
     .hide = hide,
 };
+
+pub const PosixFDSupport = struct {
+    fn on_fd(
+        plugin: [*c]const clap.clap_plugin_t,
+        fd: c_int,
+        flags: clap.clap_posix_fd_flags_t,
+    ) callconv(.C) void {
+        _ = fd;
+        _ = flags;
+        const plug: *Plugin = @ptrCast(@alignCast(plugin.*.plugin_data));
+        if (plug.gui) |gui|
+            GuiPlatform.guiOnPosixFd(gui.impl);
+    }
+
+    pub const Data = clap.clap_plugin_posix_fd_support_t{
+        .on_fd = on_fd,
+    };
+};
