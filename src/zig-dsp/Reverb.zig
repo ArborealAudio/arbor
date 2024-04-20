@@ -169,15 +169,15 @@ fn processInputDiffusion(self: *Reverb, in: [2]f32) [2]f32 {
 /// fIn: forward-fed output of last allpass block
 /// returns forward output
 fn processSubSection(self: *Reverb, index: u32, ch: u32, dry: f32, f_in: f32) f32 {
-    var d = self.tail_delay[index].popSampleWithMod(ch);
-    var sum = dry + f_in + (d * -0.5);
+    const d = self.tail_delay[index].popSampleWithMod(ch);
+    const sum = dry + f_in + (d * -0.5);
     self.tail_delay[index].pushSample(ch, sum);
     var out = sum * 0.5 + d;
 
-    var d2 = self.tail_delay[index + 1].popSampleWithMod(ch);
+    const d2 = self.tail_delay[index + 1].popSampleWithMod(ch);
     out += d2 * -0.5;
     self.tail_delay[index + 1].pushSample(ch, out);
-    var out2 = out * 0.5 + d2;
+    const out2 = out * 0.5 + d2;
 
     self.tail_delay[index + 2].pushSample(ch, out2);
 

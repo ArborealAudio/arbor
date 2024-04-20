@@ -27,7 +27,7 @@ pub fn draw_string(
     for (string) |c| {
         var char = c;
         if (char > 127) char = '?';
-        var glyph_rect = Rect.intersection(rect, .{
+        const glyph_rect = Rect.intersection(rect, .{
             .x = @floatFromInt(x),
             .y = @floatFromInt(y),
             .width = GLYPH_WIDTH,

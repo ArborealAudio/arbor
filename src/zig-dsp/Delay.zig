@@ -86,7 +86,7 @@ pub fn pushSample(self: *Delay, ch: usize, input: f32) void {
 }
 
 pub fn popSample(self: *Delay, ch: usize) f32 {
-    var out = self.interpolate(ch);
+    const out = self.interpolate(ch);
     self.read_pos[ch] = (self.read_pos[ch] + self.max_delay - 1) % self.max_delay;
     return out;
 }
@@ -94,7 +94,7 @@ pub fn popSample(self: *Delay, ch: usize) f32 {
 pub fn popSampleWithMod(self: *Delay, ch: usize) f32 {
     if (ch == self.buffer.len - 1)
         self.modDelay();
-    var out = self.interpolate(ch);
+    const out = self.interpolate(ch);
     self.read_pos[ch] = (self.read_pos[ch] + self.max_delay - 1) % self.max_delay;
     return out;
 }
