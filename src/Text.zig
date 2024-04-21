@@ -33,6 +33,8 @@ pub fn drawText(
     const hs: u32 = @intFromFloat(@round(GLYPH_HEIGHT * scale));
     var x = rect.x;
     const y = rect.y;
+    // ISSUE: This only works if scale is an integer. Can we implement something
+    // that will properly scale each glyph fractionally?
     const iscale: u32 = @intFromFloat(scale);
 
     for (text) |c| {

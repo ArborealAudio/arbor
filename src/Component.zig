@@ -78,6 +78,8 @@ pub const Slider = struct {
         );
 
         if (self.label) |l| {
+            // TODO: Just pass the component's bounds, and the text drawing
+            // can take care of the positioning, probably via a parameter
             const text_y = self.pos.y + height;
             const text_x = self.pos.x - self.width / 2;
             Text.drawText(l.text, self.canvas.pixels, .{

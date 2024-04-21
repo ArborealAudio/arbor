@@ -1,6 +1,7 @@
 //! Definition of a specific VST2 plugin implementation
 
 const std = @import("std");
+const builtin = @import("builtin");
 const c_cast = std.zig.c_translation.cast;
 const vst2 = @import("vst2_api.zig");
 const Plugin = @import("Plugin.zig");
@@ -151,7 +152,10 @@ fn dispatch(
             };
 
             if (ptr) |p|
-                PlatformGui.guiSetParent(self.plugin.gui.?.impl, @intFromPtr(p))
+                PlatformGui.guiSetParent(self.plugin.gui.?.impl, if (builtin.os.tag == .linux)
+                    @intFromPtr(p)
+                else
+                    p)
             else
                 return 0;
             PlatformGui.guiRender(self.plugin.gui.?.impl, true);
