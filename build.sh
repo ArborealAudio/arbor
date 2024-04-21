@@ -4,7 +4,7 @@ uname=$(uname)
 if [[ $uname == "Linux" ]]; then
   plugin="libZigVerb.so"
 elif [[ $uname == "Darwin" ]]; then
-  plugin="ZigVerb.dylib"
+  plugin="libZigVerb.dylib"
 fi
 
 if [[ $1 == "" ]]; then
@@ -14,15 +14,22 @@ fi
 
 if [[ $1 == "VST2" ]]; then
   case $uname in
-    Linux) ext="so"
+    Linux)
+      ext="so"
+      dest="$HOME/.vst"
     ;;
-    Darwin) ext="vst"
+    Darwin)
+      ext="vst"
+      dest="$HOME/Library/Audio/Plug-Ins/VST"
     ;;
   esac
-  dest="$HOME/.vst"
 elif [[ $1 == "CLAP" ]]; then
   ext="clap"
-  dest="$HOME/.clap"
+  case $uname in
+    Linux) dest="$HOME/.clap"
+    ;;
+    Darwin) dest="$HOME/Library/Audio/Plug-Ins/CLAP"
+  esac
 fi
 
 echo "Building..."

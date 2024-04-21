@@ -5,8 +5,9 @@ const builtin = @import("builtin");
 
 pub const Window = switch (builtin.os.tag) {
     .windows => ?*anyopaque,
+    .macos => ?*anyopaque,
     .linux => c_ulong,
-    else => @panic("Not implemented\n"),
+    else => @panic("Unsupported OS\n"),
 };
 
 pub const GuiImpl = switch (builtin.os.tag) {
@@ -26,7 +27,14 @@ pub const GuiImpl = switch (builtin.os.tag) {
         height: u32,
         user: ?*anyopaque,
     },
-    else => @panic("Implement struct definition for this OS\n"),
+    .macos => struct {
+        user: ?*anyopaque,
+        bits: [*]u32,
+        width: u32,
+        height: u32,
+        has_super_view: bool,
+    },
+    else => @panic("Unsupported OS\n"),
 };
 
 pub extern fn guiCreate(user: ?*anyopaque, bits: [*]u32, w: u32, h: u32) *GuiImpl;

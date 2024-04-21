@@ -108,6 +108,13 @@ fn buildPlatformGUI(
                 .flags = &.{"-std=c99"},
             });
         },
+        .macos => {
+            lib.linkFramework("Cocoa");
+            lib.addCSourceFile(.{
+                .file = b.path("src/gui/gui_mac.m"),
+                .flags = &.{"-ObjC"},
+            });
+        },
         else => @panic("Unimplemented OS\n"),
     }
 

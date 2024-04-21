@@ -4,19 +4,20 @@
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
 
-struct Plugin;
-void implInputEvent(struct Plugin *plugin, int32_t cursorX, int32_t cursorY, int8_t button);
+void inputEvent(void *user, int32_t cursorX, int32_t cursorY, int8_t button);
+void render(void *);
 
-@interface MainView : NSView
-@property (nonatomic) struct Plugin *plugin;
+@interface GuiImpl : NSView
+@property (nonatomic) void *user;
 @property (nonatomic) uint32_t *bits;
 @property (nonatomic) uint32_t width;
 @property (nonatomic) uint32_t height;
 @property (nonatomic) BOOL hasSuperView;
 @end
 
-@implementation MainView
+@implementation GuiImpl
 - (void)drawRect:(NSRect)dirtyRect {
+    render(_user);
     const unsigned char *data = (const unsigned char *)_bits;
     NSDrawBitmap(self.bounds, _width, _height, 8 /*bits per channel*/,
     4 /*channels per pixel*/, 32 /*bits per pixel*/,
@@ -29,57 +30,56 @@ void implInputEvent(struct Plugin *plugin, int32_t cursorX, int32_t cursorY, int
 
 - (void)mouseDown:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    implInputEvent(_plugin, cursor.x, cursor.y, 1);
+    inputEvent(_user, cursor.x, cursor.y, 1);
 }
 
 - (void)mouseUp:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    implInputEvent(_plugin, cursor.x, cursor.y, -1);
+    inputEvent(_user, cursor.x, cursor.y, -1);
 }
 
 - (void)mouseDragged:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    implInputEvent(_plugin, cursor.x, cursor.y, 0);
+    inputEvent(_user, cursor.x, cursor.y, 0);
 }
 @end
 
-void *implGuiCreate(struct Plugin *plugin, uint32_t *bits, uint32_t w, uint32_t h)
+GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
 {
     NSRect frame;
     frame.origin.x = 0;
     frame.origin.y = 0;
     frame.size.width = w;
     frame.size.height = h;
-    MainView *mainView = [[MainView alloc] initWithFrame:frame];
-    mainView.plugin = plugin;
-    mainView.bits = bits;
-    mainView.width = w;
-    mainView.height = h;
-    return mainView;
+    GuiImpl *gui = [[GuiImpl alloc] initWithFrame:frame];
+    gui.user = user;
+    gui.bits = bits;
+    gui.width = w;
+    gui.height = h;
+    return gui;
 }
 
-void implGuiDestroy(void *mainView)
+void guiDestroy(GuiImpl *gui)
 {
-    [((MainView *) mainView) release];
+    [((GuiImpl *) gui) release];
 }
 
-void implGuiSetParent(const void *disp, const void *pluginView, const void *parent)
+void guiSetParent(GuiImpl *gui, const void *parent)
 {
-    MainView *mainView = (MainView *)pluginView;
     NSView *parentView = (NSView *)parent;
-    if (mainView.hasSuperView) [mainView removeFromSuperview];
-    [parentView addSubview:mainView];
-    mainView.hasSuperView = true;
+    if (gui.hasSuperView) [gui removeFromSuperview];
+    [parentView addSubview:gui];
+    gui.hasSuperView = true;
 }
 
-void implGuiSetVisible(const void *disp, const void *pluginView, bool visible)
+void guiSetVisible(GuiImpl *gui, bool visible)
 {
-    MainView *mainView = (MainView *)pluginView;
-    [mainView setHidden:(visible ? NO : YES)];
+    [gui setHidden:(visible ? NO : YES)];
 }
 
-void implGuiRender(void *pluginView)
+void guiRender(GuiImpl *gui)
 {
-    MainView *mainView = (MainView *)pluginView;
-    [mainView setNeedsDisplayInRect:mainView.bounds];
+    [gui setNeedsDisplayInRect:gui.bounds];
 }
+
+void guiOnPosixFd(GuiImpl *) {}
