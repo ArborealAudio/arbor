@@ -79,12 +79,13 @@ pub const Slider = struct {
 
         if (self.label) |l| {
             const text_y = self.pos.y + height;
-            Text.draw_string(self.canvas.pixels, .{
-                .x = self.pos.x,
-                .y = text_y,
-                .width = self.width,
-                .height = @floatFromInt(l.height),
-            }, l.text, 0xffffffff, false);
+            const text_x = self.pos.x - self.width / 2;
+            Text.drawText(l.text, self.canvas.pixels, .{
+                .x = @intFromFloat(text_x),
+                .y = @intFromFloat(text_y),
+                .width = @intFromFloat(self.width),
+                .height = l.height,
+            }, 2, 0xffffffff);
         }
     }
 };

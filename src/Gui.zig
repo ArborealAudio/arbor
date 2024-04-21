@@ -27,8 +27,12 @@ pub const Vec2 = extern struct {
     y: f32,
 };
 
-// Does this need to be float? Makes most things more difficult
-pub const Rect = struct {
+pub const Vec2i = extern struct {
+    x: i32,
+    y: i32,
+};
+
+pub const Rect = extern struct {
     x: f32,
     y: f32,
     width: f32,
@@ -36,6 +40,22 @@ pub const Rect = struct {
 
     pub fn intersection(a: Rect, b: Rect) Rect {
         var rect = Rect{ .x = 0, .y = 0, .width = 0, .height = 0 };
+        rect.x = @max(b.x, a.x);
+        rect.y = @max(b.y, a.y);
+        rect.width = @min(a.width, b.width);
+        rect.height = @min(a.height, b.height);
+        return rect;
+    }
+};
+
+pub const Recti = extern struct {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+
+    pub fn intersection(a: Recti, b: Recti) Recti {
+        var rect = Recti{ .x = 0, .y = 0, .width = 0, .height = 0 };
         rect.x = @max(b.x, a.x);
         rect.y = @max(b.y, a.y);
         rect.width = @min(a.width, b.width);
@@ -96,7 +116,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
             .border_size = 2,
             .label = .{
                 .text = Params.idToName(@intCast(i)) catch @panic("Can't find param\n"),
-                .height = 50,
+                .height = 25,
             },
         };
     }
@@ -118,9 +138,10 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
 pub export fn render(self: *const Gui) void {
     o.olivec_fill(self.canvas, BACKGROUND_COLOR);
 
-    for (self.components) |c| {
-        c.draw(c.*);
-    }
+    self.components[0].draw(self.components[0].*);
+    // for (self.components) |c| {
+    //     c.draw(c.*);
+    // }
 }
 
 fn processGesture(
