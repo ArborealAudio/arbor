@@ -115,7 +115,6 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
     allocator.destroy(self);
 }
 
-// ISSUE: Now this does nothing...
 pub export fn render(self: *const Gui) void {
     o.olivec_fill(self.canvas, BACKGROUND_COLOR);
 
