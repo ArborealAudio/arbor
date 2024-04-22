@@ -69,13 +69,12 @@ const Plugin = @import("src/plugin.zig");
 pub fn build(b: *std.Build) void {
   const target = b.standardTargetOptions(.{});
   const optimize = b.standardOptimizeOption(.{});
-	const plugin = b.addSharedLibrary(.{
+  const plugin = b.addSharedLibrary(.{
     .name = plugin_name,
     .root_source_file = b.path("src/plugin.zig"),
     .target = target,
     .optimize = optimize,
   });
-
   arbor.configure(Plugin);
   plugin.addImport("arbor", arbor.build(b, target, optimize));
 }
