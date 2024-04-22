@@ -26,7 +26,7 @@ pub fn get_pixel(c: Canvas, x: usize, y: usize) u32 {
     return c.pixels[y * c.stride + x];
 }
 
-pub extern fn olivec_canvas(pixels: [*]u32, width: usize, height: usize, strix: usize) Canvas;
+pub extern fn olivec_canvas(pixels: [*]u32, width: usize, height: usize, stride: usize) Canvas;
 pub extern fn olivec_subcanvas(c: Canvas, x: i32, y: i32, w: i32, h: i32) Canvas;
 pub extern fn olivec_in_bounds(c: Canvas, x: i32, y: i32) bool;
 pub extern fn olivec_blend_color(c1: ?*u32, c2: u32) void;
