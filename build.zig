@@ -13,13 +13,6 @@ pub fn build(b: *std.Build) !void {
 
     const build_options = b.addOptions();
     const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
-    const system_install = b.option(
-        bool,
-        "install",
-        "Install plugin to default system directory",
-    ) orelse false;
-    _ = system_install;
-
     build_options.addOption(Format, "format", format);
 
     const root_file = switch (format) {
@@ -46,6 +39,8 @@ pub fn build(b: *std.Build) !void {
     // build platform UI library
     const gui = buildPlatformGUI(b, target, optimize);
     plugin.root_module.addImport("platform", gui);
+    const olivec = buildOlivec(b, target, optimize);
+    plugin.root_module.addImport("olivec", olivec);
     plugin.addIncludePath(.{ .path = "src" });
     plugin.addIncludePath(.{ .path = sdk_include });
 
@@ -118,6 +113,31 @@ fn buildPlatformGUI(
         else => @panic("Unimplemented OS\n"),
     }
 
+    mod.linkLibrary(lib);
+
+    return mod;
+}
+
+fn buildOlivec(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const mod = b.addModule("olivec", .{
+        .root_source_file = b.path("src/olivec.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const lib = b.addStaticLibrary(.{
+        .name = "olivec",
+        .target = target,
+        .optimize = optimize,
+    });
+    lib.addCSourceFile(.{
+        .file = b.path("src/olive.c"),
+        .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
+    });
     mod.linkLibrary(lib);
 
     return mod;

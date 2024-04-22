@@ -27,7 +27,7 @@
 #include <stdbool.h>
 
 #ifndef OLIVECDEF
-#define OLIVECDEF static inline
+#define OLIVECDEF //static inline
 #endif
 
 #ifndef OLIVEC_AA_RES

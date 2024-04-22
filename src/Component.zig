@@ -4,10 +4,7 @@
 const std = @import("std");
 const Params = @import("Params.zig");
 const Gui = @import("Gui.zig");
-const o = @cImport({
-    @cDefine("OLIVEC_IMPLEMENTATION", "");
-    @cInclude("olive.c");
-});
+const olivec = @import("olivec");
 const Vec2 = Gui.Vec2;
 const Text = @import("Text.zig");
 
@@ -18,7 +15,7 @@ const Label = struct {
     height: u32,
 };
 
-canvas: *o.Olivec_Canvas,
+canvas: *olivec.Canvas,
 id: u32 = undefined,
 type: union {
     knob: Knob,
@@ -59,7 +56,7 @@ pub const Slider = struct {
         const val_height = height * self.value;
         const top = self.pos.y + (height - val_height);
         // draw borders
-        o.olivec_rect(
+        olivec.olivec_rect(
             self.canvas.*,
             @intFromFloat(self.pos.x),
             @intFromFloat(self.pos.y),
@@ -68,7 +65,7 @@ pub const Slider = struct {
             self.border_color,
         );
 
-        o.olivec_rect(
+        olivec.olivec_rect(
             self.canvas.*,
             @intFromFloat(self.pos.x),
             @intFromFloat(top),
@@ -133,7 +130,7 @@ pub const Knob = struct {
         //     .pos = .{ .x = centerX, .y = centerY },
         //     .radius = self.width,
         // }, self.fill_color, self.border_color, self.border_size);
-        o.olivec_circle(self.canvas.*, centerX, centerY, @intFromFloat(radius), self.fill_color);
+        olivec.olivec_circle(self.canvas.*, centerX, centerY, @intFromFloat(radius), self.fill_color);
 
         const min_knob_pos: f32 = std.math.pi * 0.25;
         const max_knob_pos: f32 = std.math.pi * 1.75;
@@ -144,7 +141,7 @@ pub const Knob = struct {
         const x1 = centerX + (cos * radius);
         const y1 = centerY + (sin * radius);
 
-        o.olivec_circle(self.canvas.*, x1, y1, @intFromFloat(10), self.border_color);
+        olivec.olivec_circle(self.canvas.*, x1, y1, @intFromFloat(10), self.border_color);
 
         // Gui.drawCircle(
         //     bits,

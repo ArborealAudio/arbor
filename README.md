@@ -19,7 +19,7 @@ programming, ideally using something like [sokol](https://github.com/floooh/soko
 for cross-platform graphics abstraction.
 
 * Simple, declarative UI design. Probably using a custom CSS-like syntax
-to declare, arrange, and style UI widgets *at runtime or compile-time*, all
+to declare, arrange, and style UI widgets at **runtime** or **compile-time**, all
 compiling to native code--not running in some god-forsaken web browser embedded
 in a plugin UI 🤮
 

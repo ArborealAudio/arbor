@@ -9,10 +9,7 @@ const c_cast = std.zig.c_translation.cast;
 const Plugin = @import("Plugin.zig");
 const Params = @import("Params.zig");
 const Component = @import("Component.zig");
-const o = @cImport({
-    @cDefine("OLIVEC_IMPLEMENTATION", "");
-    @cInclude("olive.c");
-});
+const olivec = @import("olivec");
 const Gui = @This();
 const Platform = @import("platform");
 const GuiImpl = Platform.GuiImpl;
@@ -71,7 +68,7 @@ pub const Circle = struct {
 
 bits: []u32,
 impl: *GuiImpl,
-canvas: o.Olivec_Canvas,
+canvas: olivec.Canvas,
 plugin: *Plugin,
 
 // slice representing all parameter controllers. Access via ID
@@ -90,7 +87,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: *Plugin) !*Gui {
         .impl = Platform.guiCreate(ptr, bits.ptr, GUI_WIDTH, GUI_HEIGHT),
         .plugin = plugin,
         .components = try allocator.alloc(*Component, Params.num_params),
-        .canvas = o.olivec_canvas(bits.ptr, GUI_WIDTH, GUI_HEIGHT, GUI_WIDTH),
+        .canvas = olivec.olivec_canvas(bits.ptr, GUI_WIDTH, GUI_HEIGHT, GUI_WIDTH),
     };
 
     // create pointers, assign IDs and values
@@ -136,7 +133,7 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
 }
 
 pub export fn render(self: *const Gui) void {
-    o.olivec_fill(self.canvas, BACKGROUND_COLOR);
+    olivec.olivec_fill(self.canvas, BACKGROUND_COLOR);
 
     self.components[0].draw(self.components[0].*);
     // for (self.components) |c| {
