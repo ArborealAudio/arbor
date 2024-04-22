@@ -37,19 +37,19 @@ as such
 
 * Simple cross-platform rendering
 
-  [x] Got basic shapes using Olivec software renderer
+	[x] Got basic shapes using Olivec software renderer
 
-  * Make text drawing more robust and complete
+	* Make text drawing more robust and complete
 
-  * Make some basic widgets for building UI:
+	* Make some basic widgets for building UI:
 
-    * Slider
-
-    * Knob
-
-    * Button
-
-    * Label
+		* Slider
+		
+		* Knob
+		
+		* Button
+		
+		* Label
 
 * Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
 
@@ -67,16 +67,16 @@ const arbor = @import("arbor/build.zig");
 const Plugin = @import("src/plugin.zig");
 
 pub fn build(b: *std.Build) void {
-  const target = b.standardTargetOptions(.{});
-  const optimize = b.standardOptimizeOption(.{});
-  const plugin = b.addSharedLibrary(.{
-    .name = plugin_name,
-    .root_source_file = b.path("src/plugin.zig"),
-    .target = target,
-    .optimize = optimize,
-  });
-  arbor.configure(Plugin);
-  plugin.addImport("arbor", arbor.build(b, target, optimize));
+	const target = b.standardTargetOptions(.{});
+	const optimize = b.standardOptimizeOption(.{});
+	const plugin = b.addSharedLibrary(.{
+		.name = plugin_name,
+		.root_source_file = b.path("src/plugin.zig"),
+		.target = target,
+		.optimize = optimize,
+	});
+	arbor.configure(Plugin);
+	plugin.addImport("arbor", arbor.build(b, target, optimize));
 }
 ```
 
@@ -106,7 +106,7 @@ pub fn process(self: *Plugin, in: []const []const f32, out: [][]f32) void {
 	const gain = gain_param.value;
 	
 	for (in, 0..) |channel_data, ch_num| {
-  	for (channel_data, 0..) |sample, i| {
+	  	for (channel_data, 0..) |sample, i| {
 			out[ch_num][i] = sample * gain;
 		}
 	}
