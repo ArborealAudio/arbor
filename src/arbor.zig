@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 // ISSUE: Build options appears to be bugged, it won't allow import
 // const build_options = @import("build_options");
 
-pub const param = @import("params.zig");
+pub const param = @import("Params.zig");
 pub const Parameter = param.Parameter;
 pub const Format = enum { CLAP, VST3, VST2 };
 // const format = build_options.format;
