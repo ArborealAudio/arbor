@@ -11,6 +11,9 @@ blank-slate plugin.
 language. You should be able to write plugins in C/C++/whatever and easily link
 that code to Arbor using the Zig build system.
 
+	* Could also have a `get_zig.sh` that will download latest stable Zig if you
+	don't already have it
+
 * Easy cross-compilation. Compile to Mac/Linux/Windows from Mac/Linux/Windows,
 batteries included.
 
@@ -18,10 +21,10 @@ batteries included.
 programming, ideally using something like [sokol](https://github.com/floooh/sokol.git)
 for cross-platform graphics abstraction.
 
-* Simple, declarative UI design. Probably using a custom CSS-like syntax
-to declare, arrange, and style UI widgets at **runtime** or **compile-time**, all
-compiling to native code--not running in some god-forsaken web browser embedded
-in a plugin UI 🤮
+* Simple, declarative UI design. Probably using a custom CSS-like syntax (or
+[Ziggy](https://github.com/kristoff-it/ziggy.git)) to declare, arrange, and
+style UI widgets at **runtime** or **compile-time**, all compiling to native
+code--not running in some god-forsaken web browser embedded in a plugin UI 🤮
 
 ## TODO:
 
@@ -75,7 +78,7 @@ pub fn build(b: *std.Build) void {
 		.target = target,
 		.optimize = optimize,
 	});
-	arbor.configure(Plugin);
+	const config: arbor.configure(Plugin) = .{};
 	plugin.addImport("arbor", arbor.build(b, target, optimize));
 }
 ```
@@ -85,17 +88,28 @@ In plugin.zig:
 ```zig
 const arbor = @import("arbor");
 
-pub const PluginName = "My Evil Plugin";
-pub const CompanyName = "Plug-O Corp, Ltd.";
-pub const Version = "0.1";
-pub const Description = "Vintage Analog Warmth";
-// etc...
+const Description = arbor.PluginDescription {
+	.plugin_name = "My Evil Plugin",
+	.company_name = "Plug-O Corp, Ltd.",
+	.version = "0.1",
+	.url = "https://plug-o-corp.biz",
+	.contact_address = "contact@plug-o-corp.biz",
+	.description = "Vintage Analog Warmth",
+	// etc...
+}
 
 pub const Plugin = @This();
+// specify an allocator
+const allocator = std.heap.c_allocator;
 
 // initialize plugin 
-pub fn init() *Plugin {
-	// ...
+// ! == function may return an error
+pub fn init() !*Plugin {
+	const plugin = try allocator.create(Plugin);
+	plugin.* = .{
+		// set plugin stuff here
+	};
+	return plugin;
 }
 
 // process audio
@@ -113,8 +127,13 @@ pub fn process(self: *Plugin, in: []const []const f32, out: [][]f32) void {
 }
 
 pub const params = [_]arbor.Parameter{
-	.{ .name = "Gain", .{ .float = .{ .min = 0, .max = 10, .default = 0.666 } } },
-	.{ .name = "Mode", .{ .choice = .{ .choices = Mode, .default = .Vintage } } },
+	arbor.createParameter(
+		"Gain", // name
+		0.0, // min
+		10.0, // max
+		0.666 // default
+	);
+	arbor.createParameter("Mode", Mode, Mode.Vintage);
 };
 
 const Mode = enum {

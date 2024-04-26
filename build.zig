@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Plugin = @import("src/Plugin.zig");
-const plugin_name = Plugin.Description.plugin_name;
-const Format = Plugin.Format;
+const arbor = @import("src/arbor.zig");
+const Format = arbor.Format;
 
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo
+// TODO: Configure OSX sysroot so we can supply our own SDK
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -15,56 +15,43 @@ pub fn build(b: *std.Build) !void {
     const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
     build_options.addOption(Format, "format", format);
 
-    const root_file = switch (format) {
-        .CLAP => "src/clap_plugin.zig",
-        .VST3 => "src/vst3_plugin.zig",
-        .VST2 => "src/vst2_plugin.zig",
-    };
-    const sdk_include = switch (format) {
-        .CLAP => "lib/clap/include",
-        else => "",
-    };
-
-    const plugin = b.addSharedLibrary(.{
-        .name = plugin_name,
-        .root_source_file = .{ .path = root_file },
+    const arbor_mod = b.addModule("arbor", .{
+        .root_source_file = b.path("src/arbor.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    plugin.root_module.addOptions("build_options", build_options);
-
-    // TODO: Configuring OSX sysroot
+    arbor_mod.addOptions("build_options", build_options);
 
     // build platform UI library
-    const gui = buildPlatformGUI(b, target, optimize);
-    plugin.root_module.addImport("platform", gui);
-    const olivec = buildOlivec(b, target, optimize);
-    plugin.root_module.addImport("olivec", olivec);
-    plugin.addIncludePath(.{ .path = "src" });
-    plugin.addIncludePath(.{ .path = sdk_include });
+    arbor_mod.addImport("platform", buildPlatformGUI(b, target, optimize));
+    arbor_mod.addImport("olivec", buildOlivec(b, target, optimize));
 
-    b.installArtifact(plugin);
+    const example = b.option([]const u8, "example", "Build an example plugin") orelse "";
+    if (!std.mem.eql(u8, example, "")) {
+        const plug = try buildExample(b, format, example, arbor_mod, target, optimize);
+        b.installArtifact(plug);
+        std.log.info("Built example: {s}\n", .{example});
+    }
 
     // Creates a step for unit testing.
-    const clap_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/clap_plugin.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+    // const clap_tests = b.addTest(.{
+    //     .root_source_file = .{ .path = "src/clap_plugin.zig" },
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
 
-    const vst3_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/vst3_plugin.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+    // const vst3_tests = b.addTest(.{
+    //     .root_source_file = .{ .path = "src/vst3_plugin.zig" },
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&clap_tests.step);
-    test_step.dependOn(&vst3_tests.step);
+    // const test_step = b.step("test", "Run library tests");
+    // test_step.dependOn(&clap_tests.step);
+    // test_step.dependOn(&vst3_tests.step);
 }
 
 fn buildPlatformGUI(
@@ -141,6 +128,42 @@ fn buildOlivec(
     mod.linkLibrary(lib);
 
     return mod;
+}
+
+fn buildExample(
+    b: *std.Build,
+    format: Format,
+    example: []const u8,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) !*std.Build.Step.Compile {
+    const lib_src = try std.mem.concat(
+        b.allocator,
+        u8,
+        &.{ "examples/", example, "/plugin.zig" },
+    );
+    const lib = b.addStaticLibrary(.{
+        .name = example,
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path(lib_src),
+    });
+    lib.root_module.addImport("arbor", module);
+
+    const plug_src = switch (format) {
+        .CLAP => "src/clap_plugin.zig",
+        else => @panic("TODO: This plugin format\n"),
+    };
+    const plug = b.addSharedLibrary(.{
+        .name = example,
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path(plug_src),
+    });
+    plug.linkLibrary(lib);
+
+    return plug;
 }
 
 // ISSUE: Is the Zig build system broken? Is it just so much smarter than me that I can't

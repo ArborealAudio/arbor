@@ -2,117 +2,128 @@
 //! definitions for CLAP plugin
 
 const std = @import("std");
-const Plugin = @import("Plugin.zig");
-const Params = @import("Params.zig");
-const Mutex = std.Thread.Mutex;
-const Reverb = @import("zig-dsp/Reverb.zig");
-const Gui = @import("Gui.zig");
-const ClapGui = @import("gui/clap_gui.zig");
-const PlatformGui = @import("platform");
+const arbor = @import("arbor.zig");
+const config = @import("config");
+const log = arbor.log;
+const clap = arbor.clap;
+const String = arbor.String;
+// const Gui = @import("Gui.zig");
+// const ClapGui = @import("gui/clap_gui.zig");
+// const PlatformGui = @import("platform");
 
-pub const clap = @cImport({
-    @cInclude("clap/clap.h");
-});
+// TODO: Can we inherit the allocator decalred in user plugin somehow?
+const allocator = std.heap.c_allocator;
 
-fn plug_cast(ptr: ?*anyopaque) *Self {
-    std.debug.assert(ptr != null);
-    return @ptrCast(@alignCast(ptr.?));
+fn plug_cast(ptr: ?*const clap.Plugin) *ClapPlugin {
+    if (ptr) |p|
+        return @ptrCast(@alignCast(p.plugin_data))
+    else
+        log.fatal("Plugin ptr is null\n", .{});
 }
-const allocator = std.heap.page_allocator;
 
-pub const PluginDesc = Plugin.Description.format_desc;
+const ClapPlugin = @This();
 
-const Self = @This();
+const timer_ms = 16;
 
-plugin: *Plugin,
+/// user plugin
+plugin: ?*arbor.Plugin = null,
 
-// need a sub-struct to hold clap-specific data
-clap_plugin: clap.clap_plugin_t, // this basically owns a pointer to its owner in the form of plugin_data
-host: [*c]const clap.clap_host_t,
-host_latency: [*c]const clap.clap_host_latency_t,
-host_log: ?*const clap.clap_host_log_t,
-host_thread_check: [*c]const clap.clap_host_thread_check_t,
-host_state: [*c]const clap.clap_host_state_t,
-host_params: [*c]const clap.clap_host_params_t,
-host_timer_support: [*c]const clap.clap_host_timer_support_t,
-host_fd_support: [*c]const clap.clap_host_posix_fd_support_t,
-timer_id: clap.clap_id,
+/// need a sub-struct to hold clap-specific data
+/// this owns a pointer to this outer struct in the form of plugin_data
+clap_plugin: clap.Plugin,
+host: ?*const clap.Host,
+host_latency: ?*const clap.HostLatency = null,
+host_log: ?*const clap.HostLog = null,
+host_thread_check: ?*const clap.HostThreadCheck = null,
+host_state: ?*const clap.HostState = null,
+host_params: ?*const clap.params.HostParams = null,
+host_timer_support: ?*const clap.HostTimer = null,
+host_fd_support: ?*const clap.posix_fd.HostSupport = null,
+timer_id: clap.Id,
 
 need_repaint: bool = false,
 
 const AudioPorts = struct {
-    fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
+    fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.C) u32 {
         _ = is_input;
         _ = plugin;
         return 1;
     }
 
     fn get(
-        plugin: [*c]const clap.clap_plugin_t,
+        plugin: ?*const clap.Plugin,
         index: u32,
         is_input: bool,
-        info: [*c]clap.clap_audio_port_info_t,
+        info: ?*clap.AudioPorts.Info,
     ) callconv(.C) bool {
         _ = is_input;
         if (index > 1)
             return false;
-        info.* = .{
-            .id = 0,
-            .name = undefined,
-            .channel_count = 2,
-            .flags = clap.CLAP_AUDIO_PORT_IS_MAIN,
-            .port_type = &clap.CLAP_PORT_STEREO,
-            .in_place_pair = clap.CLAP_INVALID_ID,
-        };
-        std.log.defaultLog(.info, .default, "Audio port: {s}", .{info.*.name});
-        var plug = plug_cast(plugin.*.plugin_data).plugin;
-        plug.numChannels = info.*.channel_count;
-        return true;
+        if (info) |ptr| {
+            ptr.* = .{
+                .id = 0,
+                .name = undefined,
+                .channel_count = 2,
+                .flags = clap.AudioPorts.Flags{ .IS_MAIN = true },
+                .port_type = clap.AudioPorts.STEREO,
+                .in_place_pair = clap.INVALID_ID,
+            };
+            if (plug_cast(plugin).plugin) |plug|
+                plug.num_channels = ptr.channel_count;
+            return true;
+        } else return false;
     }
 
-    const Data = clap.clap_plugin_audio_ports_t{
+    const Data = clap.AudioPorts{
         .count = count,
         .get = get,
     };
 };
 
-const NotePorts = struct {
-    fn count(plugin: [*c]const clap.clap_plugin_t, is_input: bool) callconv(.C) u32 {
-        _ = is_input;
-        _ = plugin;
-        return 0;
-    }
+// TODO: Implement plugin note ports
+// const NotePorts = struct {
+//     fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.C) u32 {
+//         _ = is_input;
+//         _ = plugin;
+//         // TODO: Query whether there are note ports
+//         return 0;
+//     }
 
-    fn get(
-        plugin: [*c]const clap.clap_plugin_t,
-        index: u32,
-        is_input: bool,
-        info: [*c]clap.clap_note_port_info_t,
-    ) callconv(.C) bool {
-        _ = is_input;
-        _ = plugin;
-        if (index > 0)
-            return false;
-        info.*.id = 0;
-        std.log.defaultLog(.info, .default, "Note port: {s}", .{info.*.name});
-        info.*.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
-        info.*.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
-        return true;
-    }
+//     fn get(
+//         plugin: ?*const clap.Plugin,
+//         index: u32,
+//         is_input: bool,
+//         info: ?*clap.clap_note_port_info_t,
+//     ) callconv(.C) bool {
+//         _ = is_input;
+//         _ = plugin;
+//         if (index > 0)
+//             return false;
+//         info.*.id = 0;
+//         std.log.defaultLog(.info, .default, "Note port: {s}", .{info.*.name});
+//         info.*.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
+//         info.*.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
+//         return true;
+//     }
 
-    const Data = clap.clap_plugin_note_ports_t{
-        .count = count,
-        .get = get,
-    };
-};
+//     const Data = clap.NotePorts{
+//         .count = count,
+//         .get = get,
+//     };
+// };
 
 // Latency
 pub const Latency = struct {
-    fn getLatency(plugin: [*c]const clap.clap_plugin_t) callconv(.C) u32 {
-        const plug = plug_cast(plugin.*.plugin_data).plugin;
-        return plug.latency;
+    fn getLatency(plugin: ?*const clap.Plugin) callconv(.C) u32 {
+        if (plug_cast(plugin).plugin) |plug| {
+            if (@hasField(@TypeOf(plug.*), "latency"))
+                return plug.latency
+            else
+                return 0;
+        }
+        return 0;
     }
-    const Data = clap.clap_plugin_latency_t{
+    const Data = clap.Latency{
         .get = getLatency,
     };
 };
@@ -120,145 +131,241 @@ pub const Latency = struct {
 // state
 const State = struct {
     pub fn save(
-        plugin: [*c]const clap.clap_plugin_t,
-        stream: [*c]const clap.clap_ostream_t,
+        plugin: ?*const clap.Plugin,
+        stream: ?*const clap.OutStream,
     ) callconv(.C) bool {
-        const plug = plug_cast(plugin.*.plugin_data).plugin;
-        const numParams = Params.num_params;
-        // PROBLEM: This crashes the plugin!
-        return @sizeOf(f32) * numParams == stream.*.write.?(stream, @as(
-            [*]f32,
-            @ptrCast(&plug.*.params.values),
-        ), @sizeOf(f32) * numParams);
+        if (plug_cast(plugin).plugin) |plug| {
+            const num_params = plug.params.len;
+            // PROBLEM: This crashes the plugin!
+            if (stream) |str|
+                return @sizeOf(f32) * num_params == str.write(
+                    stream,
+                    plug.params.ptr,
+                    @sizeOf(f32) * num_params,
+                );
+        }
+        return false;
     }
 
     pub fn load(
-        plugin: [*c]const clap.clap_plugin_t,
-        stream: [*c]const clap.clap_istream_t,
+        plugin: ?*const clap.Plugin,
+        stream: ?*const clap.InStream,
     ) callconv(.C) bool {
-        const plug = plug_cast(plugin.*.plugin_data).plugin;
-        // var mutex = Mutex{};
-        // mutex.lock();
-        // defer mutex.unlock();
-        const numParams = Params.num_params;
-        return @sizeOf(f32) * numParams == stream.*.read.?(stream, @as(
-            [*]f32,
-            @ptrCast(&plug.params.values),
-        ), @sizeOf(f32) * numParams);
+        if (plug_cast(plugin).plugin) |plug| {
+            const num_params = plug.params.len;
+            if (stream) |str|
+                return @sizeOf(f32) * num_params == str.read(
+                    stream,
+                    plug.params.ptr,
+                    @sizeOf(f32) * num_params,
+                );
+        }
+        return false;
     }
 
-    const Data = clap.clap_plugin_state_t{
+    const Data = clap.PluginState{
         .save = save,
         .load = load,
     };
 };
 
+// Params
+const Params = struct {
+    pub fn count(plugin: ?*const clap.Plugin) callconv(.C) u32 {
+        if (plug_cast(plugin).plugin) |plug|
+            return @intCast(plug.params.len)
+        else
+            return 0;
+    }
+
+    fn getInfo(plugin: ?*const clap.Plugin, index: u32, info: ?*clap.params.Info) callconv(.C) bool {
+        _ = plugin;
+        const params = arbor.plugin_params;
+        if (index > params.len - 1) return false;
+        const param = params[index];
+        if (info) |ptr| {
+            ptr.* = .{
+                .name = undefined,
+                .module = undefined,
+                .id = index,
+                .flags = .{
+                    .IS_AUTOMATABLE = param.flags.automatable,
+                    .IS_MODULATABLE = param.flags.modulatable,
+                },
+                .min_value = param.min_value,
+                .max_value = param.max_value,
+                .default_value = param.default_value,
+                .cookie = null,
+            };
+            const name_len = std.mem.len(param.name);
+            if (name_len > 0) {
+                _ = std.fmt.bufPrintZ(ptr.name[0..name_len], "{s}", .{param.name}) catch |e| {
+                    log.err("Write param name failed: {}\n", .{e});
+                    return false;
+                };
+            }
+            return true;
+        }
+        return false;
+    }
+
+    pub fn getValue(plugin: ?*const clap.Plugin, id: clap.Id, value: ?*f64) callconv(.C) bool {
+        if (plug_cast(plugin).plugin) |plug| {
+            const params = plug.params;
+            if (id >= params.len) return false;
+            if (value) |val|
+                val.* = @floatCast(params[id]);
+            return true;
+        } else return false;
+    }
+
+    // TODO: Handle if param is float, int, enum, or bool instead of just printing float
+    fn valueToText(
+        plugin: ?*const clap.Plugin,
+        id: clap.Id,
+        value: f64,
+        display: [*]u8,
+        size: u32,
+    ) callconv(.C) bool {
+        if (plug_cast(plugin).plugin) |plug| {
+            if (id >= plug.params.len) return false;
+            const buf: []u8 = display[0..size];
+            _ = std.fmt.bufPrintZ(buf, "{d:.2}", .{value}) catch |e|
+                log.err("Write param value failed: {}\n", .{e});
+            return true;
+        } else return false;
+    }
+
+    // TODO: This
+    fn textToValue(plugin: ?*const clap.Plugin, param_id: clap.Id, display: [*:0]const u8, value: ?*f64) callconv(.C) bool {
+        _ = value;
+        _ = display;
+        _ = param_id;
+        _ = plugin;
+        return false;
+    }
+
+    fn flush(plugin: ?*const clap.Plugin, in: ?*const clap.InputEvents, out: ?*const clap.OutputEvents) callconv(.C) void {
+        // TODO: Handle output events
+        _ = out;
+        const plug = plug_cast(plugin);
+        if (in) |in_events| {
+            for (0..in_events.size(in_events)) |i| {
+                plug.processEvent(in_events.get(in_events, @intCast(i)));
+            }
+        }
+    }
+
+    pub const Data = clap.params.PluginParams{
+        .count = count,
+        .get_info = getInfo,
+        .get_value = getValue,
+        .value_to_text = valueToText,
+        .text_to_value = textToValue,
+        .flush = flush,
+    };
+};
+
 // Timer
 const Timer = struct {
-    fn onTimer(plugin: [*c]const clap.clap_plugin_t, timerID: clap.clap_id) callconv(.C) void {
-        _ = timerID;
-        const self = plug_cast(plugin.*.plugin_data);
-        const plug = self.plugin;
+    fn onTimer(plugin: ?*const clap.Plugin, id: clap.Id) callconv(.C) void {
+        const clap_plug = plug_cast(plugin);
+        if (id != clap_plug.timer_id) return;
 
         // currently just infinitely repainting...
         // MAYBE: we should check if a repaint is needed
         // so that means moving the interaction logic to here
         // BUT: It doesn't work! Never gets a gesture
-        if (plug.gui) |gui| {
-            PlatformGui.guiRender(gui.impl, true);
-            // plug.gui.?.render();
-            // self.need_repaint = false;
-        }
+        // if (clap_plug.plugin) |plug| {
+        //     if (plug.gui) |gui| {
+        //         PlatformGui.guiRender(gui.impl, true);
+        //     }
+        // }
     }
 
-    pub const Data = clap.clap_plugin_timer_support_t{
+    pub const Data = clap.PluginTimer{
         .on_timer = onTimer,
     };
 };
 
-pub fn init(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
-    const c_plug = plug_cast(plugin.*.plugin_data);
+pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
+    const clap_plug = plug_cast(plugin);
 
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_LOG);
-        if (ptr != null)
-            c_plug.*.host_log = @ptrCast(@alignCast(ptr));
-    }
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_THREAD_CHECK);
-        if (ptr != null)
-            c_plug.*.host_thread_check = @ptrCast(@alignCast(ptr));
-    }
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_LATENCY);
-        if (ptr != null)
-            c_plug.*.host_latency = @ptrCast(@alignCast(ptr));
-    }
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_STATE);
-        if (ptr != null)
-            c_plug.*.host_state = @ptrCast(@alignCast(ptr));
-    }
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_PARAMS);
-        if (ptr != null) {
-            c_plug.*.host_params = @ptrCast(@alignCast(ptr));
+    // create user plugin
+    clap_plug.plugin = arbor.Plugin.init();
+
+    const host = clap_plug.host orelse {
+        log.err("Clap host is null\n", .{});
+        return false;
+    };
+    const get_ext = host.get_extension;
+
+    if (get_ext(host, clap.EXT_LOG)) |ptr|
+        clap_plug.host_log = @ptrCast(@alignCast(ptr));
+
+    if (get_ext(host, clap.EXT_THREAD_CHECK)) |ptr|
+        clap_plug.host_thread_check = @ptrCast(@alignCast(ptr));
+
+    if (get_ext(host, clap.EXT_LATENCY)) |ptr|
+        clap_plug.host_latency = @ptrCast(@alignCast(ptr));
+
+    if (get_ext(host, clap.EXT_STATE)) |ptr|
+        clap_plug.host_state = @ptrCast(@alignCast(ptr));
+
+    if (get_ext(host, clap.EXT_PARAMS)) |ptr|
+        clap_plug.host_params = @ptrCast(@alignCast(ptr));
+
+    if (get_ext(host, clap.EXT_TIMER_SUPPORT)) |ptr| {
+        clap_plug.host_timer_support = @ptrCast(@alignCast(ptr));
+        if (clap_plug.host_timer_support) |timer| {
+            _ = timer.register_timer(host, timer_ms, &clap_plug.timer_id);
         }
     }
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(c_plug.*.host, &clap.CLAP_EXT_TIMER_SUPPORT);
-        if (ptr != null) {
-            c_plug.*.host_timer_support = @ptrCast(@alignCast(ptr));
-            if (c_plug.*.host_timer_support.*.unregister_timer != null)
-                _ = c_plug.*.host_timer_support.*.register_timer.?(c_plug.*.host, 16, &c_plug.*.timer_id);
-        }
-    }
-    {
-        const ptr = c_plug.*.host.*.get_extension.?(
-            c_plug.*.host,
-            &clap.CLAP_EXT_POSIX_FD_SUPPORT,
-        );
-        if (ptr != null)
-            c_plug.*.host_fd_support = @ptrCast(@alignCast(ptr));
-    }
+
+    if (get_ext(host, clap.EXT_POSIX_FD_SUPPORT)) |ptr|
+        clap_plug.host_fd_support = @ptrCast(@alignCast(ptr));
+
     return true;
 }
 
-pub fn destroy(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
-    var self = plug_cast(plugin.*.plugin_data);
-    if (self.*.host_timer_support != null and self.*.host_timer_support.*.unregister_timer != null)
-        _ = self.*.host_timer_support.*.unregister_timer.?(self.*.host, self.*.timer_id);
-    self.plugin.deinit(allocator);
-    allocator.destroy(self);
+pub fn destroy(plugin: ?*const clap.Plugin) callconv(.C) void {
+    const clap_plug = plug_cast(plugin);
+    const host = clap_plug.host orelse log.fatal("Clap host is null\n", .{});
+    if (clap_plug.host_timer_support) |timer| {
+        _ = timer.unregister_timer(host, clap_plug.timer_id);
+    }
+    if (clap_plug.plugin) |plug|
+        plug.deinit();
+    allocator.destroy(clap_plug);
 }
 
 pub fn activate(
-    plugin: [*c]const clap.clap_plugin,
+    plugin: ?*const clap.Plugin,
     sample_rate: f64,
     min_frames_count: u32,
     max_frames_count: u32,
 ) callconv(.C) bool {
-    var plug = plug_cast(plugin.*.plugin_data).plugin;
-    plug.prepare(allocator, sample_rate, max_frames_count) catch unreachable;
-    _ = min_frames_count;
-    return true;
+    if (plug_cast(plugin).plugin) |plug| {
+        plug.prepare(@floatCast(sample_rate), max_frames_count);
+        _ = min_frames_count;
+        return true;
+    } else return false;
 }
 
-pub fn deactivate(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+pub fn deactivate(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
-pub fn startProcessing(plugin: [*c]const clap.clap_plugin) callconv(.C) bool {
-    _ = plugin;
-    return true;
+pub fn startProcessing(plugin: ?*const clap.Plugin) callconv(.C) bool {
+    if (plugin) |_| return true else return false;
 }
-pub fn stopProcessing(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+pub fn stopProcessing(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
-pub fn reset(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+pub fn reset(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
 
-pub fn processEvent(self: *Self, event: [*c]const clap.clap_event_header_t) callconv(.C) void {
+pub fn processEvent(self: *ClapPlugin, event: ?*const clap.EventHeader) callconv(.C) void {
     _ = event;
     _ = self;
     // if (event.*.space_id == clap.CLAP_CORE_EVENT_SPACE_ID) {
@@ -273,13 +380,23 @@ pub fn processEvent(self: *Self, event: [*c]const clap.clap_event_header_t) call
 }
 
 pub fn process(
-    plugin: [*c]const clap.clap_plugin,
-    process_info: ?*const clap.clap_process_t,
-) callconv(.C) clap.clap_process_status {
-    var self = plug_cast(plugin.*.plugin_data);
-    var plug = self.plugin;
-    const num_frames = process_info.?.frames_count;
-    const num_events = process_info.?.in_events.*.size.?(process_info.?.in_events);
+    plugin: ?*const clap.Plugin,
+    process_info: ?*const clap.Process,
+) callconv(.C) clap.ProcessStatus {
+    var clap_plug = plug_cast(plugin);
+    const plug = clap_plug.plugin orelse {
+        log.err("User plugin is null\n", .{});
+        return .PROCESS_ERROR;
+    };
+    const p_info = process_info orelse {
+        log.err("Process info is null\n", .{});
+        return .PROCESS_ERROR;
+    };
+    const num_frames = p_info.frames_count;
+    const num_events: u32 = if (p_info.in_events) |in_ev|
+        in_ev.size(in_ev)
+    else
+        0;
     var event_index: u32 = 0;
     var next_event_frame: u32 = if (num_events > 0) 0 else num_frames;
 
@@ -287,98 +404,109 @@ pub fn process(
     for (0..num_frames) |_| {
         // handle all events at frame i
         while (event_index < num_events and next_event_frame == i) {
-            const header = process_info.?.in_events.*.get.?(process_info.?.in_events, event_index);
-            if (header.*.time != i) {
-                next_event_frame = header.*.time;
-                break;
-            }
-
-            self.processEvent(header);
-            event_index += 1;
-
-            if (event_index == num_events) {
-                // end of event list
-                next_event_frame = num_frames;
+            if (p_info.in_events) |in_events| {
+                if (in_events.get(in_events, event_index)) |header| {
+                    if (header.time != i) {
+                        next_event_frame = header.time;
+                        break;
+                    }
+                    clap_plug.processEvent(header);
+                    event_index += 1;
+                    if (event_index == num_events) {
+                        // end of event list
+                        next_event_frame = num_frames;
+                    }
+                }
             }
         }
 
-        // TODO: Instead of an array, just copy the pointers to a double multi-ptr
-        var in = [_][*]f32{
-            process_info.?.audio_inputs[0].data32[0],
-            process_info.?.audio_inputs[0].data32[1],
-        };
-        var out = [_][*]f32{
-            process_info.?.audio_outputs[0].data32[0],
-            process_info.?.audio_outputs[0].data32[1],
-        };
         // process audio in frame
+        const audio_in = p_info.audio_inputs orelse {
+            log.err("Audio inputs null\n", .{});
+            return .PROCESS_ERROR;
+        };
+        const audio_out = p_info.audio_outputs orelse {
+            log.err("Audio inputs null\n", .{});
+            return .PROCESS_ERROR;
+        };
         for (i..next_event_frame) |_| {
             const frames_to_process = next_event_frame - i;
-            plug.processAudio(&in, &out, frames_to_process);
+            const buffer = arbor.AudioBuffer{
+                .input = .{ .ptr = audio_in.data32[i..] },
+                .output = .{ .ptr = audio_out.data32[i..] },
+                .num_ch = audio_in.channel_count,
+                .num_samples = frames_to_process,
+            };
+            plug.process(buffer);
             i += frames_to_process;
         }
     }
-    return clap.CLAP_PROCESS_CONTINUE;
+    return .PROCESS_CONTINUE;
 }
 
-pub fn getExtension(plugin: [*c]const clap.clap_plugin, id: [*c]const u8) callconv(.C) ?*const anyopaque {
+pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C) ?*const anyopaque {
     _ = plugin;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_LATENCY).compare(.eq))
+    if (std.mem.orderZ(u8, id, clap.EXT_LATENCY).compare(.eq))
         return &Latency.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_AUDIO_PORTS).compare(.eq))
+    if (std.mem.orderZ(u8, id, clap.EXT_AUDIO_PORTS).compare(.eq))
         return &AudioPorts.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_NOTE_PORTS).compare(.eq))
-        return &NotePorts.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_STATE).compare(.eq))
+    // TODO: NotePorts
+    // if (std.mem.orderZ(u8, id, clap.EXT_NOTE_PORTS).compare(.eq))
+    //     return &NotePorts.Data;
+    if (std.mem.orderZ(u8, id, clap.EXT_STATE).compare(.eq))
         return &State.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_PARAMS).compare(.eq))
+    if (std.mem.orderZ(u8, id, clap.EXT_PARAMS).compare(.eq))
         return &Params.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_GUI).compare(.eq))
-        return &ClapGui.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_TIMER_SUPPORT).compare(.eq))
+    // if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
+    //     return &ClapGui.Data;
+    if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
         return &Timer.Data;
-    if (std.mem.orderZ(u8, id, &clap.CLAP_EXT_POSIX_FD_SUPPORT).compare(.eq))
-        return &ClapGui.PosixFDSupport.Data;
+    // if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
+    //     return &ClapGui.PosixFDSupport.Data;
     return null;
 }
 
-pub fn onMainThread(plugin: [*c]const clap.clap_plugin) callconv(.C) void {
+pub fn onMainThread(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
 
 // Factory
 const Factory = struct {
-    fn getPluginCount(factory: [*c]const clap.clap_plugin_factory) callconv(.C) u32 {
+    fn getPluginCount(factory: ?*const clap.PluginFactory) callconv(.C) u32 {
         _ = factory;
         return 1;
     }
 
     fn getPluginDescriptor(
-        factory: [*c]const clap.clap_plugin_factory,
+        factory: ?*const clap.PluginFactory,
         index: u32,
-    ) callconv(.C) [*c]const clap.clap_plugin_descriptor_t {
+    ) callconv(.C) ?*const clap.PluginDescriptor {
         _ = factory;
-        return if (index == 0) &PluginDesc else null;
+        return if (index == 0) &arbor.plugin_desc else null;
     }
 
     fn createPlugin(
-        factory: [*c]const clap.clap_plugin_factory,
-        host: [*c]const clap.clap_host_t,
-        plugin_id: [*c]const u8,
-    ) callconv(.C) [*c]const clap.clap_plugin_t {
+        factory: ?*const clap.PluginFactory,
+        host: ?*const clap.Host,
+        plugin_id: [*:0]const u8,
+    ) callconv(.C) ?*const clap.Plugin {
         _ = factory;
-        if (host.*.clap_version.major < 1)
+        const h = host orelse {
+            log.err("Host is null\n", .{});
             return null;
-        if (std.mem.orderZ(u8, plugin_id, PluginDesc.id).compare(.eq)) {
-            var c_plugin = allocator.create(Self) catch |e| {
-                std.log.err("{}\n", .{e});
-                std.process.exit(1);
+        };
+
+        if (!clap.clap_version_is_compatible(h.clap_version)) return null;
+
+        if (std.mem.orderZ(u8, plugin_id, arbor.plugin_desc.id).compare(.eq)) {
+            var clap_plug = allocator.create(ClapPlugin) catch |e| {
+                log.err("Failed to create CLAP plugin: {}\n", .{e});
+                return null;
             };
-            c_plugin.* = .{
-                .plugin = Plugin.init(allocator),
+            clap_plug.* = .{
                 .clap_plugin = .{
-                    .desc = &PluginDesc,
-                    .plugin_data = c_plugin,
+                    .desc = arbor.plugin_desc,
+                    .plugin_data = clap_plug,
                     .init = init,
                     .destroy = destroy,
                     .activate = activate,
@@ -390,31 +518,23 @@ const Factory = struct {
                     .get_extension = getExtension,
                     .on_main_thread = onMainThread,
                 },
-                .host = host,
-                .host_params = null,
-                .host_state = null,
-                .host_latency = null,
-                .host_log = null,
-                .host_thread_check = null,
-                .host_timer_support = null,
-                .host_fd_support = null,
+                .host = h,
                 .timer_id = undefined,
             };
-            return &c_plugin.clap_plugin;
-        }
-        return null;
+            return &clap_plug.clap_plugin;
+        } else return null;
     }
 
-    const Data = clap.clap_plugin_factory_t{
-        .get_plugin_count = Factory.getPluginCount,
-        .get_plugin_descriptor = Factory.getPluginDescriptor,
-        .create_plugin = Factory.createPlugin,
+    pub const Data = clap.PluginFactory{
+        .get_plugin_count = getPluginCount,
+        .get_plugin_descriptor = getPluginDescriptor,
+        .create_plugin = createPlugin,
     };
 };
 
 // Entry
 const Entry = struct {
-    fn init(plugin_path: [*c]const u8) callconv(.C) bool {
+    fn init(plugin_path: [*:0]const u8) callconv(.C) bool {
         _ = plugin_path;
 
         return true;
@@ -422,20 +542,15 @@ const Entry = struct {
 
     fn deinit() callconv(.C) void {}
 
-    fn get_factory(factory_id: [*c]const u8) callconv(.C) ?*const anyopaque {
-        if (std.mem.orderZ(u8, factory_id, &clap.CLAP_PLUGIN_FACTORY_ID).compare(.eq)) {
+    fn get_factory(factory_id: [*:0]const u8) callconv(.C) ?*const anyopaque {
+        if (std.mem.orderZ(u8, factory_id, clap.PLUGIN_FACTORY_ID).compare(.eq)) {
             return &Factory.Data;
-        }
-        return null;
+        } else return null;
     }
 };
 
-export const clap_entry = clap.clap_plugin_entry_t{
-    .clap_version = clap.clap_version_t{
-        .major = clap.CLAP_VERSION_MAJOR,
-        .minor = clap.CLAP_VERSION_MINOR,
-        .revision = clap.CLAP_VERSION_REVISION,
-    },
+export const clap_entry = clap.PluginEntry{
+    .clap_version = clap.Version.init(),
     .init = &Entry.init,
     .deinit = &Entry.deinit,
     .get_factory = &Entry.get_factory,

@@ -134,11 +134,11 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
 
 pub export fn render(self: *const Gui) void {
     olivec.olivec_fill(self.canvas, BACKGROUND_COLOR);
+    olivec.olivec_frame(self.canvas, 2, 2, GUI_WIDTH - 4, GUI_HEIGHT - 4, 4, BORDER_COLOR);
 
-    self.components[0].draw(self.components[0].*);
-    // for (self.components) |c| {
-    //     c.draw(c.*);
-    // }
+    for (self.components) |c| {
+        c.draw(c.*);
+    }
 }
 
 fn processGesture(

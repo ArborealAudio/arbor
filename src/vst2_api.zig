@@ -7,7 +7,7 @@ pub const AEffect = extern struct {
 
     dispatcher: Dispatch,
 
-    deprecated_process: DeprecatedProcess = null,
+    deprecated_process: Process = null,
 
     setParameter: SetParameter,
     getParameter: GetParameter,
@@ -70,8 +70,8 @@ pub const VstEvents = struct {
 
 /// I think what this is for is so we can manually call the host
 /// Gets passed in thru VSTPluginMain, hang onto it if you need it
-pub const HostCallback = *const fn (
-    effect: *AEffect,
+pub const HostCallback = ?*const fn (
+    effect: ?*AEffect,
     opcode: i32,
     index: i32,
     value: isize,
@@ -80,8 +80,8 @@ pub const HostCallback = *const fn (
 ) callconv(.C) isize;
 
 /// Host->plugin communication. How the API wants to handle most things outside of major function ptrs
-pub const Dispatch = *const fn (
-    effect: *AEffect,
+pub const Dispatch = ?*const fn (
+    effect: ?*AEffect,
     opcode: i32,
     index: i32,
     value: isize,
@@ -89,27 +89,26 @@ pub const Dispatch = *const fn (
     opt: f32,
 ) callconv(.C) isize;
 
-pub const Process = *const fn (
-    effect: *AEffect,
+pub const Process = ?*const fn (
+    effect: ?*AEffect,
     inputs: [*][*]f32,
     outputs: [*][*]f32,
     frames: i32,
 ) callconv(.C) void;
 pub const ProcessDouble = ?*const fn (
-    effect: *AEffect,
+    effect: ?*AEffect,
     inputs: [*][*]f64,
     outputs: [*][*]f64,
     frames: i32,
 ) callconv(.C) void;
-pub const DeprecatedProcess = ?*const fn () callconv(.C) void;
 
-pub const SetParameter = *const fn (
-    effect: *AEffect,
+pub const SetParameter = ?*const fn (
+    effect: ?*AEffect,
     index: i32,
     parameter: f32,
 ) callconv(.C) void;
-pub const GetParameter = *const fn (
-    effect: *AEffect,
+pub const GetParameter = ?*const fn (
+    effect: ?*AEffect,
     index: i32,
 ) callconv(.C) f32;
 
@@ -125,6 +124,7 @@ pub const Opcode = enum(c_int) {
     GetParamName,
 
     SetSampleRate = 10,
+    SetBlockSize,
 
     EditGetRect = 13,
     EditOpen,

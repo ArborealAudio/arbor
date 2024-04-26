@@ -9,11 +9,14 @@ const Params = @import("Params.zig");
 const Gui = @import("Gui.zig");
 const PlatformGui = @import("platform");
 
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.c_allocator;
 
 const Self = @This();
 
-effect: *vst2.AEffect, // vst2-specific data TODO: replace w/ wrapper type
+// vst2-specific data
+// TODO: replace w/ wrapper type
+// NOTE: 👆 What did I mean by this?
+effect: *vst2.AEffect,
 host_callback: *const fn (
     effect: *vst2.AEffect,
     opcode: i32,
@@ -38,13 +41,17 @@ fn dispatch(
     ptr: ?*anyopaque,
     opt: f32,
 ) callconv(.C) isize {
-    _ = value;
     var self = plugCast(effect);
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
-            // PROBLEM: Hardcoding srate and block size
-            self.plugin.prepare(allocator, 44100, 128) catch |e| {
+            // ISSUE: Hardcoding srate and block size
+            // trying instead to use plugin's own values. Do they get set before Open is called?
+            self.plugin.prepare(
+                allocator,
+                self.plugin.sample_rate,
+                self.plugin.maxNumSamples,
+            ) catch |e| {
                 std.log.err("Plugin init error {}\n", .{e});
                 std.process.exit(1);
             };
@@ -129,11 +136,11 @@ fn dispatch(
             return 1;
         },
         .CanBeAutomated => return 1,
-        // .SetBlockSize => {
-        //     // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
-        //     self.plugin.maxNumSamples = @intCast(value);
-        //     return 1;
-        // },
+        .SetBlockSize => {
+            // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
+            self.plugin.maxNumSamples = @intCast(value);
+            return 1;
+        },
         .EditGetRect => {
             // copy to ptr
             if (ptr) |*p| {
