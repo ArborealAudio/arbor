@@ -505,7 +505,7 @@ const Factory = struct {
             };
             clap_plug.* = .{
                 .clap_plugin = .{
-                    .desc = arbor.plugin_desc,
+                    .desc = &arbor.plugin_desc,
                     .plugin_data = clap_plug,
                     .init = init,
                     .destroy = destroy,

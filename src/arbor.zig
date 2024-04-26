@@ -100,11 +100,6 @@ pub fn createFormatDescription(desc: Plugin.Description) DescType {
     }
 }
 
-pub const String = extern struct {
-    ptr: [*]const u8,
-    len: usize,
-};
-
 // /// get a compile-time struct with information about the plugin
 // pub fn Config(comptime UserPlugin: type) type {
 //     return struct {

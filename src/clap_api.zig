@@ -95,7 +95,7 @@ pub const PluginDescriptor = extern struct {
 };
 
 pub const Plugin = extern struct {
-    desc: PluginDescriptor,
+    desc: ?*const PluginDescriptor,
     plugin_data: ?*anyopaque,
     init: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
     destroy: *const fn (plugin: ?*const Plugin) callconv(.C) void,
