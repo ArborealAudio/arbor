@@ -40,7 +40,7 @@ as such
 
 * Simple cross-platform rendering
 
-	[x] Got basic shapes using Olivec software renderer
+	- [x] Got basic shapes using Olivec software renderer
 
 	* Make text drawing more robust and complete
 
@@ -74,7 +74,9 @@ const Plugin = @import("src/plugin.zig");
 pub fn build(b: *std.Build) void {
 	const target = b.standardTargetOptions(.{});
 	const optimize = b.standardOptimizeOption(.{});
-	// your plugin is a static lib linked to the shared plugin lib
+	// your code is a static lib linked to the shared plugin lib
+	// TODO: Make a framework build function which takes in some options and
+	// spits out the proper build step
 	const plugin = b.addStaticLibrary(.{
 		.name = plugin_name,
 		.root_source_file = b.path("src/plugin.zig"),
@@ -101,6 +103,12 @@ export const plugin_desc = arbor.createFormatDescription(
 	.description = "Vintage Analog Warmth",
 	// etc...
 );
+
+const Mode = enum {
+	Vintage,
+	Modern,
+	Apocalypse,
+};
 
 const params = &[_]arbor.Parameter{
 	arbor.param.create(
@@ -129,8 +137,15 @@ export fn init() *arbor.Plugin {
 	return plugin;
 }
 
+export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
+		// prepare your effect if needed
+    _ = plugin;
+    _ = sample_rate;
+    _ = max_num_frames;
+}
+
 // process audio
-export fn process(self: *Plugin, buffer: arbor.AudioBuffer) void {
+export fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
 
 	// load an audio parameter
 	// NOTE: Doesn't work like this yet
@@ -142,13 +157,6 @@ export fn process(self: *Plugin, buffer: arbor.AudioBuffer) void {
 		}
 	}
 }
-
-
-const Mode = enum {
-	Vintage,
-	Modern,
-	Apocalypse,
-};
 
 // TODO: Demo how UI would work
 
