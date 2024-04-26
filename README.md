@@ -106,10 +106,10 @@ const params = &[_]arbor.Parameter{
 	arbor.param.create(
 		"Gain", // name
 		.{ 0.0, // min
-			10.0, // max
-			0.666 }, // default
+		10.0, // max
+		0.666 }, // default
 	);
-	arbor.param.create("Mode", Mode, Mode.Vintage);
+	arbor.param.create("Mode", .{Mode.Vintage});
 };
 
 const Plugin = @This();
