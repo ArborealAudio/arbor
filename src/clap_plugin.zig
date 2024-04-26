@@ -463,10 +463,12 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
         return &State.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_PARAMS).compare(.eq))
         return &Params.Data;
+    // TODO: Gui
     // if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
     //     return &ClapGui.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
         return &Timer.Data;
+    // TODO: Gui on Linux w/ this crap
     // if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
     //     return &ClapGui.PosixFDSupport.Data;
     return null;
