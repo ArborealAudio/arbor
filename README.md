@@ -60,7 +60,9 @@ as such
 
 ### 100 LOC Or Less
 
-This is what starting up a project with Arbor should look like:
+This is what starting up a project with Arbor *should* look like:
+(NOTE: This is a WIP and won't always reflect how the API actually works.
+I will try to update to be in sync with changes.)
 
 In top-level build.zig:
 
@@ -72,14 +74,14 @@ const Plugin = @import("src/plugin.zig");
 pub fn build(b: *std.Build) void {
 	const target = b.standardTargetOptions(.{});
 	const optimize = b.standardOptimizeOption(.{});
-	const plugin = b.addSharedLibrary(.{
+	// your plugin is a static lib linked to the shared plugin lib
+	const plugin = b.addStaticLibrary(.{
 		.name = plugin_name,
 		.root_source_file = b.path("src/plugin.zig"),
 		.target = target,
 		.optimize = optimize,
 	});
-	const config: arbor.configure(Plugin) = .{};
-	plugin.addImport("arbor", arbor.build(b, target, optimize));
+	plugin.addImport("arbor", arbor.build(b, plugin, target, optimize));
 }
 ```
 
@@ -88,53 +90,59 @@ In plugin.zig:
 ```zig
 const arbor = @import("arbor");
 
-const Description = arbor.PluginDescription {
-	.plugin_name = "My Evil Plugin",
-	.company_name = "Plug-O Corp, Ltd.",
+export const plugin_desc = arbor.createFormatDescription(
+	.id = "com.Plug-O.Evil",
+	.name = "My Evil Plugin",
+	.company = "Plug-O Corp, Ltd.",
 	.version = "0.1",
 	.url = "https://plug-o-corp.biz",
-	.contact_address = "contact@plug-o-corp.biz",
+	.contact = "contact@plug-o-corp.biz",
+	.manual = "https://plug-o-corp.biz/Evil/manual.pdf", // CLAP needs this
 	.description = "Vintage Analog Warmth",
 	// etc...
-}
+);
 
-pub const Plugin = @This();
-// specify an allocator
+const params = &[_]arbor.Parameter{
+	arbor.param.create(
+		"Gain", // name
+		.{ 0.0, // min
+			10.0, // max
+			0.666 }, // default
+	);
+	arbor.param.create("Mode", Mode, Mode.Vintage);
+};
+
+const Plugin = @This();
+
+// specify an allocator if you want
 const allocator = std.heap.c_allocator;
 
 // initialize plugin 
-// ! == function may return an error
-pub fn init() !*Plugin {
-	const plugin = try allocator.create(Plugin);
-	plugin.* = .{
-		// set plugin stuff here
-	};
+export fn init() *arbor.Plugin {
+	const plugin = arbor.configure(allocator, params);
+	const user_plugin = allocator.create(Plugin) catch |err| // catch allocation error
+		arbor.log.fatal("Plugin create failed: {}\n", .{err});
+
+	user_plugin.* = .{}; // init our plugin to default
+	plugin.user = user_plugin; // set user context pointer
+		
 	return plugin;
 }
 
 // process audio
-pub fn process(self: *Plugin, in: []const []const f32, out: [][]f32) void {
+export fn process(self: *Plugin, buffer: arbor.AudioBuffer) void {
 
 	// load an audio parameter
+	// NOTE: Doesn't work like this yet
 	const gain_param = arbor.getParam("Gain");
-	const gain = gain_param.value;
 	
-	for (in, 0..) |channel_data, ch_num| {
-	  	for (channel_data, 0..) |sample, i| {
-			out[ch_num][i] = sample * gain;
+	for (buffer.input[0..buffer.num_ch], 0..) |channel_data, ch_num| {
+	  	for (channel_data[0..buffer.num_samples], 0..) |sample, i| {
+			buffer.output[ch_num][i] = sample * gain_param;
 		}
 	}
 }
 
-pub const params = [_]arbor.Parameter{
-	arbor.createParameter(
-		"Gain", // name
-		0.0, // min
-		10.0, // max
-		0.666 // default
-	);
-	arbor.createParameter("Mode", Mode, Mode.Vintage);
-};
 
 const Mode = enum {
 	Vintage,

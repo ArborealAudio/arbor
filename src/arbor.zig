@@ -15,8 +15,8 @@ pub const Gui = @import("Gui.zig");
 pub const clap = @import("clap_api.zig");
 
 pub const AudioBuffer = extern struct {
-    input: extern struct { ptr: [*]const [*]const f32 },
-    output: extern struct { ptr: [*][*]f32 },
+    input: [*]const [*]const f32,
+    output: [*][*]f32,
     num_ch: usize,
     num_samples: usize,
 };
@@ -44,6 +44,7 @@ pub const Plugin = struct {
 
     num_channels: u32 = undefined,
 
+    param_info: []const Parameter,
     params: []f32,
     user: ?*anyopaque = null,
     // TODO: don't anyopaque. It has a memory layout dammit!
@@ -58,8 +59,6 @@ pub const Plugin = struct {
 };
 
 pub extern const plugin_desc: DescType;
-// NOTE: THIs sucks, do something else!!
-pub extern const plugin_params: [1]Parameter;
 
 pub fn configure(
     allocator: std.mem.Allocator,
@@ -67,6 +66,7 @@ pub fn configure(
 ) *Plugin {
     const plug = allocator.create(Plugin) catch |e| log.fatal("Plugin create failed: {}\n", .{e});
     plug.* = .{
+        .param_info = params,
         .params = param.createSlice(allocator, params),
         .allocator = allocator,
     };

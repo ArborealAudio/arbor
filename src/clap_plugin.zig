@@ -179,14 +179,16 @@ const Params = struct {
     }
 
     fn getInfo(plugin: ?*const clap.Plugin, index: u32, info: ?*clap.params.Info) callconv(.C) bool {
-        _ = plugin;
-        const params = arbor.plugin_params;
-        if (index > params.len - 1) return false;
-        const param = params[index];
+        const plug = plug_cast(plugin).plugin orelse {
+            log.err("Plugin is null\n", .{});
+            return false;
+        };
+        if (index >= plug.params.len) return false;
+        const param = plug.param_info[index];
         if (info) |ptr| {
             ptr.* = .{
-                .name = undefined,
-                .module = undefined,
+                .name = .{0} ** 256,
+                .module = .{0} ** 1024,
                 .id = index,
                 .flags = .{
                     .IS_AUTOMATABLE = param.flags.automatable,
@@ -199,10 +201,7 @@ const Params = struct {
             };
             const name_len = std.mem.len(param.name);
             if (name_len > 0) {
-                _ = std.fmt.bufPrintZ(ptr.name[0..name_len], "{s}", .{param.name}) catch |e| {
-                    log.err("Write param name failed: {}\n", .{e});
-                    return false;
-                };
+                @memcpy(ptr.name[0..name_len], param.name);
             }
             return true;
         }
@@ -365,18 +364,25 @@ pub fn reset(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
 
-pub fn processEvent(self: *ClapPlugin, event: ?*const clap.EventHeader) callconv(.C) void {
-    _ = event;
-    _ = self;
-    // if (event.*.space_id == clap.CLAP_CORE_EVENT_SPACE_ID) {
-    //     if (event.*.type == clap.CLAP_EVENT_PARAM_VALUE) {
-    //         const valueEvent = @as([*c]const clap.clap_event_param_value_t, @ptrCast(@alignCast(event)));
-    //         self.plugin.params.setValue(valueEvent.*.param_id, valueEvent.*.value);
-    //         Plugin.parameter_changed[valueEvent.*.param_id] = true;
-    //         self.plugin.onParamChange(valueEvent.*.param_id);
-    //         self.need_repaint = true;
-    //     }
-    // }
+pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callconv(.C) void {
+    const plug = plugin.plugin orelse {
+        log.err("Plugin is null\n", .{});
+        return;
+    };
+    if (event) |e| {
+        if (e.space_id == clap.CLAP_CORE_EVENT_SPACE_ID) {
+            if (e.type == .PARAM_VALUE) {
+                const param_event = @as(*const clap.EventParamValue, @ptrCast(@alignCast(e)));
+                plug.params[param_event.param_id] = @floatCast(param_event.value);
+                // Plugin.parameter_changed[valueEvent.*.param_id] = true;
+                // self.plugin.onParamChange(valueEvent.*.param_id);
+                // self.need_repaint = true;
+            }
+        }
+    } else {
+        log.err("Event header is null\n", .{});
+        return;
+    }
 }
 
 pub fn process(
@@ -432,8 +438,8 @@ pub fn process(
         for (i..next_event_frame) |_| {
             const frames_to_process = next_event_frame - i;
             const buffer = arbor.AudioBuffer{
-                .input = .{ .ptr = audio_in.data32[i..] },
-                .output = .{ .ptr = audio_out.data32[i..] },
+                .input = audio_in.data32, // NOTE: should we slice based on frames_to_process?
+                .output = audio_out.data32,
                 .num_ch = audio_in.channel_count,
                 .num_samples = frames_to_process,
             };

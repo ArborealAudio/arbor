@@ -157,20 +157,22 @@ pub const EventHeader = extern struct {
     size: u32,
     time: u32,
     space_id: u16,
-    type: u16,
+    type: Type,
     flags: Flags,
 
-    // NOTE: Is this correct? Doesn't seem like these really belong in Flags
-    /// Indicate a live user event, for example a user turning a physical knob
-    /// or playing a physical key.
-    pub const IS_LIVE = 1 << 0;
-    /// Indicate that the event should not be recorded.
-    /// For example this is useful when a parameter changes because of a MIDI CC,
-    /// because if the host records both the MIDI CC automation and the parameter
-    /// automation there will be a conflict.
-    pub const DONT_RECORD = 1 << 1;
+    pub const Flags = packed struct(u32) {
+        /// Indicate a live user event, for example a user turning a physical knob
+        /// or playing a physical key.
+        IS_LIVE: bool = false,
+        /// Indicate that the event should not be recorded.
+        /// For example this is useful when a parameter changes because of a MIDI CC,
+        /// because if the host records both the MIDI CC automation and the parameter
+        /// automation there will be a conflict.
+        DONT_RECORD: bool = false,
+        _: u30 = 0,
+    };
 
-    pub const Flags = enum(u32) {
+    pub const Type = enum(u16) {
         NOTE_ON = 0,
         NOTE_OFF = 1,
         NOTE_CHOKE = 2,
