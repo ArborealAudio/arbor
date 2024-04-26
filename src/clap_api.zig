@@ -613,7 +613,7 @@ pub const params = struct {
             plugin: ?*const Plugin,
             param_id: Id,
             value: f64,
-            out_buf: [*]u8,
+            out_buf: [*:0]u8,
             out_buf_cap: u32,
         ) callconv(.C) bool,
         text_to_value: *const fn (

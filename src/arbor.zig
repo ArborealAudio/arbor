@@ -5,12 +5,12 @@ const assert = std.debug.assert;
 // ISSUE: Build options appears to be bugged, it won't allow import
 // const build_options = @import("build_options");
 
-pub const param = @import("Params.zig");
+pub const param = @import("params.zig");
 pub const Parameter = param.Parameter;
 pub const Format = enum { CLAP, VST3, VST2 };
 // const format = build_options.format;
 const format = Format.CLAP;
-pub const Gui = @import("Gui.zig");
+// pub const Gui = @import("Gui.zig");
 
 pub const clap = @import("clap_api.zig");
 
@@ -56,6 +56,35 @@ pub const Plugin = struct {
     pub extern fn deinit(*Plugin) void;
     pub extern fn prepare(*Plugin, f32, u32) void;
     pub extern fn process(*Plugin, AudioBuffer) void;
+
+    pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
+        for (plugin.param_info, 0..) |p, i| {
+            if (std.mem.orderZ(u8, p.name, name).compare(.eq)) {
+                const val = plugin.params[i];
+                switch (@typeInfo(BaseType)) {
+                    .Float => return val,
+                    .Int => return @intFromFloat(val),
+                    .Bool => return @as(bool, @intFromFloat(val)),
+                    .Enum => return @as(
+                        BaseType,
+                        @enumFromInt(@as(i32, @intFromFloat(val))),
+                    ),
+                    else => log.fatal("Invalid param type: {s}\n", .{@typeName(BaseType)}),
+                }
+            }
+        }
+        log.fatal("Param not found\n", .{});
+    }
+
+    pub fn getParamId(plugin: Plugin, id: u32) !*const Parameter {
+        if (id >= plugin.param_info.len) return error.ParamNotFound;
+        return &plugin.param_info[id];
+    }
+
+    pub fn getParamName(plugin: Plugin, id: u32) ![:0]const u8 {
+        if (id >= plugin.param_info.len) return error.ParamNotFound;
+        return plugin.param_info[id].name;
+    }
 };
 
 pub extern const plugin_desc: DescType;

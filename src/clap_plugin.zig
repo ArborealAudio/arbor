@@ -193,13 +193,15 @@ const Params = struct {
                 .flags = .{
                     .IS_AUTOMATABLE = param.flags.automatable,
                     .IS_MODULATABLE = param.flags.modulatable,
+                    .IS_STEPPED = param.flags.stepped,
+                    .IS_ENUM = param.flags.is_enum,
                 },
                 .min_value = param.min_value,
                 .max_value = param.max_value,
                 .default_value = param.default_value,
                 .cookie = null,
             };
-            const name_len = std.mem.len(param.name);
+            const name_len = param.name.len;
             if (name_len > 0) {
                 @memcpy(ptr.name[0..name_len], param.name);
             }
@@ -210,35 +212,62 @@ const Params = struct {
 
     pub fn getValue(plugin: ?*const clap.Plugin, id: clap.Id, value: ?*f64) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
-            const params = plug.params;
-            if (id >= params.len) return false;
-            if (value) |val|
-                val.* = @floatCast(params[id]);
-            return true;
-        } else return false;
+            if (id >= plug.params.len) return false;
+            const val = if (plug.param_info[id].flags.stepped)
+                @round(plug.params[id])
+            else
+                plug.params[id];
+            if (value) |out_val| {
+                out_val.* = val;
+                return true;
+            }
+        }
+        return false;
     }
 
-    // TODO: Handle if param is float, int, enum, or bool instead of just printing float
     fn valueToText(
         plugin: ?*const clap.Plugin,
         id: clap.Id,
         value: f64,
-        display: [*]u8,
+        display: [*:0]u8,
         size: u32,
     ) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
             if (id >= plug.params.len) return false;
-            const buf: []u8 = display[0..size];
-            _ = std.fmt.bufPrintZ(buf, "{d:.2}", .{value}) catch |e|
-                log.err("Write param value failed: {}\n", .{e});
+            const param = plug.param_info[id];
+            if (param.flags.stepped) {
+                const ival: u32 = @intFromFloat(@round(value));
+                if (param.flags.is_enum) {
+                    if (param.enum_choices) |choices| {
+                        const choice = choices[ival];
+                        // ISSUE: This bugs out with certain arrangements of strings
+                        @memcpy(display[0..choice.len], choice);
+                    }
+                } else {
+                    _ = std.fmt.bufPrintZ(display[0..size], "{d}", .{ival}) catch |e| {
+                        log.err("{}\n", .{e});
+                        return false;
+                    };
+                }
+            } else {
+                _ = std.fmt.bufPrintZ(display[0..size], "{d:.2}", .{value}) catch |e| {
+                    log.err("{}\n", .{e});
+                    return false;
+                };
+            }
             return true;
         } else return false;
     }
 
     // TODO: This
-    fn textToValue(plugin: ?*const clap.Plugin, param_id: clap.Id, display: [*:0]const u8, value: ?*f64) callconv(.C) bool {
-        _ = value;
-        _ = display;
+    fn textToValue(
+        plugin: ?*const clap.Plugin,
+        param_id: clap.Id,
+        value_text: [*:0]const u8,
+        out_value: ?*f64,
+    ) callconv(.C) bool {
+        _ = out_value;
+        _ = value_text;
         _ = param_id;
         _ = plugin;
         return false;

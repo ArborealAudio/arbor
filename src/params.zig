@@ -5,11 +5,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const arbor = @import("arbor.zig");
 const log = arbor.log;
+const Plugin = arbor.Plugin;
 
-pub const Parameter = extern struct {
-    // TODO: Uh woah, is this a C ABI compatible way of having strings that will coerce to the null-term strings ops in stdlib?
-    name: [*:0]const u8,
-    flags: packed struct(u16) {
+pub const Parameter = struct {
+    name: [:0]const u8,
+    flags: packed struct {
         automatable: bool = true,
         modulatable: bool = false,
         stepped: bool = false,
@@ -19,11 +19,11 @@ pub const Parameter = extern struct {
         read_only: bool = false,
         bypass: bool = false,
         requires_process: bool = false,
-        _: u7 = 0,
     },
     min_value: f32,
     max_value: f32,
     default_value: f32,
+    enum_choices: ?[]const [:0]const u8 = null,
 };
 
 /// create a parameter from a tuple of values
@@ -36,7 +36,7 @@ pub fn create(comptime name: [:0]const u8, args: anytype) Parameter {
         @typeName(@TypeOf(args)));
 
     const fields = args_info.Struct.fields;
-    if (fields.len == 0) @compileError("Expected 3 arguments, found none");
+    if (fields.len == 0) @compileError("Empty args not allowed, please define parameter values");
 
     switch (@typeInfo(fields[0].type)) {
         .Float, .ComptimeFloat => {
@@ -60,7 +60,7 @@ pub fn create(comptime name: [:0]const u8, args: anytype) Parameter {
             };
         },
         .Enum => |info| {
-            if (fields.len > 1) @compileError("Too many arguments, expected 1");
+            if (fields.len > 2) @compileError("Too many arguments, expected 2");
             const enum_fields = info.fields;
             const default = @field(args, fields[0].name);
             return .{
@@ -68,18 +68,26 @@ pub fn create(comptime name: [:0]const u8, args: anytype) Parameter {
                 .min_value = @floatFromInt(enum_fields[0].value),
                 .max_value = @floatFromInt(enum_fields[enum_fields.len - 1].value),
                 .default_value = @floatFromInt(@intFromEnum(default)),
+                .enum_choices = args[1], // assuming it's a tuple w/ 2 values
                 .flags = .{ .stepped = true, .is_enum = true },
+            };
+        },
+        .Bool => {
+            if (fields.len > 1) @compileError("Too many arguments, expected 1");
+            const default = @field(args, fields[0].name);
+            return .{
+                .name = name,
+                .min_value = 0,
+                .max_value = 1,
+                .default_value = @floatFromInt(@intFromBool(default)),
+                .flags = .{ .stepped = true },
             };
         },
         else => @compileError("Need float, int, or enum, got " ++ @typeName(fields[0].type)),
     }
 }
 
-// wait so the whole point of this is so we can have a separate location in
-// memory for the actual, live param values? Instead of just putting them in the
-// param struct, we have to make this? That will be more confusing
-
-/// Make a slice of references to all parameter values
+/// Make a slice of all parameter values
 /// Caller owns the returned memory
 pub fn createSlice(allocator: std.mem.Allocator, params: []const Parameter) []f32 {
     var slice = allocator.alloc(f32, params.len) catch |e| log.fatal("Slice alloc failed: {}\n", .{e});
@@ -175,30 +183,15 @@ pub fn Table(comptime UserPlugin: type) type {
     };
 }
 
-pub const Float = struct {
-    min: f32,
-    max: f32,
-    default: f32,
-};
-
-pub const Choice = struct {
-    choices: std.builtin.Type,
-    default: u32,
-};
-
-/// Make a Float parameter. *Cannot* mutate the returned Float, must be const
-pub fn floatParam(min: f32, max: f32, default: f32) Float {
-    return .{
-        .min = min,
-        .max = max,
-        .default = default,
+pub fn BoolParam(default: bool) type {
+    return struct {
+        default: bool = default,
     };
 }
 
-/// Make a Choice parameter. *Cannot* mutate the returned Choice, must be const
-pub fn choiceParam(comptime Choices: type, default: Choices) Choice {
-    return .{
-        .choices = @typeInfo(Choices),
+pub fn ChoiceParam(comptime Choices: type, default: Choices) type {
+    return struct {
+        .choices = Choices,
         .default = @intFromEnum(default),
     };
 }
@@ -210,13 +203,6 @@ pub fn float_clamp(x: anytype) @TypeOf(x) {
     return @min(1.0, @max(0, x));
 }
 
-pub fn to_float(x: anytype) f32 {
-    switch (@TypeOf(x)) {
-        isize, usize, i64, u64, i32, u32, i16, u16, u8, i8 => return @floatFromInt(x),
-        else => @panic("What do??"),
-    }
-}
-
 test "Param table" {
     const Mode = enum {
         Vintage,
@@ -224,7 +210,7 @@ test "Param table" {
         Apocalypse,
     };
 
-    const Plugin = struct {
+    const Chlugin = struct {
         const params = [_]Parameter{
             create("Gain", .{ 0.0, 10.0, 1.0 }),
             create("Freq", .{ 20.0, 20e3, 1e3 }),
@@ -232,7 +218,7 @@ test "Param table" {
         };
     };
 
-    var table = Table(Plugin){};
+    var table = Table(Chlugin){};
     table.init();
     defer table.deinit();
     const gain = table.map.get("Gain") orelse -1;
@@ -244,16 +230,4 @@ test "Param table" {
     const int: i32 = @intFromFloat(mode);
     const mode_enum = @as(Mode, @enumFromInt(int));
     try std.testing.expectEqual(Mode.Vintage, mode_enum);
-}
-
-test "Choice param" {
-    const Mode = enum {
-        Vintage,
-        Modern,
-        Apocalypse,
-    };
-
-    const param = choiceParam(Mode, Mode.Vintage);
-    const default: Mode = @enumFromInt(param.default);
-    try std.testing.expectEqual(Mode.Vintage, default);
 }

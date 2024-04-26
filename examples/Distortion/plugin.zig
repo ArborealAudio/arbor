@@ -1,5 +1,6 @@
 const std = @import("std");
 const arbor = @import("arbor");
+const param = arbor.param;
 const log = arbor.log;
 
 export const plugin_desc = arbor.createFormatDescription(.{
@@ -16,12 +17,13 @@ export const plugin_desc = arbor.createFormatDescription(.{
 const Mode = enum {
     Vintage,
     Modern,
+    Apocalypse,
 };
 
 const plugin_params = &[_]arbor.Parameter{
-    arbor.param.create("Gain", .{ 1.0, 30.0, 1.0 }),
-    arbor.param.create("Out", .{ 0.0, 12.0, 1.0 }),
-    arbor.param.create("Mode", .{Mode.Vintage}),
+    param.create("Gain", .{ 1.0, 30.0, 1.0 }),
+    param.create("Out", .{ 0.0, 12.0, 1.0 }),
+    param.create("Mode", .{ Mode.Vintage, &.{ "Vintage", "Modern", "Apocalypse" } }),
 };
 
 some_data: i32 = 0,
@@ -53,24 +55,29 @@ export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) 
 }
 
 export fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
-    const in_gain = plugin.params[0];
-    const out_gain = plugin.params[1];
-
-    const mode: Mode = @enumFromInt(@as(u32, @intFromFloat(@round(plugin.params[2]))));
+    const in_gain = plugin.getParamValue(f32, "Gain");
+    const out_gain = plugin.getParamValue(f32, "Out");
+    const mode = plugin.getParamValue(Mode, "Mode");
 
     for (buffer.input[0..buffer.num_ch], 0..) |ch, ch_idx| {
         for (ch[0..buffer.num_samples], 0..) |sample, idx| {
-            if (mode == .Modern) {
-                buffer.output[ch_idx][idx] = std.math.tanh(in_gain * sample) * out_gain;
-            } else {
-                var x = sample;
-                x *= in_gain;
-                if (x > 0) {
-                    x = @min(1, x);
-                    x = (3 / 2) * (x - (x * x * x) / 3);
-                } else x = (3 / 2) * std.math.tanh(x);
-                x *= out_gain;
-                buffer.output[ch_idx][idx] = x;
+            switch (mode) {
+                .Modern => {
+                    buffer.output[ch_idx][idx] = std.math.tanh(in_gain * sample) * out_gain;
+                },
+                .Vintage => {
+                    var x = sample;
+                    x *= in_gain;
+                    if (x > 0) {
+                        x = @min(1, x);
+                        x = (3 / 2) * (x - (x * x * x) / 3);
+                    } else x = (3 / 2) * std.math.tanh(x);
+                    x *= out_gain;
+                    buffer.output[ch_idx][idx] = x;
+                },
+                .Apocalypse => {
+                    buffer.output[ch_idx][idx] = @abs(sample);
+                },
             }
         }
     }
