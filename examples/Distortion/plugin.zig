@@ -19,9 +19,7 @@ export const plugin_params = &[_]arbor.Parameter{
 
 some_data: i32 = 0,
 
-// this probs shouldn't be static
-var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-const allocator = arena.allocator();
+const allocator = std.heap.c_allocator;
 
 export fn init() *arbor.Plugin {
     const plugin = arbor.configure(allocator, plugin_params);
@@ -36,9 +34,9 @@ export fn init() *arbor.Plugin {
 }
 
 export fn deinit(plugin: *arbor.Plugin) void {
-    _ = plugin;
-    // only 1 free needed with an arena
-    arena.deinit();
+    if (plugin.user) |p|
+        allocator.destroy(@as(*@This(), @ptrCast(@alignCast(p))));
+    allocator.destroy(plugin);
 }
 
 export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
