@@ -2,18 +2,17 @@
 //! definitions for CLAP plugin
 
 const std = @import("std");
+const builtin = @import("builtin");
 const arbor = @import("arbor.zig");
 const config = @import("config");
 const log = arbor.log;
+const cast = arbor.cast;
 const clap = arbor.clap;
-const String = arbor.String;
-// const Gui = @import("Gui.zig");
-// const ClapGui = @import("gui/clap_gui.zig");
-// const PlatformGui = @import("platform");
 
 // TODO: Can we inherit the allocator decalred in user plugin somehow?
 const allocator = std.heap.c_allocator;
 
+/// Explicitly make a ClapPlugin from a CLAP API plugin pointer
 fn plug_cast(ptr: ?*const clap.Plugin) *ClapPlugin {
     if (ptr) |p|
         return @ptrCast(@alignCast(p.plugin_data))
@@ -316,6 +315,187 @@ const Timer = struct {
     };
 };
 
+// GUI //
+const GuiPlatform = arbor.Gui.Platform;
+const GuiImpl = arbor.Gui.GuiImpl;
+const Gui = struct {
+    pub const GUI_API = switch (builtin.os.tag) {
+        .linux => clap.gui.Window.API_X11,
+        .macos => clap.gui.Window.API_COCOA,
+        .windows => clap.gui.Window.API_WIN32,
+        else => @panic("Unsupported OS"),
+    };
+
+    fn isAPISupported(
+        plugin: ?*const clap.Plugin,
+        api: [*:0]const u8,
+        is_floating: bool,
+    ) callconv(.C) bool {
+        _ = plugin;
+        return std.mem.orderZ(u8, api, GUI_API).compare(.eq) and !is_floating;
+    }
+
+    fn getPreferredAPI(
+        plugin: ?*const clap.Plugin,
+        api: ?*[*:0]const u8,
+        is_floating: ?*bool,
+    ) callconv(.C) bool {
+        _ = plugin;
+        if (api) |ptr| ptr.* = GUI_API;
+        if (is_floating) |ptr| ptr.* = false;
+        return true;
+    }
+
+    fn createGui(
+        plugin: ?*const clap.Plugin,
+        api: [*:0]const u8,
+        is_floating: bool,
+    ) callconv(.C) bool {
+        if (!isAPISupported(plugin, api, is_floating))
+            return false;
+        if (plug_cast(plugin).plugin) |plug| {
+            std.debug.assert(plug.gui == null);
+            plug.gui = arbor.Gui.init(allocator, plug) catch |e| {
+                log.err("GUI init error: {}\n", .{e});
+                return false;
+            };
+            GuiPlatform.guiRender(plug.gui.?.impl, true);
+            return true;
+        }
+        return false;
+    }
+
+    fn destroyGui(plugin: ?*const clap.Plugin) callconv(.C) void {
+        if (plug_cast(plugin).plugin) |plug| {
+            std.debug.assert(plug.gui != null);
+            plug.gui.?.deinit(allocator);
+            plug.gui = null;
+        }
+    }
+
+    fn setScale(plugin: ?*const clap.Plugin, scale: f64) callconv(.C) bool {
+        _ = scale;
+        _ = plugin;
+        return false;
+    }
+
+    fn getSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool {
+        _ = plugin;
+        if (width) |ptr| ptr.* = arbor.Gui.WIDTH;
+        if (height) |ptr| ptr.* = arbor.Gui.HEIGHT;
+        return true;
+    }
+
+    fn canResize(plugin: ?*const clap.Plugin) callconv(.C) bool {
+        _ = plugin;
+        return false;
+    }
+
+    fn getResizeHints(plugin: ?*const clap.Plugin, hints: ?*clap.gui.ResizeHints) callconv(.C) bool {
+        _ = hints;
+        _ = plugin;
+        return false;
+    }
+
+    fn adjustSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool {
+        return getSize(plugin, width, height);
+    }
+
+    fn setSize(plugin: ?*const clap.Plugin, width: u32, height: u32) callconv(.C) bool {
+        _ = height;
+        _ = width;
+        _ = plugin;
+        return true;
+    }
+
+    fn setParent(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.C) bool {
+        if (plug_cast(plugin).plugin) |plug| {
+            const window = clap_window orelse {
+                log.err("Window is null\n", .{});
+                return false;
+            };
+            if (!std.mem.orderZ(u8, window.api, GUI_API).compare(.eq)) {
+                log.err("Incompatible API: {s}\n", .{window.api});
+                return false;
+            }
+            if (plug.gui) |gui| {
+                const win_data = switch (builtin.os.tag) {
+                    .macos => window.window.cocoa,
+                    .linux => window.window.x11,
+                    .windows => window.window.win32,
+                    else => log.fatal("Unsupported OS\n", .{}),
+                };
+                GuiPlatform.guiSetParent(gui.impl, win_data);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn setTransient(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.C) bool {
+        _ = clap_window;
+        _ = plugin;
+        return false;
+    }
+
+    fn suggestTitle(plugin: ?*const clap.Plugin, title: [*:0]const u8) callconv(.C) void {
+        _ = title;
+        _ = plugin;
+    }
+
+    fn show(plugin: ?*const clap.Plugin) callconv(.C) bool {
+        if (plug_cast(plugin).plugin) |plug| {
+            if (plug.gui) |gui| GuiPlatform.guiSetVisible(gui.impl, true);
+            return true;
+        }
+        return false;
+    }
+
+    fn hide(plugin: ?*const clap.Plugin) callconv(.C) bool {
+        if (plug_cast(plugin).plugin) |plug| {
+            if (plug.gui) |gui| GuiPlatform.guiSetVisible(gui.impl, false);
+            return true;
+        }
+        return false;
+    }
+
+    pub const Data = clap.gui.PluginGui{
+        .is_api_supported = isAPISupported,
+        .get_preferred_api = getPreferredAPI,
+        .create = createGui,
+        .destroy = destroyGui,
+        .set_scale = setScale,
+        .get_size = getSize,
+        .can_resize = canResize,
+        .get_resize_hints = getResizeHints,
+        .adjust_size = adjustSize,
+        .set_size = setSize,
+        .set_parent = setParent,
+        .set_transient = setTransient,
+        .suggest_title = suggestTitle,
+        .show = show,
+        .hide = hide,
+    };
+};
+
+pub const PosixFDSupport = struct {
+    fn on_fd(
+        plugin: ?*const clap.Plugin,
+        fd: i32,
+        flags: clap.posix_fd.Flags,
+    ) callconv(.C) void {
+        _ = fd;
+        _ = flags;
+        if (plug_cast(plugin).plugin) |plug| {
+            if (plug.gui) |gui| GuiPlatform.guiOnPosixFd(gui.impl);
+        }
+    }
+
+    pub const Data = clap.posix_fd.PluginSupport{
+        .on_fd = on_fd,
+    };
+};
+
 pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
     const clap_plug = plug_cast(plugin);
 
@@ -400,12 +580,17 @@ pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callco
     };
     if (event) |e| {
         if (e.space_id == clap.CLAP_CORE_EVENT_SPACE_ID) {
-            if (e.type == .PARAM_VALUE) {
-                const param_event = @as(*const clap.EventParamValue, @ptrCast(@alignCast(e)));
-                plug.params[param_event.param_id] = @floatCast(param_event.value);
-                // Plugin.parameter_changed[valueEvent.*.param_id] = true;
-                // self.plugin.onParamChange(valueEvent.*.param_id);
-                // self.need_repaint = true;
+            switch (e.type) {
+                .PARAM_VALUE => {
+                    const param_event = cast(*const clap.EventParamValue, e);
+                    plug.params[param_event.param_id] = @floatCast(param_event.value);
+                    // TODO: Use a callback here
+                    // TODO: Synchronize the GUI
+                    // Plugin.parameter_changed[valueEvent.*.param_id] = true;
+                    // self.plugin.onParamChange(valueEvent.*.param_id);
+                    // self.need_repaint = true;
+                },
+                else => log.err("Unhandled event: {s}\n", .{@tagName(e.type)}),
             }
         }
     } else {
@@ -466,7 +651,8 @@ pub fn process(
         };
         for (i..next_event_frame) |_| {
             const frames_to_process = next_event_frame - i;
-            const buffer = arbor.AudioBuffer{
+            // TODO: Determine whether f64 is wanted
+            const buffer: arbor.AudioBuffer(f32) = .{
                 .input = audio_in.data32, // NOTE: should we slice based on frames_to_process?
                 .output = audio_out.data32,
                 .num_ch = audio_in.channel_count,
@@ -493,13 +679,13 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
     if (std.mem.orderZ(u8, id, clap.EXT_PARAMS).compare(.eq))
         return &Params.Data;
     // TODO: Gui
-    // if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
-    //     return &ClapGui.Data;
+    if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
+        return &Gui.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
         return &Timer.Data;
     // TODO: Gui on Linux w/ this crap
-    // if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
-    //     return &ClapGui.PosixFDSupport.Data;
+    if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
+        return &PosixFDSupport.Data;
     return null;
 }
 

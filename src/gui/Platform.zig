@@ -4,7 +4,7 @@ const windows = @import("std").os.windows;
 const builtin = @import("builtin");
 
 pub const Window = switch (builtin.os.tag) {
-    .windows => ?*anyopaque,
+    .windows => windows.HWND,
     .macos => ?*anyopaque,
     .linux => c_ulong,
     else => @panic("Unsupported OS\n"),
@@ -12,7 +12,7 @@ pub const Window = switch (builtin.os.tag) {
 
 pub const GuiImpl = switch (builtin.os.tag) {
     .windows => struct {
-        window: windows.HWND,
+        window: Window,
         bits: [*]u32,
         width: u32,
         height: u32,

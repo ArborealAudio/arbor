@@ -687,6 +687,66 @@ pub const params = struct {
     };
 };
 
+pub const EXT_GUI = "clap.gui";
+pub const gui = struct {
+    pub const Window = extern struct {
+        pub const API_WIN32 = "win32";
+        pub const API_COCOA = "cocoa";
+        pub const API_X11 = "x11";
+        pub const API_WAYLAND = "wayland";
+
+        api: [*:0]const u8,
+        window: extern union {
+            cocoa: ?*anyopaque,
+            x11: c_ulong,
+            win32: std.os.windows.HWND,
+            ptr: ?*anyopaque,
+        },
+    };
+
+    pub const ResizeHints = extern struct {
+        can_resize_horizontally: bool,
+        can_resize_vertically: bool,
+        preserve_aspect_ratio: bool,
+        aspect_ratio_width: u32,
+        aspect_ratio_height: u32,
+    };
+
+    pub const PluginGui = extern struct {
+        is_api_supported: *const fn (
+            plugin: ?*const Plugin,
+            api: [*:0]const u8,
+            is_floating: bool,
+        ) callconv(.C) bool,
+        get_preferred_api: *const fn (
+            plugin: ?*const Plugin,
+            api: ?*[*:0]const u8,
+            is_floating: ?*bool,
+        ) callconv(.C) bool,
+        create: *const fn (plugin: ?*const Plugin, api: [*:0]const u8, is_floating: bool) callconv(.C) bool,
+        destroy: *const fn (plugin: ?*const Plugin) callconv(.C) void,
+        set_scale: *const fn (plugin: ?*const Plugin, scale: f64) callconv(.C) bool,
+        get_size: *const fn (plugin: ?*const Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool,
+        can_resize: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
+        get_resize_hints: *const fn (plugin: ?*const Plugin, hints: ?*ResizeHints) callconv(.C) bool,
+        adjust_size: *const fn (plugin: ?*const Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool,
+        set_size: *const fn (plugin: ?*const Plugin, width: u32, height: u32) callconv(.C) bool,
+        set_parent: *const fn (plugin: ?*const Plugin, window: ?*const Window) callconv(.C) bool,
+        set_transient: *const fn (plugin: ?*const Plugin, window: ?*const Window) callconv(.C) bool,
+        suggest_title: *const fn (plugin: ?*const Plugin, title: [*:0]const u8) callconv(.C) void,
+        show: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
+        hide: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
+    };
+
+    pub const HostGui = extern struct {
+        resize_hints_changed: *const fn (host: ?*const Host) callconv(.C) void,
+        request_resize: *const fn (host: ?*const Host, width: u32, height: u32) callconv(.C) bool,
+        request_show: *const fn (host: ?*const Host) callconv(.C) bool,
+        request_hide: *const fn (host: ?*const Host) callconv(.C) bool,
+        closed: *const fn (host: ?*const Host, was_destroyed: bool) callconv(.C) void,
+    };
+};
+
 pub const EXT_POSIX_FD_SUPPORT = "clap.posix-fd-support";
 pub const posix_fd = struct {
     pub const Flags = packed struct(u32) {

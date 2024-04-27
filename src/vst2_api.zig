@@ -48,8 +48,8 @@ pub const StringConstants = struct {
     pub const MaxFileNameLen = 100;
 };
 
-pub const VstEvents = struct {
-    const Event = struct {
+pub const VstEvents = extern struct {
+    const Event = extern struct {
         type: i32,
         byte_size: i32,
         delta_frames: i32,
@@ -112,7 +112,7 @@ pub const GetParameter = ?*const fn (
     index: i32,
 ) callconv(.C) f32;
 
-pub const Opcode = enum(c_int) {
+pub const Opcode = enum(i32) {
     Open = 0,
     Close,
     SetProgram,
@@ -148,12 +148,12 @@ pub const Opcode = enum(c_int) {
     SetProcessPrecision = 77,
 };
 
-pub const ProcessPrecision = enum(c_int) {
+pub const ProcessPrecision = enum(i32) {
     ProcessPrecision32 = 0,
     ProcessPrecision64,
 };
 
-pub const ParameterProperties = struct {
+pub const ParameterProperties = extern struct {
     stepFloat: f32,
     smallStepFloat: f32,
     largeStepFloat: f32,
@@ -175,7 +175,7 @@ pub const ParameterProperties = struct {
     future: [16]u8,
 };
 
-pub const ParameterFlags = enum(c_int) {
+pub const ParameterFlags = enum(i32) {
     IsSwitch = 1 << 0,
     UsesIntegerMax = 1 << 1,
     UseFloatStep = 1 << 2,
@@ -186,11 +186,11 @@ pub const ParameterFlags = enum(c_int) {
 };
 
 pub const MAX_NUM_PARAMS = 128;
-pub const PluginState = struct {
+pub const PluginState = extern struct {
     param: [MAX_NUM_PARAMS]f32,
 };
 
-pub const PinProperties = struct {
+pub const PinProperties = extern struct {
     label: [StringConstants.MaxLabelLen]u8,
     flags: i32,
     arrangement_type: i32,
@@ -198,13 +198,13 @@ pub const PinProperties = struct {
     future: [48]u8,
 };
 
-pub const PinPropertiesFlags = enum(c_int) {
+pub const PinPropertiesFlags = enum(i32) {
     IsActive = 1 << 0,
     IsStereo = 1 << 1,
     UseSpeaker = 1 << 2,
 };
 
-pub const Flags = enum(c_int) {
+pub const Flags = enum(i32) {
     HasEditor = 1 << 0,
     HasReplacing = 1 << 4,
     HasStateChunk = 1 << 5,
@@ -221,7 +221,7 @@ pub const Flags = enum(c_int) {
     }
 };
 
-pub const Category = enum(c_int) {
+pub const Category = enum(i32) {
     kPlugCategUnknown = 0,
     kPlugCategEffect,
     kPlugCategSynth,
@@ -237,7 +237,7 @@ pub const Category = enum(c_int) {
     kPlugCategMaxCount,
 };
 
-pub const Rect = struct {
+pub const Rect = extern struct {
     top: i16,
     left: i16,
     bottom: i16,

@@ -3,6 +3,8 @@ const arbor = @import("arbor");
 const param = arbor.param;
 const log = arbor.log;
 
+const Distortion = @This();
+
 export const plugin_desc = arbor.createFormatDescription(.{
     .id = "com.ArborealAudio.ZigVerb",
     .name = "Example Distortion",
@@ -23,29 +25,34 @@ const Mode = enum {
 const plugin_params = &[_]arbor.Parameter{
     param.create("Gain", .{ 1.0, 30.0, 1.0 }),
     param.create("Out", .{ 0.0, 12.0, 1.0 }),
+    // TODO: Read enum fields by default. Passing a list of choices should be optional
     param.create("Mode", .{ Mode.Vintage, &.{ "Vintage", "Modern", "Apocalypse" } }),
 };
 
-some_data: i32 = 0,
-
-const allocator = std.heap.c_allocator;
+some_data: i32,
 
 export fn init() *arbor.Plugin {
-    const plugin = arbor.configure(allocator, plugin_params);
+    const allocator = std.heap.c_allocator;
+    const plugin = arbor.init(allocator, plugin_params);
     // create a user plugin since we have some data of our own
-    const user_plugin = allocator.create(@This()) catch |e|
+    const user_plugin = allocator.create(Distortion) catch |e|
         log.fatal("Plugin create failed: {}\n", .{e});
-    user_plugin.* = .{}; // initialize
-    // set the pointer
-    plugin.user = user_plugin;
+    user_plugin.* = .{ // initialize
+        .some_data = 42,
+    };
+    plugin.user = user_plugin; // set the pointer
 
     return plugin;
 }
 
 export fn deinit(plugin: *arbor.Plugin) void {
-    if (plugin.user) |p|
-        allocator.destroy(@as(*@This(), @ptrCast(@alignCast(p))));
-    allocator.destroy(plugin);
+    // Free your plugin if we set one
+    if (plugin.user) |p| {
+        const self: *Distortion = @alignCast(@ptrCast(p));
+        plugin.allocator.destroy(self);
+    }
+    // Deinit the outer plugin like this
+    arbor.deinit(plugin);
 }
 
 export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
@@ -54,10 +61,13 @@ export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) 
     _ = max_num_frames;
 }
 
-export fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
+export fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     const in_gain = plugin.getParamValue(f32, "Gain");
     const out_gain = plugin.getParamValue(f32, "Out");
     const mode = plugin.getParamValue(Mode, "Mode");
+
+    const self = arbor.cast(*Distortion, plugin.user);
+    std.debug.assert(self.some_data + 1 == 43);
 
     for (buffer.input[0..buffer.num_ch], 0..) |ch, ch_idx| {
         for (ch[0..buffer.num_samples], 0..) |sample, idx| {

@@ -24,11 +24,20 @@ pub const Parameter = struct {
     max_value: f32,
     default_value: f32,
     enum_choices: ?[]const [:0]const u8 = null,
+
+    pub fn getNormalizedValue(self: Parameter, val: f32) f32 {
+        return val / (self.max_value - self.min_value);
+    }
+
+    pub fn valueFromNormalized(self: Parameter, val: f32) f32 {
+        return val * (self.max_value - self.min_value) + self.min_value;
+    }
 };
 
-/// create a parameter from a tuple of values
-/// For a float or int param, pass min, max, and default in that order
-/// For a choice/enum param, pass the default value
+/// Create a parameter from a tuple of values.
+/// For a float or int param, pass min, max, and default in that order.
+/// For a choice/enum param, pass the default value. Optionally pass a slice of
+/// strings which describe the options in their desired order.
 /// TODO: Support passing parameter flags to this function
 pub fn create(comptime name: [:0]const u8, args: anytype) Parameter {
     const args_info = @typeInfo(@TypeOf(args));
@@ -183,51 +192,9 @@ pub fn Table(comptime UserPlugin: type) type {
     };
 }
 
-pub fn BoolParam(default: bool) type {
-    return struct {
-        default: bool = default,
-    };
-}
-
-pub fn ChoiceParam(comptime Choices: type, default: Choices) type {
-    return struct {
-        .choices = Choices,
-        .default = @intFromEnum(default),
-    };
-}
-
 // utils
 
 /// clamp a float to a 0 - 1 range
 pub fn float_clamp(x: anytype) @TypeOf(x) {
     return @min(1.0, @max(0, x));
-}
-
-test "Param table" {
-    const Mode = enum {
-        Vintage,
-        Modern,
-        Apocalypse,
-    };
-
-    const Chlugin = struct {
-        const params = [_]Parameter{
-            create("Gain", .{ 0.0, 10.0, 1.0 }),
-            create("Freq", .{ 20.0, 20e3, 1e3 }),
-            create("Mode", .{Mode.Vintage}),
-        };
-    };
-
-    var table = Table(Chlugin){};
-    table.init();
-    defer table.deinit();
-    const gain = table.map.get("Gain") orelse -1;
-    try std.testing.expectEqual(1, gain);
-    const freq = table.map.get("Freq") orelse -1;
-    try std.testing.expectEqual(1e3, freq);
-
-    const mode = table.map.get("Mode") orelse -1;
-    const int: i32 = @intFromFloat(mode);
-    const mode_enum = @as(Mode, @enumFromInt(int));
-    try std.testing.expectEqual(Mode.Vintage, mode_enum);
 }

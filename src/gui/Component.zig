@@ -2,11 +2,11 @@
 //! Module for drawing GUI widgets
 
 const std = @import("std");
-const Params = @import("Params.zig");
-const Gui = @import("Gui.zig");
-const olivec = @import("olivec");
+const arbor = @import("../arbor.zig");
+const Gui = arbor.Gui;
+const olivec = Gui.olivec;
+const Text = Gui.Text;
 const Vec2 = Gui.Vec2;
-const Text = @import("Text.zig");
 
 pub const Component = @This();
 
@@ -36,9 +36,9 @@ is_mouse_over: bool = false,
 
 draw: *const fn (self: Component) void,
 
-pub fn getComponentID(param_name: []const u8) u32 {
-    return Params.nameToID(param_name) catch @panic("Component not found");
-}
+// pub fn getComponentID(param_name: []const u8) u32 {
+//     return Params.nameToID(param_name) catch @panic("Component not found");
+// }
 
 pub fn hit_test(self: Component, pt: Vec2) bool {
     return (pt.x >= self.pos.x and
@@ -79,12 +79,21 @@ pub const Slider = struct {
             // can take care of the positioning, probably via a parameter
             const text_y = self.pos.y + height;
             const text_x = self.pos.x - self.width / 2;
+            olivec.olivec_frame(
+                self.canvas.*,
+                @intFromFloat(text_x),
+                @intFromFloat(text_y),
+                @intFromFloat(self.width),
+                @intCast(l.height),
+                2,
+                self.fill_color,
+            );
             Text.drawText(l.text, self.canvas.pixels, .{
                 .x = @intFromFloat(text_x),
                 .y = @intFromFloat(text_y),
                 .width = @intFromFloat(self.width),
                 .height = l.height,
-            }, 2, 0xffffffff);
+            }, 1, self.fill_color);
         }
     }
 };

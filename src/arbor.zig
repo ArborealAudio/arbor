@@ -10,16 +10,9 @@ pub const Parameter = param.Parameter;
 pub const Format = enum { CLAP, VST3, VST2 };
 // const format = build_options.format;
 const format = Format.CLAP;
-// pub const Gui = @import("Gui.zig");
+pub const Gui = @import("gui/Gui.zig");
 
 pub const clap = @import("clap_api.zig");
-
-pub const AudioBuffer = extern struct {
-    input: [*]const [*]const f32,
-    output: [*][*]f32,
-    num_ch: usize,
-    num_samples: usize,
-};
 
 pub const Plugin = struct {
     pub const Description = struct {
@@ -47,15 +40,15 @@ pub const Plugin = struct {
     param_info: []const Parameter,
     params: []f32,
     user: ?*anyopaque = null,
-    // TODO: don't anyopaque. It has a memory layout dammit!
-    gui: ?*anyopaque = null,
+    gui: ?*Gui = null,
 
     allocator: std.mem.Allocator = std.heap.c_allocator,
 
     pub extern fn init() *Plugin;
     pub extern fn deinit(*Plugin) void;
     pub extern fn prepare(*Plugin, f32, u32) void;
-    pub extern fn process(*Plugin, AudioBuffer) void;
+    pub extern fn process(*Plugin, AudioBuffer(f32)) void;
+    pub extern fn processDouble(*Plugin, AudioBuffer(f64)) void;
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
@@ -77,19 +70,22 @@ pub const Plugin = struct {
     }
 
     pub fn getParamId(plugin: Plugin, id: u32) !*const Parameter {
-        if (id >= plugin.param_info.len) return error.ParamNotFound;
+        if (id >= plugin.params.len) return error.ParamNotFound;
         return &plugin.param_info[id];
     }
 
     pub fn getParamName(plugin: Plugin, id: u32) ![:0]const u8 {
-        if (id >= plugin.param_info.len) return error.ParamNotFound;
+        if (id >= plugin.params.len) return error.ParamNotFound;
         return plugin.param_info[id].name;
     }
 };
 
+/// User-defined plugin description, converted to format type
 pub extern const plugin_desc: DescType;
 
-pub fn configure(
+/// Initialize a Plugin. Caller owns the returned pointer and must free it by
+/// calling "deinit".
+pub fn init(
     allocator: std.mem.Allocator,
     params: []const Parameter,
 ) *Plugin {
@@ -102,11 +98,19 @@ pub fn configure(
     return plug;
 }
 
+/// Deinit a Plugin using the allocator passed to it in init().
+pub fn deinit(plugin: *Plugin) void {
+    plugin.allocator.free(plugin.params);
+    plugin.allocator.destroy(plugin);
+}
+
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
     else => @panic("Unimplemented format\n"),
 };
 
+/// Create a description that satisfies the requirements of the format being
+/// compiled for.
 pub fn createFormatDescription(desc: Plugin.Description) DescType {
     switch (DescType) {
         clap.PluginDescriptor => {
@@ -129,31 +133,17 @@ pub fn createFormatDescription(desc: Plugin.Description) DescType {
     }
 }
 
-// /// get a compile-time struct with information about the plugin
-// pub fn Config(comptime UserPlugin: type) type {
-//     return struct {
-//         /// format-specific description
-//         plugin_description: DescType = getFormatDescription(UserPlugin, DescType),
-//         /// all plugin parameter values
-//         plugin_params: []f32 = undefined,
+/// Generic audio buffer
+pub fn AudioBuffer(comptime FloatType: type) type {
+    return extern struct {
+        input: [*]const [*]const FloatType,
+        output: [*][*]FloatType,
+        num_ch: usize,
+        num_samples: usize,
+    };
+}
 
-//         allocator: std.mem.Allocator = if (@hasDecl(UserPlugin, "allocator"))
-//             UserPlugin.allocator
-//         else
-//             std.heap.c_allocator,
-
-//         pub fn init(self: *@This()) void {
-//             self.plugin_params = param.createSlice(
-//                 self.allocator,
-//             ) catch |e|
-//                 log.fatal("Failed to create params slice: {}\n", .{e});
-//         }
-
-//         pub fn deinit(self: *@This()) void {
-//             self.allocator.free(self.plugin_params);
-//         }
-//     };
-// }
+// UTILS //
 
 pub const log = struct {
     /// default info
@@ -173,39 +163,6 @@ pub const log = struct {
     }
 };
 
-// test "Init" {
-//     const Plugin = struct {
-//         var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-//         // if not pub, results in invalid free
-//         pub const allocator = arena.allocator();
-//         pub const Desc = PluginDescription{
-//             .id = "com.ArborealAudio.ZigVerb",
-//             .name = "Example Distortion",
-//             .company = "Arboreal Audio",
-//             .version = "0.1",
-//             .url = "https://arborealaudio.com",
-//             .contact = "contact@arborealaudio.com",
-//             .manual = "www.website.com/manual",
-//             .description = "Basic distortion plugin",
-//         };
-
-//         pub const Mode = enum {
-//             Vintage,
-//             Modern,
-//         };
-
-//         pub const params = [_]param.Parameter{
-//             param.create("Gain", .{ 1.0, 12.0, 1.0 }),
-//             param.create("Mode", .{Mode.Vintage}),
-//         };
-//     };
-//     defer Plugin.arena.deinit();
-
-//     var config: Config(Plugin) = .{};
-//     config.init();
-//     defer config.deinit();
-//     try std.testing.expectEqual(Plugin.Desc.name.ptr, config.plugin_description.name);
-//     const gain_ptr = config.plugin_params[0];
-//     gain_ptr.* = 6;
-//     try std.testing.expectEqual(6, config.plugin_params[0].*);
-// }
+pub fn cast(comptime DestType: type, ptr: anytype) DestType {
+    return @alignCast(@ptrCast(ptr));
+}

@@ -4,8 +4,8 @@
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
 
-void inputEvent(void *user, int32_t cursorX, int32_t cursorY, int8_t button);
-void render(void *);
+extern void inputEvent(void *user, int32_t cursorX, int32_t cursorY, int8_t button);
+extern void render(void *);
 
 @interface GuiImpl : NSView
 @property (nonatomic) void *user;
@@ -82,4 +82,4 @@ void guiRender(GuiImpl *gui)
     [gui setNeedsDisplayInRect:gui.bounds];
 }
 
-void guiOnPosixFd(GuiImpl *) {}
+void guiOnPosixFd(GuiImpl *gui) {}

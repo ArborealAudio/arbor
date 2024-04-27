@@ -1,21 +1,20 @@
 //! Definition of a specific VST2 plugin implementation
 
 const std = @import("std");
+const arbor = @import("arbor.zig");
+const log = arbor.log;
 const builtin = @import("builtin");
-const c_cast = std.zig.c_translation.cast;
 const vst2 = @import("vst2_api.zig");
-const Plugin = @import("Plugin.zig");
-const Params = @import("Params.zig");
-const Gui = @import("Gui.zig");
-const PlatformGui = @import("platform");
+const Plugin = arbor.Plugin;
+const param = arbor.param;
+// const Gui = @import("Gui.zig");
+// const PlatformGui = @import("platform");
 
 const allocator = std.heap.c_allocator;
 
 const Self = @This();
 
 // vst2-specific data
-// TODO: replace w/ wrapper type
-// NOTE: 👆 What did I mean by this?
 effect: *vst2.AEffect,
 host_callback: *const fn (
     effect: *vst2.AEffect,
@@ -25,11 +24,11 @@ host_callback: *const fn (
     ptr: ?*anyopaque,
     opt: f32,
 ) callconv(.C) isize,
-plugin: *Plugin, // our specific plugin data
+plugin: ?*Plugin = null, // our specific plugin data
 state: vst2.PluginState = undefined,
 rect: vst2.Rect,
 
-fn plugCast(effect: *vst2.AEffect) *Self {
+fn plugCast(effect: ?*const vst2.AEffect) *Self {
     return @ptrCast(@alignCast(effect.object));
 }
 
@@ -47,6 +46,8 @@ fn dispatch(
         .Open => {
             // ISSUE: Hardcoding srate and block size
             // trying instead to use plugin's own values. Do they get set before Open is called?
+            // Or should we actually allocate teh user plugin here, and then call prepare right
+            // after?
             self.plugin.prepare(
                 allocator,
                 self.plugin.sample_rate,
@@ -74,12 +75,12 @@ fn dispatch(
             }
         },
         .GetVendorVersion => {
-            return Plugin.Description.version_int;
+            return arbor.plugin_desc.version_int;
         },
         .GetProductString => {
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
-                const name = Plugin.Description.plugin_name;
+                const name = arbor.plugin_desc.name;
                 _ = std.fmt.bufPrintZ(buf[0..name.len :0], "{s}", .{name}) catch |e| {
                     std.log.err("{}\n", .{e});
                     return -1;
@@ -205,8 +206,15 @@ fn processReplacing(
     outputs: [*][*]f32,
     frames: i32,
 ) callconv(.C) void {
-    const self = plugCast(effect);
-    self.plugin.processAudio(inputs, outputs, @intCast(frames));
+    if (plugCast(effect).plugin) |plugin| {
+        const buffer: arbor.AudioBuffer = .{
+            .input = inputs,
+            .output = outputs,
+            .num_samples = frames,
+            .num_ch = plugin.num_channels,
+        };
+        plugin.process(buffer);
+    }
 }
 fn processDoubleReplacing(
     effect: *vst2.AEffect,
@@ -221,28 +229,27 @@ fn processDoubleReplacing(
 }
 
 fn setParameter(effect: *vst2.AEffect, index: i32, value: f32) callconv(.C) void {
-    const self = plugCast(effect);
-    if (index >= 0 and index < Params.num_params) {
-        // TODO: Wrap in mutex
-        self.plugin.params.setValue(@intCast(index), @floatCast(value));
-        // if (self.plugin.gui) |gui| {
-        //     gui.components[@intCast(index)].value =
-        //         self.plugin.params.getNormalizedValue(@intCast(index)) catch {
-        //         @panic("Couldn't find param\n");
-        //     };
-        // }
-        self.plugin.onParamChange(@intCast(index));
+    if (plugCast(effect).plugin) |plugin| {
+        if (index >= 0 and index < plugin.param_info.len) {
+            // TODO: Wrap in mutex
+            // self.plugin.params.setValue(@intCast(index), @floatCast(value));
+            // if (self.plugin.gui) |gui| {
+            //     gui.components[@intCast(index)].value =
+            //         self.plugin.params.getNormalizedValue(@intCast(index)) catch {
+            //         @panic("Couldn't find param\n");
+            //     };
+            // }
+            plugin.processEvent(@intCast(index));
+        }
     }
 }
 fn getParameter(effect: *vst2.AEffect, index: i32) callconv(.C) f32 {
-    const self = plugCast(effect);
-    if (index >= 0 and index < Params.num_params) {
-        // TODO: Wrap in mutex
-        const val = self.plugin.params.getNormalizedValue(@intCast(index)) catch {
-            std.log.err("Can't find param\n", .{});
-            return 0;
-        };
-        return @floatCast(val);
+    if (plugCast(effect).plugin) |plugin| {
+        if (index >= 0 and index < plugin.param_info.len) {
+            // TODO: Wrap in mutex
+            const val = plugin.params[index];
+            return @floatCast(val);
+        }
     }
     return 0;
 }
@@ -253,7 +260,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .effect = try alloc.create(vst2.AEffect),
         .plugin = Plugin.init(alloc),
         .host_callback = host_callback,
-        .rect = .{ .top = 0, .left = 0, .bottom = Gui.GUI_HEIGHT, .right = Gui.GUI_WIDTH },
+        // .rect = .{ .top = 0, .left = 0, .bottom = Gui.GUI_HEIGHT, .right = Gui.GUI_WIDTH },
     };
     self.effect.* = .{
         .dispatcher = dispatch,
@@ -263,7 +270,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .setParameter = setParameter,
         .getParameter = getParameter,
         .num_programs = 0,
-        .num_params = Params.num_params,
+        // .num_params = arbor.,
         .num_inputs = 2, // TODO: Get num channels (and other stuff below) from Config
         .num_outputs = 2,
         .flags = vst2.Flags.toInt(&[_]vst2.Flags{ .HasReplacing, .HasEditor }),

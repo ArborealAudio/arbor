@@ -5,7 +5,7 @@ const std = @import("std");
 const print = std.debug.print;
 const assert = std.debug.assert;
 const ascii = std.ascii;
-const Gui = @import("Gui.zig");
+const Gui = @import("../arbor.zig").Gui;
 const Rect = Gui.Recti;
 
 pub const BMP_WIDTH = 128;
@@ -47,7 +47,7 @@ pub fn drawText(
         });
         const glyph = getGlyph(c);
         for (glyph_rect.y..glyph_rect.y + glyph_rect.height) |line| {
-            const bits_line = bits[line * Gui.GUI_WIDTH + glyph_rect.x ..];
+            const bits_line = bits[line * Gui.WIDTH + glyph_rect.x ..];
             const glyph_line_offset = ((line - y) / iscale) * BMP_WIDTH;
             const glyph_line_end = glyph_line_offset + GLYPH_WIDTH;
             const glyph_line = glyph[glyph_line_offset..glyph_line_end];

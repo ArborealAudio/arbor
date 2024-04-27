@@ -20,20 +20,19 @@ pub fn build(b: *std.Build) !void {
     });
     arbor_mod.addOptions("build_options", build_options);
 
-    // build platform UI library
-    arbor_mod.addImport("platform", buildPlatformGUI(b, target, optimize));
-    arbor_mod.addImport("olivec", buildOlivec(b, target, optimize));
+    // build UI library
+    buildGUI(b, arbor_mod, target, optimize);
 
-    const example = b.option([]const u8, "example", "Build an example plugin") orelse "";
-    if (!std.mem.eql(u8, example, "")) {
-        const plug = try buildExample(b, format, example, arbor_mod, target, optimize);
-        b.installArtifact(plug);
-        std.log.info("Built example: {s}\n", .{example});
-        const copy_cmd = try CopyStep.createStep(b, format, target, plug);
-        copy_cmd.step.dependOn(b.getInstallStep());
-        const copy_step = b.step("copy", "Copy plugin to system dir");
-        copy_step.dependOn(&copy_cmd.step);
-    }
+    const plug = if (b.option([]const u8, "example", "Build an example plugin")) |example| blk: {
+        std.log.info("Building example: {s}\n", .{example});
+        break :blk try buildExample(b, format, example, arbor_mod, target, optimize);
+    } else return error.NoExample;
+
+    b.installArtifact(plug);
+    const copy_cmd = try CopyStep.createStep(b, format, target, plug);
+    copy_cmd.step.dependOn(b.getInstallStep());
+    const copy_step = b.step("copy", "Copy plugin to system dir");
+    copy_step.dependOn(&copy_cmd.step);
 
     // Creates a step for unit testing.
     // const clap_tests = b.addTest(.{
@@ -56,80 +55,48 @@ pub fn build(b: *std.Build) !void {
     // test_step.dependOn(&vst3_tests.step);
 }
 
-fn buildPlatformGUI(
+fn buildGUI(
     b: *std.Build,
+    arbor_mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
-    const mod = b.addModule("GUI", .{
-        .root_source_file = .{ .path = "src/gui/Platform.zig" },
-        .link_libc = true,
+) void {
+    const platform_lib = b.addStaticLibrary(.{
+        .name = "platform-gui",
         .target = target,
         .optimize = optimize,
     });
-    mod.addIncludePath(.{ .path = "src" });
-    const lib = b.addStaticLibrary(.{
-        .name = "arbor-gui",
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-
-    switch (lib.rootModuleTarget().os.tag) {
+    switch (target.result.os.tag) {
         .linux => {
-            lib.addSystemIncludePath(.{ .path = "/usr/include/" });
-            lib.linkSystemLibrary2("X11", .{ .needed = true });
-            lib.addCSourceFile(.{
-                .file = .{ .path = "src/gui/gui_x11.c" },
+            platform_lib.addSystemIncludePath(.{ .path = "/usr/include/" });
+            platform_lib.linkSystemLibrary2("X11", .{ .needed = true });
+            platform_lib.addCSourceFile(.{
+                .file = b.path("src/gui/gui_x11.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .windows => {
-            lib.linkSystemLibrary2("gdi32", .{ .needed = true });
-            lib.linkSystemLibrary2("user32", .{ .needed = true });
-            lib.addCSourceFile(.{
-                .file = .{ .path = "src/gui/gui_w32.c" },
+            platform_lib.linkSystemLibrary2("gdi32", .{ .needed = true });
+            platform_lib.linkSystemLibrary2("user32", .{ .needed = true });
+            platform_lib.addCSourceFile(.{
+                .file = b.path("src/gui/gui_w32.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .macos => {
-            lib.linkFramework("Cocoa");
-            lib.addCSourceFile(.{
+            platform_lib.root_module.linkFramework("Cocoa", .{ .needed = true });
+            platform_lib.root_module.addCSourceFile(.{
                 .file = b.path("src/gui/gui_mac.m"),
                 .flags = &.{"-ObjC"},
             });
         },
         else => @panic("Unimplemented OS\n"),
     }
-
-    mod.linkLibrary(lib);
-
-    return mod;
-}
-
-fn buildOlivec(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
-    const mod = b.addModule("olivec", .{
-        .root_source_file = b.path("src/olivec.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const lib = b.addStaticLibrary(.{
-        .name = "olivec",
-        .target = target,
-        .optimize = optimize,
-    });
-    lib.addCSourceFile(.{
-        .file = b.path("src/olive.c"),
+    arbor_mod.linkLibrary(platform_lib);
+    arbor_mod.addCSourceFile(.{
+        .file = b.path("src/gui/olive.c"),
         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
     });
-    mod.linkLibrary(lib);
-
-    return mod;
 }
 
 fn buildExample(
@@ -145,7 +112,7 @@ fn buildExample(
         u8,
         &.{ "examples/", example, "/plugin.zig" },
     );
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addObject(.{
         .name = example,
         .target = target,
         .optimize = optimize,
@@ -163,7 +130,7 @@ fn buildExample(
         .optimize = optimize,
         .root_source_file = b.path(plug_src),
     });
-    plug.linkLibrary(lib);
+    plug.addObject(lib);
 
     return plug;
 }
