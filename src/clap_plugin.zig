@@ -370,8 +370,12 @@ const Gui = struct {
     }
 
     fn destroyGui(plugin: ?*const clap.Plugin) callconv(.C) void {
-        if (plug_cast(plugin).plugin) |plug| {
+        const clap_plug = plug_cast(plugin);
+        if (clap_plug.plugin) |plug| {
             std.debug.assert(plug.gui != null);
+            if (clap_plug.host_fd_support) |host_fd| {
+                _ = host_fd.unregister_fd(clap_plug.host, plug.gui.?.impl.fd);
+            }
             plug.gui.?.deinit(allocator);
             plug.gui = null;
         }
