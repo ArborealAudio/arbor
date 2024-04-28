@@ -6,6 +6,7 @@ const print = std.debug.print;
 const assert = std.debug.assert;
 const ascii = std.ascii;
 const Gui = @import("../arbor.zig").Gui;
+const olivec = Gui.olivec;
 const Rect = Gui.Recti;
 
 pub const BMP_WIDTH = 128;
@@ -21,19 +22,45 @@ pub const GLYPH_WIDTH = BMP_WIDTH / COLUMNS;
 pub const GLYPH_HEIGHT = BMP_HEIGHT / ROWS;
 
 pub fn drawText(
-    text: []const u8,
-    bits: [*]u32,
+    canvas: olivec.Canvas,
+    label: Gui.Label,
     rect: Rect,
-    scale: f32,
-    color: u32,
 ) void {
-    const ws: u32 = @intFromFloat(@round(GLYPH_WIDTH * scale));
-    const hs: u32 = @intFromFloat(@round(GLYPH_HEIGHT * scale));
-    var x = rect.x;
-    const y = rect.y;
-    // ISSUE: This only works if scale is an integer. Can we implement something
-    // that will properly scale each glyph fractionally?
-    const iscale: u32 = @intFromFloat(scale);
+    const scale: u32 = label.height / GLYPH_HEIGHT;
+    const text = label.text;
+
+    const ws: u32 = GLYPH_WIDTH * scale;
+    const hs: u32 = GLYPH_HEIGHT * scale;
+    var x = if (label.flags.center_x)
+        rect.x + (rect.width / 2) / scale
+    else
+        rect.x;
+    const y = if (label.flags.center_y)
+        rect.y + (rect.height / 2) / scale
+    else
+        rect.y;
+
+    if (label.flags.background) {
+        olivec.olivec_rect(
+            canvas,
+            @intCast(rect.x),
+            @intCast(rect.y),
+            @intCast(rect.width),
+            @intCast(rect.height),
+            label.background,
+        );
+    }
+    if (label.flags.border) {
+        olivec.olivec_frame(
+            canvas,
+            @intCast(rect.x),
+            @intCast(rect.y),
+            @intCast(rect.width),
+            @intCast(rect.height),
+            2,
+            label.border,
+        );
+    }
 
     for (text) |c| {
         if (c < ASCII_MIN or c > ASCII_MAX) {
@@ -47,12 +74,16 @@ pub fn drawText(
         });
         const glyph = getGlyph(c);
         for (glyph_rect.y..glyph_rect.y + glyph_rect.height) |line| {
-            const bits_line = bits[line * Gui.WIDTH + glyph_rect.x ..];
-            const glyph_line_offset = ((line - y) / iscale) * BMP_WIDTH;
-            const glyph_line_end = glyph_line_offset + GLYPH_WIDTH;
+            const bits_line_offset = line * canvas.stride + glyph_rect.x;
+            const bits_line_end = bits_line_offset + ws;
+            const bits_line = canvas.pixels[bits_line_offset..bits_line_end];
+
+            const glyph_line_offset = ((line - y) / scale) * BMP_WIDTH;
+            const glyph_line_end = glyph_line_offset + ws;
             const glyph_line = glyph[glyph_line_offset..glyph_line_end];
+
             for (glyph_rect.x..glyph_rect.x + glyph_rect.width) |col| {
-                if (glyph_line[(col - x) / iscale] == 1) bits_line[col] = color;
+                if (glyph_line[(col - x) / scale] == 1) bits_line[col - x] = label.color;
             }
         }
 

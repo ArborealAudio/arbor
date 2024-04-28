@@ -4,6 +4,7 @@ const arbor = @import("../arbor.zig");
 const log = arbor.log;
 const Plugin = arbor.Plugin;
 pub const Component = @import("Component.zig");
+pub const Label = Component.Label;
 pub const Text = @import("Text.zig");
 pub const olivec = @import("olivec.zig");
 pub const Platform = @import("platform.zig");
@@ -11,8 +12,8 @@ pub const GuiImpl = Platform.GuiImpl;
 
 const Gui = @This();
 
-pub const WIDTH = 400;
-pub const HEIGHT = 500;
+pub const WIDTH = 500;
+pub const HEIGHT = 600;
 const centerX: f32 = @as(f32, WIDTH) / 2.0;
 const centerY: f32 = @as(f32, HEIGHT) / 2.0;
 
@@ -86,7 +87,7 @@ const BACKGROUND_COLOR = 0xff_80_80_00;
 const BORDER_COLOR = 0xff_c0_f0_c0;
 
 const colors = [_]u32{
-    0xff_ff0000,
+    0xffff0000,
     0xff00ff00,
     0xff0000ff,
 };
@@ -105,26 +106,34 @@ pub fn init(allocator: std.mem.Allocator, plugin: *const Plugin) !*Gui {
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
     // setup unique properties here
-    const knob_width = WIDTH / plugin.params.len;
+    const knob_width = (WIDTH / plugin.params.len) / 2;
+    const gap = WIDTH / 8;
     for (ptr.components, 0..) |*c, i| {
         const param_info = try plugin.getParamId(@intCast(i));
         c.* = .{
-            .canvas = &ptr.canvas,
+            .canvas = ptr.canvas,
             .id = @intCast(i),
             .type = .{ .slider = .{} },
             .draw = Component.Slider.draw,
             .value = param_info.getNormalizedValue(param_info.default_value),
             .pos = .{
-                .x = @floatFromInt(i * knob_width + 50),
+                .x = @floatFromInt(i * knob_width + gap * (i + 1)),
                 .y = HEIGHT / 2 - 100,
             },
-            .width = @as(f32, @floatFromInt(knob_width)) * 0.3,
+            .width = @as(f32, @floatFromInt(knob_width)),
             .height = 200,
             .fill_color = colors[i],
             .border_color = 0xff_70_70_00,
             .label = .{
                 .text = param_info.name,
-                .height = 25,
+                .height = 18,
+                .color = 0xffffffff,
+                .border = colors[i],
+                .flags = .{
+                    .border = true,
+                    .center_x = true,
+                    .center_y = false,
+                },
             },
         };
     }

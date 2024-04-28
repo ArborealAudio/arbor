@@ -10,12 +10,23 @@ const Vec2 = Gui.Vec2;
 
 pub const Component = @This();
 
-const Label = struct {
+pub const Label = struct {
+    pub const Flags = packed struct {
+        center_x: bool = true,
+        center_y: bool = true,
+        background: bool = false,
+        border: bool = false,
+    };
+
     text: []const u8,
     height: u32,
+    flags: Flags = .{},
+    color: u32,
+    background: u32 = 0,
+    border: u32 = 0,
 };
 
-canvas: *olivec.Canvas,
+canvas: olivec.Canvas,
 id: u32 = undefined,
 type: union {
     knob: Knob,
@@ -49,6 +60,7 @@ pub fn hit_test(self: Component, pt: Vec2) bool {
 
 pub const Slider = struct {
     pub fn draw(self: Component) void {
+        // TODO: Give an option for label placement
         const height = if (self.label == null)
             self.height
         else
@@ -57,7 +69,7 @@ pub const Slider = struct {
         const top = self.pos.y + (height - val_height);
         // draw borders
         olivec.olivec_rect(
-            self.canvas.*,
+            self.canvas,
             @intFromFloat(self.pos.x),
             @intFromFloat(self.pos.y),
             @intFromFloat(self.width),
@@ -66,7 +78,7 @@ pub const Slider = struct {
         );
 
         olivec.olivec_rect(
-            self.canvas.*,
+            self.canvas,
             @intFromFloat(self.pos.x),
             @intFromFloat(top),
             @intFromFloat(self.width),
@@ -75,25 +87,14 @@ pub const Slider = struct {
         );
 
         if (self.label) |l| {
-            // TODO: Just pass the component's bounds, and the text drawing
-            // can take care of the positioning, probably via a parameter
             const text_y = self.pos.y + height;
-            const text_x = self.pos.x - self.width / 2;
-            olivec.olivec_frame(
-                self.canvas.*,
-                @intFromFloat(text_x),
-                @intFromFloat(text_y),
-                @intFromFloat(self.width),
-                @intCast(l.height),
-                2,
-                self.fill_color,
-            );
-            Text.drawText(l.text, self.canvas.pixels, .{
+            const text_x = self.pos.x;
+            Text.drawText(self.canvas, l, .{
                 .x = @intFromFloat(text_x),
                 .y = @intFromFloat(text_y),
                 .width = @intFromFloat(self.width),
                 .height = l.height,
-            }, 1, self.fill_color);
+            });
         }
     }
 };
