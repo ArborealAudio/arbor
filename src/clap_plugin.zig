@@ -360,8 +360,10 @@ const Gui = struct {
                 return false;
             };
             const clap_plug = plug_cast(plugin);
-            if (clap_plug.host_fd_support) |host_fd| {
-                _ = host_fd.register_fd(clap_plug.host, plug.gui.?.impl.fd, .{ .FD_READ = true });
+            if (builtin.os.tag == .linux) {
+                if (clap_plug.host_fd_support) |host_fd| {
+                    _ = host_fd.register_fd(clap_plug.host, plug.gui.?.impl.fd, .{ .FD_READ = true });
+                }
             }
             GuiPlatform.guiRender(plug.gui.?.impl, true);
             return true;
@@ -373,8 +375,10 @@ const Gui = struct {
         const clap_plug = plug_cast(plugin);
         if (clap_plug.plugin) |plug| {
             std.debug.assert(plug.gui != null);
-            if (clap_plug.host_fd_support) |host_fd| {
-                _ = host_fd.unregister_fd(clap_plug.host, plug.gui.?.impl.fd);
+            if (builtin.os.tag == .linux) {
+                if (clap_plug.host_fd_support) |host_fd| {
+                    _ = host_fd.unregister_fd(clap_plug.host, plug.gui.?.impl.fd);
+                }
             }
             plug.gui.?.deinit(allocator);
             plug.gui = null;
@@ -686,12 +690,10 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
         return &State.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_PARAMS).compare(.eq))
         return &Params.Data;
-    // TODO: Gui
     if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
         return &Gui.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
         return &Timer.Data;
-    // TODO: Gui on Linux w/ this crap
     if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
         return &PosixFDSupport.Data;
     return null;
