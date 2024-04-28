@@ -111,4 +111,4 @@ void guiSetVisible(GuiImpl_t *gui, bool visible) {
 	ShowWindow(gui->window, visible ? SW_SHOW : SW_HIDE);
 }
 
-void guiOnPosixFD(GuiImpl_t *gui) {}
+void guiOnPosixFd(GuiImpl_t *gui) {}
