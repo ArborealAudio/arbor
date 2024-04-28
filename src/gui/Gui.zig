@@ -7,6 +7,7 @@ pub const Component = @import("Component.zig");
 pub const Label = Component.Label;
 pub const Text = @import("Text.zig");
 pub const olivec = @import("olivec.zig");
+pub const Color = @import("Color.zig");
 pub const Platform = @import("platform.zig");
 pub const GuiImpl = Platform.GuiImpl;
 
@@ -83,14 +84,8 @@ state: struct {
     comp_id: ?usize = null,
 } = .{},
 
-const BACKGROUND_COLOR = 0xff_80_80_00;
-const BORDER_COLOR = 0xff_c0_f0_c0;
-
-const colors = [_]u32{
-    0xffff0000,
-    0xff00ff00,
-    0xff0000ff,
-};
+const BACKGROUND_COLOR = Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
+const BORDER_COLOR = Color{ .r = 0xc0, .g = 0xf0, .b = 0xc0, .a = 0xff };
 
 pub fn init(allocator: std.mem.Allocator, plugin: *const Plugin) !*Gui {
     const ptr = try allocator.create(Gui);
@@ -122,13 +117,13 @@ pub fn init(allocator: std.mem.Allocator, plugin: *const Plugin) !*Gui {
             },
             .width = @as(f32, @floatFromInt(knob_width)),
             .height = 200,
-            .fill_color = colors[i],
-            .border_color = 0xff_70_70_00,
+            .fill_color = (Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc }).bits(),
+            .border_color = (Color{ .a = 0xff, .g = 0x70, .r = 0, .b = 0x70 }).bits(),
             .label = .{
                 .text = param_info.name,
                 .height = 18,
                 .color = 0xffffffff,
-                .border = colors[i],
+                .border = (Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc }).bits(),
                 .flags = .{
                     .border = true,
                     .center_x = true,
@@ -146,7 +141,7 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
     // for (self.components) |c|
     //     allocator.destroy(c);
     // free component slice
-    // allocator.free(self.components);
+    allocator.free(self.components);
     Platform.guiDestroy(self.impl);
     allocator.free(self.bits);
     allocator.destroy(self);
@@ -155,8 +150,8 @@ pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
 // TODO: This really only needs to be user code
 // export so platform lib can call this
 fn render(self: *const Gui) callconv(.C) void {
-    olivec.olivec_fill(self.canvas, BACKGROUND_COLOR);
-    olivec.olivec_frame(self.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, BORDER_COLOR);
+    olivec.olivec_fill(self.canvas, BACKGROUND_COLOR.bits());
+    olivec.olivec_frame(self.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, BORDER_COLOR.bits());
 
     for (self.components) |c| {
         c.draw(c);
