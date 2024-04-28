@@ -140,10 +140,10 @@ export fn init() *arbor.Plugin {
 }
 
 export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
-		// prepare your effect if needed
-    _ = plugin;
-    _ = sample_rate;
-    _ = max_num_frames;
+	// prepare your effect if needed
+	_ = plugin;
+	_ = sample_rate;
+	_ = max_num_frames;
 }
 
 // process audio
@@ -169,6 +169,7 @@ To build:
 zig build
 # You can add -Dformat=[VST2/VST3/CLAP/AU]
 # Not providing a format will compile all formats available on your platform
-# Cross compile by adding -Dtarget=aarch64-macos/x86_64-windows/etc...
-# Build modes: -Doptimize=Debug/ReleaseSmall/ReleaseSafe/ReleaseFast
+# Add 'copy' to put built plugin in appropriate system dir
+# Cross compile by adding -Dtarget=[aarch64-macos/x86_64-windows/etc...]
+# Build modes: -Doptimize=[Debug/ReleaseSmall/ReleaseSafe/ReleaseFast]
 ```
