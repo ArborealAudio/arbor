@@ -28,33 +28,32 @@ code--not running in some god-forsaken web browser embedded in a plugin UI 🤮
 
 ## TODO:
 
-* Output plugin bundles (you'll have to suck it up and use the Zig build system
-for this)
-
-* Make the framework a proper module that can be imported thru Zig build and used
+- [ ] Make the framework a proper module that can be imported thru Zig build and used
 as such
 
-* VST3 API
+- [ ] VST3 API
 
-* AUv2 API
+- [ ] AUv2 API
 
-* Simple cross-platform rendering
+- [ ] Simple cross-platform rendering
 
 	- [x] Got basic shapes using Olivec software renderer
 
-	* Make text drawing more robust and complete
+	- [x] Make text drawing more robust and complete
 
-	* Make some basic widgets for building UI:
+	- [ ] Make some basic widgets for building UI:
 
-		* Slider
+		- [x] Slider (vertical slider at least)
 		
 		* Knob
 		
 		* Button
 		
-		* Label
+		- [x] Label
 
-* Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
+		- [ ] Options menu
+
+- [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
 
 ## Usage
 
@@ -69,7 +68,6 @@ In top-level build.zig:
 ```zig
 const std = @import("std");
 const arbor = @import("arbor/build.zig");
-const Plugin = @import("src/plugin.zig");
 
 pub fn build(b: *std.Build) void {
 	const target = b.standardTargetOptions(.{});
@@ -117,7 +115,11 @@ const params = &[_]arbor.Parameter{
 		10.0, // max
 		0.666 }, // default
 	);
-	arbor.param.create("Mode", .{Mode.Vintage});
+	arbor.param.create("Mode", .{Mode.Vintage, &.{
+		"Vintage", // list of choices as strings
+		"Modern",
+		"Apocalypse",
+	}});
 };
 
 const Plugin = @This();
@@ -147,9 +149,8 @@ export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) 
 // process audio
 export fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
 
-	// load an audio parameter
-	// NOTE: Doesn't work like this yet
-	const gain_param = arbor.getParam("Gain");
+	// load an audio parameter value
+	const gain_param = arbor.getParamValue(f32, "Gain");
 	
 	for (buffer.input[0..buffer.num_ch], 0..) |channel_data, ch_num| {
 	  	for (channel_data[0..buffer.num_samples], 0..) |sample, i| {
