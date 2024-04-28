@@ -14,6 +14,7 @@
 
 typedef struct GuiImpl {
     Display *display;
+    int fd;
     Window window;
     XImage *image;
     uint32_t *bits;
@@ -70,14 +71,9 @@ GuiImpl_t *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
     gui->image->height = h;
     gui->image->bytes_per_line = w * 4;
     gui->image->data = (char *)gui->bits;
+    gui->fd = ConnectionNumber(gui->display);
 
     return gui;
-
-    // TODO: Register fd outside this call
-    // if (hostPOSIXFDSupport && hostPOSIXFDSupport->register_fd)
-    // {
-    //     hostPOSIXFDSupport->register_fd(host, ConnectionNumber(gui->display), CLAP_POSIX_FD_READ);
-    // }
 }
 
 void processX11Event(GuiImpl_t *gui, XEvent *event)

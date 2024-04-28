@@ -359,6 +359,10 @@ const Gui = struct {
                 log.err("GUI init error: {}\n", .{e});
                 return false;
             };
+            const clap_plug = plug_cast(plugin);
+            if (clap_plug.host_fd_support) |host_fd| {
+                _ = host_fd.register_fd(clap_plug.host, plug.gui.?.impl.fd, .{ .FD_READ = true });
+            }
             GuiPlatform.guiRender(plug.gui.?.impl, true);
             return true;
         }

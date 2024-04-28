@@ -65,6 +65,7 @@ fn buildGUI(
         .name = "platform-gui",
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     switch (target.result.os.tag) {
         .linux => {
@@ -117,6 +118,7 @@ fn buildExample(
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path(lib_src),
+        .link_libc = true,
     });
     lib.root_module.addImport("arbor", module);
 
@@ -129,6 +131,7 @@ fn buildExample(
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path(plug_src),
+        .link_libc = true,
     });
     plug.addObject(lib);
 
@@ -176,13 +179,12 @@ fn pluginCopyStep(
     format: Format,
     output: *std.Build.Step.Compile,
 ) !void {
-    _ = b;
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    var arena = std.heap.ArenaAllocator.init(b.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
     const os = target.result.os.tag;
     const home_dir = try std.process.getEnvVarOwned(allocator, "HOME");
-    const install_dir = switch (format) {
+    const sys_install_path = switch (format) {
         .CLAP => switch (os) {
             .linux => try std.mem.concat(allocator, u8, &.{ home_dir, "/.clap/" }),
             .macos => try std.mem.concat(allocator, u8, &.{ home_dir, "/Library/Audio/Plug-Ins/CLAP/" }),
@@ -203,37 +205,72 @@ fn pluginCopyStep(
         },
     };
 
-    var plugin_dir = try std.fs.openDirAbsolute(install_dir, .{});
+    var plugin_dir = try std.fs.openDirAbsolute(sys_install_path, .{});
     defer plugin_dir.close();
-    // TODO: Don't hardcode MacOS shite, make a OS functions if yo uahve  to
-    const dest = try std.mem.concat(allocator, u8, &.{ output.name, ".clap/Contents" });
-    var contents_dir = try plugin_dir.makeOpenPath(dest, .{});
-    defer contents_dir.close();
     const gen_file = output.getEmittedBin().generated.getPath();
-    // write copy bin file
-    _ = try std.fs.cwd().updateFile(
-        gen_file,
-        contents_dir,
-        try std.mem.concat(allocator, u8, &.{ "MacOS/", output.name }),
-        .{},
-    );
 
     // write MacOS plist & bundle thing
-    // TODO: Actually format the plist
-    if (os == .macos) {
-        const plist = try contents_dir.createFile("Info.plist", .{});
-        defer plist.close();
-        try plist.writer().print(osx_bundle_plist, .{
-            output.name, //CFBundleExecutable
-            "com.ArborealAudio.Distortion", //CF BundleIdentifier
-            output.name, //CFBundleName
-            "0.1", //CFBundleShortVersion
-            "0.1", //CFBundleVersion
-            "(c) 2024 Arboreal Audio, LLC", //NSHumanReadableCopyright
-        });
-        const bndl = try contents_dir.createFile("PkgInfo", .{});
-        defer bndl.close();
-        try bndl.writeAll("BNDL????");
+    switch (os) {
+        .macos => {
+            const extension = switch (format) {
+                .CLAP => ".clap/Contents",
+                .VST3 => ".vst3/Contents",
+                .VST2 => ".vst/Contents",
+            };
+            const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
+            var contents_dir = try plugin_dir.makeOpenPath(contents_path, .{});
+            defer contents_dir.close();
+            // write copy bin file
+            _ = try std.fs.cwd().updateFile(
+                gen_file,
+                contents_dir,
+                try std.mem.concat(allocator, u8, &.{ "MacOS/", output.name }),
+                .{},
+            );
+            const plist = try contents_dir.createFile("Info.plist", .{});
+            defer plist.close();
+            // TODO: Get these from user description
+            try plist.writer().print(osx_bundle_plist, .{
+                output.name, //CFBundleExecutable
+                "com.ArborealAudio.Distortion", //CF BundleIdentifier
+                output.name, //CFBundleName
+                "0.1", //CFBundleShortVersion
+                "0.1", //CFBundleVersion
+                "(c) 2024 Arboreal Audio, LLC", //NSHumanReadableCopyright
+            });
+            const bndl = try contents_dir.createFile("PkgInfo", .{});
+            defer bndl.close();
+            try bndl.writeAll("BNDL????");
+        },
+        .linux => {
+            const extension = switch (format) {
+                .CLAP => ".clap",
+                .VST3 => ".vst3/Contents",
+                .VST2 => ".so",
+            };
+            const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
+            if (format != .VST3) {
+                var dest_file = try plugin_dir.createFile(contents_path, .{});
+                defer dest_file.close();
+                _ = try std.fs.cwd().updateFile(
+                    gen_file,
+                    plugin_dir,
+                    contents_path,
+                    .{},
+                );
+            } else {
+                var dest_dir = try plugin_dir.makeOpenPath(contents_path, .{});
+                defer dest_dir.close();
+                _ = try std.fs.cwd().updateFile(
+                    gen_file,
+                    dest_dir,
+                    try std.mem.concat(allocator, u8, &.{ "x86_64-linux", output.name, ".so" }),
+                    .{},
+                );
+            }
+        },
+        .windows => {},
+        else => @panic("Unsupported OS"),
     }
 }
 
