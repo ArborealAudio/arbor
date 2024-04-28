@@ -61,39 +61,40 @@ fn buildGUI(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    const platform_lib = b.addStaticLibrary(.{
+    const platform = b.addStaticLibrary(.{
         .name = "platform-gui",
+        .root_source_file = b.path("src/gui/platform.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
     switch (target.result.os.tag) {
         .linux => {
-            platform_lib.addSystemIncludePath(.{ .path = "/usr/include/" });
-            platform_lib.linkSystemLibrary2("X11", .{ .needed = true });
-            platform_lib.addCSourceFile(.{
+            platform.addSystemIncludePath(.{ .path = "/usr/include/" });
+            platform.linkSystemLibrary("X11");
+            platform.addCSourceFile(.{
                 .file = b.path("src/gui/gui_x11.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .windows => {
-            platform_lib.linkSystemLibrary2("gdi32", .{ .needed = true });
-            platform_lib.linkSystemLibrary2("user32", .{ .needed = true });
-            platform_lib.addCSourceFile(.{
+            platform.root_module.linkSystemLibrary("gdi32", .{ .needed = true });
+            platform.root_module.linkSystemLibrary("user32", .{ .needed = true });
+            platform.addCSourceFile(.{
                 .file = b.path("src/gui/gui_w32.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .macos => {
-            platform_lib.root_module.linkFramework("Cocoa", .{ .needed = true });
-            platform_lib.root_module.addCSourceFile(.{
+            platform.linkFramework("Cocoa");
+            platform.addCSourceFile(.{
                 .file = b.path("src/gui/gui_mac.m"),
                 .flags = &.{"-ObjC"},
             });
         },
         else => @panic("Unimplemented OS\n"),
     }
-    arbor_mod.linkLibrary(platform_lib);
+    arbor_mod.linkLibrary(platform);
     arbor_mod.addCSourceFile(.{
         .file = b.path("src/gui/olive.c"),
         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
@@ -113,7 +114,7 @@ fn buildExample(
         u8,
         &.{ "examples/", example, "/plugin.zig" },
     );
-    const lib = b.addObject(.{
+    const lib = b.addStaticLibrary(.{
         .name = example,
         .target = target,
         .optimize = optimize,
@@ -124,7 +125,7 @@ fn buildExample(
 
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
-        else => @panic("TODO: This plugin format\n"),
+        else => @panic("TODO: this format\n"),
     };
     const plug = b.addSharedLibrary(.{
         .name = example,
@@ -133,7 +134,7 @@ fn buildExample(
         .root_source_file = b.path(plug_src),
         .link_libc = true,
     });
-    plug.addObject(lib);
+    plug.linkLibrary(lib);
 
     return plug;
 }
@@ -183,7 +184,10 @@ fn pluginCopyStep(
     defer arena.deinit();
     const allocator = arena.allocator();
     const os = target.result.os.tag;
-    const home_dir = try std.process.getEnvVarOwned(allocator, "HOME");
+    const home_dir = try std.process.getEnvVarOwned(
+        allocator,
+        if (os != .windows) "HOME" else "USERPROFILE",
+    );
     const sys_install_path = switch (format) {
         .CLAP => switch (os) {
             .linux => try std.mem.concat(allocator, u8, &.{ home_dir, "/.clap/" }),
@@ -250,8 +254,6 @@ fn pluginCopyStep(
             };
             const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
             if (format != .VST3) {
-                var dest_file = try plugin_dir.createFile(contents_path, .{});
-                defer dest_file.close();
                 _ = try std.fs.cwd().updateFile(
                     gen_file,
                     plugin_dir,
@@ -264,12 +266,28 @@ fn pluginCopyStep(
                 _ = try std.fs.cwd().updateFile(
                     gen_file,
                     dest_dir,
-                    try std.mem.concat(allocator, u8, &.{ "x86_64-linux", output.name, ".so" }),
+                    try std.mem.concat(allocator, u8, &.{ "x86_64-linux/", output.name, ".so" }),
                     .{},
                 );
             }
         },
-        .windows => {},
+        .windows => {
+            const extension = switch (format) {
+                .CLAP => ".clap",
+                .VST3 => ".vst3/Contents",
+                .VST2 => ".dll",
+            };
+            const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
+            if (format != .VST3) {
+                if (plugin_dir.access(contents_path, .{})) {} else |err| {
+                    if (err == error.FileNotFound) {
+                        var dest_file = try plugin_dir.createFile(contents_path, .{});
+                        defer dest_file.close();
+                    } else return err;
+                }
+                _ = try std.fs.cwd().updateFile(gen_file, plugin_dir, contents_path, .{});
+            }
+        },
         else => @panic("Unsupported OS"),
     }
 }
