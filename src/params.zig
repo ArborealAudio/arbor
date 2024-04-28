@@ -26,7 +26,7 @@ pub const Parameter = struct {
     enum_choices: ?[]const [:0]const u8 = null,
 
     pub fn getNormalizedValue(self: Parameter, val: f32) f32 {
-        return val / (self.max_value - self.min_value);
+        return (val - self.min_value) / (self.max_value - self.min_value);
     }
 
     pub fn valueFromNormalized(self: Parameter, val: f32) f32 {

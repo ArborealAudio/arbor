@@ -45,17 +45,14 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 	} break;
 	case WM_MOUSEMOVE:
 		inputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), 0);
-		guiRender(gui, true);
 		break;
 	case WM_LBUTTONDOWN:
 	 	SetCapture(window);
 		inputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), 1);
-		guiRender(gui, true);
 		break;
 	case WM_LBUTTONUP:
 		ReleaseCapture();
 		inputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), -1);
-		guiRender(gui, true);
 		break;
 	default:
 		return DefWindowProc(window, message, wParam, lParam);
@@ -87,8 +84,6 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h)
 	gui->height = h;
 	gui->user = user;
 	SetWindowLongPtr(gui->window, 0, (LONG_PTR)gui);
-	// Maybe this is...not necessary? We still have to set other parts of GUI
-	// guiRender(gui->user, true);
 
 	return gui;
 }

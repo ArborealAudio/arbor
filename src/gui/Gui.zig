@@ -169,12 +169,11 @@ fn processGesture(
                 .x = mouse_pos.x - self.state.mouse_pos.x,
                 .y = mouse_pos.y - self.state.mouse_pos.y,
             };
-            self.state.mouse_pos = mouse_pos;
             if (self.state.comp_id) |id| {
                 // get parameter value of component under mouse
                 const param_info = try plugin.getParamId(@intCast(id));
                 var p_val = param_info.getNormalizedValue(plugin.params[id]);
-                p_val += mouse_delta.y * 0.025;
+                p_val += -mouse_delta.y * 0.025;
                 p_val = @min(1, @max(0, p_val));
                 // change parameter
                 // TODO: Figure out a better way to sync GUI values & param values
@@ -182,6 +181,7 @@ fn processGesture(
                 self.components[id].value = p_val;
                 // plugin.onParamChange(id);
             }
+            self.state.mouse_pos = mouse_pos;
         },
         .MouseDown => {
             // Mouse down
