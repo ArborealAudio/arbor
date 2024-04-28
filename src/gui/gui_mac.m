@@ -28,19 +28,20 @@ extern void render(void *);
     return YES;
 }
 
+// Adapt mouse y to be consistent w/ more standard top-down method
 - (void)mouseDown:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    inputEvent(_user, cursor.x, cursor.y, 1);
+    inputEvent(_user, cursor.x, _height - cursor.y, 1);
 }
 
 - (void)mouseUp:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    inputEvent(_user, cursor.x, cursor.y, -1);
+    inputEvent(_user, cursor.x, _height - cursor.y, -1);
 }
 
 - (void)mouseDragged:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    inputEvent(_user, cursor.x, cursor.y, 0);
+    inputEvent(_user, cursor.x, _height - cursor.y, 0);
 }
 @end
 

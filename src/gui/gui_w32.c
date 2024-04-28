@@ -70,7 +70,7 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h)
 		WNDCLASS windowClass = {};
 		windowClass.lpfnWndProc = windowProc;
 		windowClass.cbWndExtra = sizeof(GuiImpl_t);
-		windowClass.lpszClassName = "com.ArborealAudio.ZigVerb";
+		windowClass.lpszClassName = "com.ArborealAudio.ZigVerb"; // Woops! Forgot this was here...
 		windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 		windowClass.style = CS_DBLCLKS;
 		RegisterClass(&windowClass);

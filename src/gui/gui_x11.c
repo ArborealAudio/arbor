@@ -60,9 +60,8 @@ GuiImpl_t *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
     XSelectInput(gui->display, gui->window, SubstructureNotifyMask |
                 ExposureMask | PointerMotionMask | ButtonPressMask |
                 ButtonReleaseMask | KeyPressMask | KeyReleaseMask |
-                SubstructureNotifyMask | EnterWindowMask | LeaveWindowMask |
-                ButtonMotionMask | KeymapStateMask | FocusChangeMask |
-                PropertyChangeMask);
+                EnterWindowMask | LeaveWindowMask | ButtonMotionMask |
+                KeymapStateMask | FocusChangeMask | PropertyChangeMask);
 
     gui->image = XCreateImage(gui->display, DefaultVisual(gui->display, 0), 24,
                               ZPixmap, 0, NULL, 10, 10, 32, 0);
@@ -84,17 +83,14 @@ void processX11Event(GuiImpl_t *gui, XEvent *event)
             guiRender(gui, true);
         break;
     case MotionNotify:
-        printf("Mouse drag...\n");
         if (event->xmotion.window == gui->window)
             inputEvent(gui->user, event->xmotion.x, event->xmotion.y, 0);
         break;
     case ButtonPress:
-        printf("Mouse press...\n");
         if (event->xbutton.window == gui->window && event->xbutton.button == 1)
             inputEvent(gui->user, event->xbutton.x, event->xbutton.y, 1);
         break;
     case ButtonRelease:
-        printf("Mouse release...\n");
         if (event->xbutton.window == gui->window && event->xbutton.button == 1)
             inputEvent(gui->user, event->xbutton.x, event->xbutton.y, -1);
         break;
