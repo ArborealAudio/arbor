@@ -21,7 +21,7 @@ extern void render(void *);
     const unsigned char *data = (const unsigned char *)_bits;
     NSDrawBitmap(self.bounds, _width, _height, 8 /*bits per channel*/,
     4 /*channels per pixel*/, 32 /*bits per pixel*/,
-    4 * _width /*bytes per row*/, NO /*planar*/, NO /*alpha*/, NSDeviceRGBColorSpace, &data);
+    4 * _width /*bytes per row*/, NO /*planar*/, YES /*alpha*/, NSDeviceRGBColorSpace, &data);
 }
 
 - (BOOL)acceptsFirstMouse:(NSEvent *)event {
