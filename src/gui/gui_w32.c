@@ -14,7 +14,7 @@ typedef struct GuiImpl {
 	void *user;
 } GuiImpl_t;
 
-void render(void *);
+void gui_render(void *);
 
 // button 0 = drag, 1 = press, -1 = release
 void inputEvent(void *user, int32_t x, int32_t y, int8_t button);
@@ -23,7 +23,7 @@ static int globalOpenGUICount = 0;
 
 void guiRender(GuiImpl_t *gui, bool internal)
 {
-	if (internal) render(gui->user);
+	if (internal) gui_render(gui->user);
 	RedrawWindow(gui->window, 0, 0, RDW_INVALIDATE);
 }
 
