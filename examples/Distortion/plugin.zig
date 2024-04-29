@@ -156,7 +156,6 @@ fn poll_event(plugin: *arbor.Plugin) void {
         return;
     };
 
-    // TODO: FIgure this out. How do we handle interaction events?
     while (gui.nextEvent()) |event| {
         switch (event) {
             .drag => |drag| {

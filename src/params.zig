@@ -106,7 +106,10 @@ pub fn createSlice(allocator: std.mem.Allocator, params: []const Parameter) []f3
     return slice;
 }
 
-// TODO: Refactor w/ above slice thing in mind
+// TODO: Figure out if this guy has a place. Seems like we might need some kind
+// of "Parameter Manager" thing that our plugins can have instead of juggling
+// the static parameter info and the "live" param values.
+
 /// Key-value table for parameter lookup
 pub fn Table(comptime UserPlugin: type) type {
     if (!@hasDecl(UserPlugin, "params"))

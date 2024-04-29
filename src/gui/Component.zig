@@ -54,7 +54,6 @@ pub fn setValue(self: *Component, val: f32) void {
 }
 
 pub fn draw_slider(self: Component) void {
-    // TODO: Give an option for label placement
     const height = if (self.label == null)
         self.height
     else
