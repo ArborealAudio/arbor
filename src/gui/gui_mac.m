@@ -5,7 +5,7 @@
 #import <Foundation/Foundation.h>
 
 extern void inputEvent(void *user, int32_t cursorX, int32_t cursorY, int8_t button);
-extern void render(void *);
+extern void gui_render(void *);
 
 @interface GuiImpl : NSView
 @property (nonatomic) void *user;
@@ -17,7 +17,7 @@ extern void render(void *);
 
 @implementation GuiImpl
 - (void)drawRect:(NSRect)dirtyRect {
-    render(_user);
+    gui_render(_user);
     const unsigned char *data = (const unsigned char *)_bits;
     NSDrawBitmap(self.bounds, _width, _height, 8 /*bits per channel*/,
     4 /*channels per pixel*/, 32 /*bits per pixel*/,

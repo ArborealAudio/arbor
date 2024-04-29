@@ -53,6 +53,8 @@ as such
 
 		- [ ] Options menu
 
+- [ ] Simple & robust events system
+
 - [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
 
 ## Usage

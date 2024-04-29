@@ -355,10 +355,7 @@ const Gui = struct {
             return false;
         if (plug_cast(plugin).plugin) |plug| {
             std.debug.assert(plug.gui == null);
-            plug.gui = arbor.Gui.init(allocator, plug) catch |e| {
-                log.err("GUI init error: {}\n", .{e});
-                return false;
-            };
+            arbor.Gui.gui_init(plug);
             const clap_plug = plug_cast(plugin);
             if (builtin.os.tag == .linux) {
                 if (clap_plug.host_fd_support) |host_fd| {
@@ -380,7 +377,7 @@ const Gui = struct {
                     _ = host_fd.unregister_fd(clap_plug.host, plug.gui.?.impl.fd);
                 }
             }
-            plug.gui.?.deinit(allocator);
+            arbor.Gui.gui_deinit(plug);
             plug.gui = null;
         }
     }
@@ -392,9 +389,13 @@ const Gui = struct {
     }
 
     fn getSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool {
-        _ = plugin;
-        if (width) |ptr| ptr.* = arbor.Gui.WIDTH;
-        if (height) |ptr| ptr.* = arbor.Gui.HEIGHT;
+        if (plug_cast(plugin).plugin) |plug| {
+            if (plug.gui) |gui| {
+                const size = gui.getSize();
+                if (width) |ptr| ptr.* = @intFromFloat(size.x);
+                if (height) |ptr| ptr.* = @intFromFloat(size.y);
+            }
+        }
         return true;
     }
 
@@ -413,6 +414,7 @@ const Gui = struct {
         return getSize(plugin, width, height);
     }
 
+    // TODO: Handle this
     fn setSize(plugin: ?*const clap.Plugin, width: u32, height: u32) callconv(.C) bool {
         _ = height;
         _ = width;

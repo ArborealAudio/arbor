@@ -4,9 +4,8 @@
 const std = @import("std");
 const arbor = @import("../arbor.zig");
 const Gui = arbor.Gui;
-const olivec = Gui.olivec;
-const Text = Gui.Text;
-const Vec2 = Gui.Vec2;
+const draw = @import("draw.zig");
+const Vec2 = draw.Vec2;
 
 pub const Component = @This();
 
@@ -26,12 +25,8 @@ pub const Label = struct {
     border: u32 = 0,
 };
 
-canvas: olivec.Canvas,
+canvas: draw.Canvas,
 id: u32 = undefined,
-type: union {
-    knob: Knob,
-    slider: Slider,
-},
 pos: Vec2,
 width: f32,
 height: f32,
@@ -45,11 +40,7 @@ label: ?Label,
 
 is_mouse_over: bool = false,
 
-draw: *const fn (self: Component) void,
-
-// pub fn getComponentID(param_name: []const u8) u32 {
-//     return Params.nameToID(param_name) catch @panic("Component not found");
-// }
+draw_proc: *const fn (self: Component) void,
 
 pub fn hit_test(self: Component, pt: Vec2) bool {
     return (pt.x >= self.pos.x and
@@ -58,46 +49,48 @@ pub fn hit_test(self: Component, pt: Vec2) bool {
         pt.y <= self.pos.y + self.height);
 }
 
-pub const Slider = struct {
-    pub fn draw(self: Component) void {
-        // TODO: Give an option for label placement
-        const height = if (self.label == null)
-            self.height
-        else
-            self.height - @as(f32, @floatFromInt(self.label.?.height));
-        const val_height = height * self.value;
-        const top = self.pos.y + (height - val_height);
-        // draw borders
-        olivec.olivec_rect(
-            self.canvas,
-            @intFromFloat(self.pos.x),
-            @intFromFloat(self.pos.y),
-            @intFromFloat(self.width),
-            @intFromFloat(height),
-            self.border_color,
-        );
+pub fn setValue(self: *Component, val: f32) void {
+    self.value = val;
+}
 
-        olivec.olivec_rect(
-            self.canvas,
-            @intFromFloat(self.pos.x),
-            @intFromFloat(top),
-            @intFromFloat(self.width),
-            @intFromFloat(val_height),
-            self.fill_color,
-        );
+pub fn draw_slider(self: Component) void {
+    // TODO: Give an option for label placement
+    const height = if (self.label == null)
+        self.height
+    else
+        self.height - @as(f32, @floatFromInt(self.label.?.height));
+    const val_height = height * self.value;
+    const top = self.pos.y + (height - val_height);
+    // draw borders
+    draw.olivec_rect(
+        self.canvas,
+        @intFromFloat(self.pos.x),
+        @intFromFloat(self.pos.y),
+        @intFromFloat(self.width),
+        @intFromFloat(height),
+        self.border_color,
+    );
 
-        if (self.label) |l| {
-            const text_y = self.pos.y + height;
-            const text_x = self.pos.x;
-            Text.drawText(self.canvas, l, .{
-                .x = @intFromFloat(text_x),
-                .y = @intFromFloat(text_y),
-                .width = @intFromFloat(self.width),
-                .height = l.height,
-            });
-        }
+    draw.olivec_rect(
+        self.canvas,
+        @intFromFloat(self.pos.x),
+        @intFromFloat(top),
+        @intFromFloat(self.width),
+        @intFromFloat(val_height),
+        self.fill_color,
+    );
+
+    if (self.label) |l| {
+        const text_y = self.pos.y + height;
+        const text_x = self.pos.x;
+        draw.drawText(self.canvas, l, .{
+            .x = @intFromFloat(text_x),
+            .y = @intFromFloat(text_y),
+            .width = @intFromFloat(self.width),
+            .height = l.height,
+        });
     }
-};
+}
 
 pub const Knob = struct {
     // pointer length as a fraction of radius
@@ -128,7 +121,7 @@ pub const Knob = struct {
         drop_shadow: bool = false,
     };
 
-    pub fn draw(self: Component) void {
+    pub fn draw_knob(self: Component) void {
         const radius: f32 = self.width / 2.0;
         const centerX = self.pos.x + radius;
         const centerY = self.pos.y + radius;
@@ -140,7 +133,7 @@ pub const Knob = struct {
         //     .pos = .{ .x = centerX, .y = centerY },
         //     .radius = self.width,
         // }, self.fill_color, self.border_color, self.border_size);
-        olivec.olivec_circle(self.canvas.*, centerX, centerY, @intFromFloat(radius), self.fill_color);
+        draw.olivec_circle(self.canvas.*, centerX, centerY, @intFromFloat(radius), self.fill_color);
 
         const min_knob_pos: f32 = std.math.pi * 0.25;
         const max_knob_pos: f32 = std.math.pi * 1.75;
@@ -151,7 +144,7 @@ pub const Knob = struct {
         const x1 = centerX + (cos * radius);
         const y1 = centerY + (sin * radius);
 
-        olivec.olivec_circle(self.canvas.*, x1, y1, @intFromFloat(10), self.border_color);
+        draw.olivec_circle(self.canvas.*, x1, y1, @intFromFloat(10), self.border_color);
 
         // Gui.drawCircle(
         //     bits,
@@ -174,21 +167,3 @@ pub const Knob = struct {
         // }
     }
 };
-
-test "Type union" {
-    const comp: Component = .{
-        .id = 0,
-        .type = .{
-            .slider = .{},
-        },
-        .draw = Slider.draw,
-        .pos = .{ .x = 0, .y = 0 },
-        .width = 100,
-        .height = 100,
-        .fill_color = 0xff_00_00_ff,
-        .border_color = 0xff_00_00_ff,
-        .value = 1,
-    };
-    _ = comp;
-    try std.testing.expect(true);
-}

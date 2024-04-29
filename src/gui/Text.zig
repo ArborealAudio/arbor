@@ -5,9 +5,10 @@ const std = @import("std");
 const print = std.debug.print;
 const assert = std.debug.assert;
 const ascii = std.ascii;
-const Gui = @import("../arbor.zig").Gui;
-const olivec = Gui.olivec;
-const Rect = Gui.Recti;
+const Gui = @import("Gui.zig");
+const draw = Gui.draw;
+const Label = Gui.Component.Label;
+const Rect = draw.Recti;
 
 pub const BMP_WIDTH = 128;
 pub const BMP_HEIGHT = 64;
@@ -22,8 +23,8 @@ pub const GLYPH_WIDTH = BMP_WIDTH / COLUMNS;
 pub const GLYPH_HEIGHT = BMP_HEIGHT / ROWS;
 
 pub fn drawText(
-    canvas: olivec.Canvas,
-    label: Gui.Label,
+    canvas: draw.Canvas,
+    label: Label,
     rect: Rect,
 ) void {
     const scale: u32 = label.height / GLYPH_HEIGHT;
@@ -41,7 +42,7 @@ pub fn drawText(
         rect.y;
 
     if (label.flags.background) {
-        olivec.olivec_rect(
+        draw.olivec_rect(
             canvas,
             @intCast(rect.x),
             @intCast(rect.y),
@@ -51,7 +52,7 @@ pub fn drawText(
         );
     }
     if (label.flags.border) {
-        olivec.olivec_frame(
+        draw.olivec_frame(
             canvas,
             @intCast(rect.x),
             @intCast(rect.y),

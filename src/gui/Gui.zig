@@ -4,74 +4,21 @@ const arbor = @import("../arbor.zig");
 const log = arbor.log;
 const Plugin = arbor.Plugin;
 pub const Component = @import("Component.zig");
-pub const Label = Component.Label;
-pub const Text = @import("Text.zig");
-pub const olivec = @import("olivec.zig");
-pub const Color = @import("Color.zig");
+pub const draw = @import("draw.zig");
 pub const Platform = @import("platform.zig");
 pub const GuiImpl = Platform.GuiImpl;
 
 const Gui = @This();
 
-pub const WIDTH = 500;
-pub const HEIGHT = 600;
-const centerX: f32 = @as(f32, WIDTH) / 2.0;
-const centerY: f32 = @as(f32, HEIGHT) / 2.0;
-
-pub const Vec2 = extern struct {
-    x: f32,
-    y: f32,
-};
-
-pub const Vec2i = extern struct {
-    x: i32,
-    y: i32,
-};
-
-pub const Rect = extern struct {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-
-    pub fn intersection(a: Rect, b: Rect) Rect {
-        var rect = Rect{ .x = 0, .y = 0, .width = 0, .height = 0 };
-        rect.x = @max(b.x, a.x);
-        rect.y = @max(b.y, a.y);
-        rect.width = @min(a.width, b.width);
-        rect.height = @min(a.height, b.height);
-        return rect;
-    }
-};
-
-pub const Recti = extern struct {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-
-    pub fn intersection(a: Recti, b: Recti) Recti {
-        var rect = Recti{ .x = 0, .y = 0, .width = 0, .height = 0 };
-        rect.x = @max(b.x, a.x);
-        rect.y = @max(b.y, a.y);
-        rect.width = @min(a.width, b.width);
-        rect.height = @min(a.height, b.height);
-        return rect;
-    }
-};
-
-pub const Circle = struct {
-    pos: Vec2, // center pos
-    radius: f32,
-};
-
 bits: []u32,
 impl: *GuiImpl,
-canvas: olivec.Canvas,
-plugin: *const Plugin,
+canvas: draw.Canvas,
 
-// slice representing all parameter controllers. Access via ID
-components: []Component,
+components: std.ArrayList(Component),
+
+events: std.ArrayList(Event),
+
+allocator: std.mem.Allocator,
 
 state: struct {
     type: enum {
@@ -80,114 +27,100 @@ state: struct {
         MouseDragging,
     } = .Idle,
 
-    mouse_pos: Vec2 = .{ .x = 0, .y = 0 },
+    mouse_pos: draw.Vec2 = .{ .x = 0, .y = 0 },
     comp_id: ?usize = null,
 } = .{},
 
-const BACKGROUND_COLOR = Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
-const BORDER_COLOR = Color{ .r = 0xc0, .g = 0xf0, .b = 0xc0, .a = 0xff };
+/// User gui init
+pub extern fn gui_init(*Plugin) void;
+pub extern fn gui_render(*Plugin) void;
+pub extern fn gui_event(*Gui) void;
+pub extern fn gui_deinit(*Plugin) void;
 
-pub fn init(allocator: std.mem.Allocator, plugin: *const Plugin) !*Gui {
-    const ptr = try allocator.create(Gui);
-    const bits = try allocator.alloc(u32, WIDTH * HEIGHT);
+/// Call this from within your gui_init function to init the GUI backend
+pub fn init(plugin: *Plugin, allocator: std.mem.Allocator, width: u32, height: u32) *Gui {
+    const ptr = allocator.create(Gui) catch |e| log.fatal("{}\n", .{e});
+    const bits = allocator.alloc(u32, width * height) catch |e| log.fatal("{}\n", .{e});
     ptr.* = .{
         .bits = bits,
-        .impl = Platform.guiCreate(ptr, bits.ptr, WIDTH, HEIGHT),
-        .plugin = plugin,
-        .components = try allocator.alloc(Component, plugin.params.len),
-        .canvas = olivec.olivec_canvas(bits.ptr, WIDTH, HEIGHT, WIDTH),
+        .impl = Platform.guiCreate(plugin, bits.ptr, width, height),
+        .allocator = allocator,
+        .components = std.ArrayList(Component).init(allocator),
+        .events = std.ArrayList(Event).init(allocator),
+        .canvas = draw.olivec_canvas(bits.ptr, width, height, width),
     };
-
-    // create pointers, assign IDs and values
-    // this is how the components get "attached" to parameters
-    // setup unique properties here
-    const knob_width = (WIDTH / plugin.params.len) / 2;
-    const gap = WIDTH / 8;
-    for (ptr.components, 0..) |*c, i| {
-        const param_info = try plugin.getParamId(@intCast(i));
-        c.* = .{
-            .canvas = ptr.canvas,
-            .id = @intCast(i),
-            .type = .{ .slider = .{} },
-            .draw = Component.Slider.draw,
-            .value = param_info.getNormalizedValue(param_info.default_value),
-            .pos = .{
-                .x = @floatFromInt(i * knob_width + gap * (i + 1)),
-                .y = HEIGHT / 2 - 100,
-            },
-            .width = @as(f32, @floatFromInt(knob_width)),
-            .height = 200,
-            .fill_color = (Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc }).bits(),
-            .border_color = (Color{ .a = 0xff, .g = 0x70, .r = 0, .b = 0x70 }).bits(),
-            .label = .{
-                .text = param_info.name,
-                .height = 18,
-                .color = 0xffffffff,
-                .border = (Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc }).bits(),
-                .flags = .{
-                    .border = true,
-                    .center_x = true,
-                    .center_y = false,
-                },
-            },
-        };
-    }
 
     return ptr;
 }
 
-pub fn deinit(self: *Gui, allocator: std.mem.Allocator) void {
-    // free individual components
-    // for (self.components) |c|
-    //     allocator.destroy(c);
-    // free component slice
-    allocator.free(self.components);
+/// Call this from gui_deinit after all your own deinit logic
+pub fn deinit(self: *Gui) void {
     Platform.guiDestroy(self.impl);
-    allocator.free(self.bits);
-    allocator.destroy(self);
+    self.allocator.free(self.bits);
+    self.components.deinit();
+    self.events.deinit();
+    self.allocator.destroy(self);
 }
 
-// TODO: This really only needs to be user code
-// export so platform lib can call this
-fn render(self: *const Gui) callconv(.C) void {
-    olivec.olivec_fill(self.canvas, BACKGROUND_COLOR.bits());
-    olivec.olivec_frame(self.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, BORDER_COLOR.bits());
+pub fn getSize(self: Gui) draw.Vec2 {
+    return .{ .x = @floatFromInt(self.canvas.width), .y = @floatFromInt(self.canvas.height) };
+}
 
-    for (self.components) |c| {
-        c.draw(c);
-    }
+pub fn addComponent(self: *Gui, component: Component) void {
+    self.components.append(component) catch |e|
+        log.err("Component append failed: {!}\n", .{e});
+}
+
+pub fn getComponent(self: *Gui, id: usize) *Component {
+    return &self.components.items[id];
+}
+
+pub const Event = union(enum) {
+    click: struct {
+        mouse_pos: draw.Vec2,
+        id: usize,
+    },
+    drag: struct {
+        mouse_delta: draw.Vec2,
+        id: usize,
+    },
+};
+
+fn pushEvent(self: *Gui, event: Event) !void {
+    try self.events.append(event);
+}
+
+pub fn nextEvent(self: *Gui) ?Event {
+    return self.events.popOrNull();
 }
 
 fn processGesture(
     self: *Gui,
-    mouse_pos: Vec2,
+    mouse_pos: draw.Vec2,
 ) !void {
-    const plugin = self.plugin;
     switch (self.state.type) {
         .MouseDragging => {
-            const mouse_delta: Vec2 = .{
+            const mouse_delta: draw.Vec2 = .{
                 .x = mouse_pos.x - self.state.mouse_pos.x,
                 .y = mouse_pos.y - self.state.mouse_pos.y,
             };
             if (self.state.comp_id) |id| {
-                // get parameter value of component under mouse
-                const param_info = try plugin.getParamId(@intCast(id));
-                var p_val = param_info.getNormalizedValue(plugin.params[id]);
-                p_val += -mouse_delta.y * 0.025;
-                p_val = @min(1, @max(0, p_val));
-                // change parameter
-                // TODO: Figure out a better way to sync GUI values & param values
-                plugin.params[id] = param_info.valueFromNormalized(p_val);
-                self.components[id].value = p_val;
-                // plugin.onParamChange(id);
+                try self.pushEvent(.{ .drag = .{
+                    .mouse_delta = mouse_delta,
+                    .id = id,
+                } });
             }
             self.state.mouse_pos = mouse_pos;
         },
         .MouseDown => {
             // Mouse down
-            for (self.components, 0..) |c, i| {
+            for (self.components.items, 0..) |c, i| {
                 if (c.hit_test(mouse_pos)) {
                     self.state.comp_id = i;
+                    try self.pushEvent(.{ .click = .{
+                        .mouse_pos = mouse_pos,
+                        .id = i,
+                    } });
                     break;
                 }
             }
@@ -199,7 +132,8 @@ fn processGesture(
     }
 }
 
-fn inputEvent(self: *Gui, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
+fn inputEvent(plugin: *const Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
+    const self = plugin.gui orelse log.fatal("GUI is null\n", .{});
     switch (self.state.type) {
         .Idle => {
             switch (button) {
@@ -238,5 +172,4 @@ fn inputEvent(self: *Gui, cursorX: i32, cursorY: i32, button: i8) callconv(.C) v
 
 comptime {
     @export(inputEvent, .{ .name = "inputEvent", .linkage = .weak });
-    @export(render, .{ .name = "render", .linkage = .weak });
 }
