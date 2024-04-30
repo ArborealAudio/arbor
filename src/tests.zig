@@ -8,7 +8,8 @@ test "Plugin features" {
     var parsed = try arbor.parseClapFeatures(features);
 
     var i: u32 = 0;
-    while (parsed.popOrNull()) |feat| : (i += 1) {
+    while (i < parsed.constSlice().len) : (i += 1) {
+        const feat = parsed.slice()[i];
         if (feat == null) break;
         if (i == 0)
             try std.testing.expectEqualStrings(span(feat.?), "stereo");
