@@ -7,6 +7,7 @@ const arbor = @import("arbor.zig");
 const config = @import("config");
 const log = arbor.log;
 const cast = arbor.cast;
+const Slice = arbor.Slice;
 const clap = arbor.clap;
 
 // TODO: Can we inherit the allocator decalred in user plugin somehow?
@@ -557,7 +558,7 @@ pub fn destroy(plugin: ?*const clap.Plugin) callconv(.C) void {
         _ = timer.unregister_timer(host, clap_plug.timer_id);
     }
     if (clap_plug.plugin) |plug|
-        plug.deinit();
+        plug.interface.deinit(plug);
     allocator.destroy(clap_plug);
 }
 
@@ -568,7 +569,7 @@ pub fn activate(
     max_frames_count: u32,
 ) callconv(.C) bool {
     if (plug_cast(plugin).plugin) |plug| {
-        plug.prepare(@floatCast(sample_rate), max_frames_count);
+        plug.interface.prepare(plug, @floatCast(sample_rate), max_frames_count);
         _ = min_frames_count;
         return true;
     } else return false;
@@ -604,6 +605,7 @@ pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callco
                     // self.plugin.onParamChange(valueEvent.*.param_id);
                     // self.need_repaint = true;
                 },
+                // TODO: Separate functions for audio & MIDI events
                 else => log.err("Unhandled event: {s}\n", .{@tagName(e.type)}),
             }
         }
@@ -627,15 +629,15 @@ pub fn process(
         return .PROCESS_ERROR;
     };
     const num_frames = p_info.frames_count;
-    const num_events: u32 = if (p_info.in_events) |in_ev|
-        in_ev.size(in_ev)
+    const num_events: u32 = if (p_info.in_events) |in_events|
+        in_events.size(in_events)
     else
         0;
     var event_index: u32 = 0;
     var next_event_frame: u32 = if (num_events > 0) 0 else num_frames;
 
     var i: u32 = 0;
-    for (0..num_frames) |_| {
+    while (i < num_frames) {
         // handle all events at frame i
         while (event_index < num_events and next_event_frame == i) {
             if (p_info.in_events) |in_events| {
@@ -649,6 +651,7 @@ pub fn process(
                     if (event_index == num_events) {
                         // end of event list
                         next_event_frame = num_frames;
+                        break;
                     }
                 }
             }
@@ -660,23 +663,35 @@ pub fn process(
             return .PROCESS_ERROR;
         };
         const audio_out = p_info.audio_outputs orelse {
-            log.err("Audio inputs null\n", .{});
+            log.err("Audio outputs null\n", .{});
             return .PROCESS_ERROR;
         };
-        for (i..next_event_frame) |_| {
+        std.debug.assert(audio_in[0].channel_count == audio_out[0].channel_count);
+
+        while (i < next_event_frame) {
             const frames_to_process = next_event_frame - i;
-            // TODO: Determine whether f64 is wanted
-            const buffer: arbor.AudioBuffer(f32) = .{
-                .input = audio_in.data32, // NOTE: should we slice based on frames_to_process?
-                .output = audio_out.data32,
-                .num_ch = audio_in.channel_count,
-                .num_samples = frames_to_process,
-            };
-            plug.process(buffer);
+            // // TODO: Determine whether f64 is wanted
+            const num_ch = audio_in[0].channel_count;
+            if (frames_to_process == 0) break;
+            plug.interface.process(plug, .{
+                .input = audio_in[0].data32,
+                .output = audio_out[0].data32,
+                .num_ch = num_ch,
+                .frames = frames_to_process,
+                .offset = i,
+            });
             i += frames_to_process;
         }
     }
     return .PROCESS_CONTINUE;
+}
+
+// TODO: Figure out how to do this properly and pass proper slices to the user's process()
+fn slicePtr(in: [*][*]f32, num_ch: usize, offset: usize, end: usize) [*]Slice(f32) {
+    var out = Slice([*]f32){ .ptr = in, .len = num_ch };
+    for (out.slice(), 0..) |_, ch_idx| {
+        out.slice()[ch_idx] = in[ch_idx][offset..end];
+    }
 }
 
 pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C) ?*const anyopaque {

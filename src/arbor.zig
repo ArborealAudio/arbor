@@ -35,6 +35,17 @@ pub const Plugin = struct {
         // TODO: Plugin features
     };
 
+    pub extern fn init() *Plugin;
+
+    pub const Interface = struct {
+        deinit: *const fn (*Plugin) void,
+        prepare: *const fn (*Plugin, f32, u32) void,
+        process: *const fn (*Plugin, AudioBuffer(f32)) void,
+        // processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
+    };
+
+    interface: Interface,
+
     num_channels: u32 = undefined,
 
     param_info: []const Parameter,
@@ -43,12 +54,6 @@ pub const Plugin = struct {
     gui: ?*Gui = null,
 
     allocator: std.mem.Allocator = std.heap.c_allocator,
-
-    pub extern fn init() *Plugin;
-    pub extern fn deinit(*Plugin) void;
-    pub extern fn prepare(*Plugin, f32, u32) void;
-    pub extern fn process(*Plugin, AudioBuffer(f32)) void;
-    pub extern fn processDouble(*Plugin, AudioBuffer(f64)) void;
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
@@ -88,9 +93,11 @@ pub extern const plugin_desc: DescType;
 pub fn init(
     allocator: std.mem.Allocator,
     params: []const Parameter,
+    interface: Plugin.Interface,
 ) *Plugin {
     const plug = allocator.create(Plugin) catch |e| log.fatal("Plugin create failed: {}\n", .{e});
     plug.* = .{
+        .interface = interface,
         .param_info = params,
         .params = param.createSlice(allocator, params),
         .allocator = allocator,
@@ -133,13 +140,34 @@ pub fn createFormatDescription(desc: Plugin.Description) DescType {
     }
 }
 
+/// Extern-compatible slice
+pub fn Slice(comptime T: type) type {
+    return extern struct {
+        ptr: [*]T,
+        len: usize,
+
+        pub fn make(ptr: [*]T, len: usize) Slice(T) {
+            return Slice(T){
+                .ptr = ptr,
+                .len = len,
+            };
+        }
+
+        pub fn slice(self: Slice(T)) []T {
+            return self.ptr[0..self.len];
+        }
+    };
+}
+
 /// Generic audio buffer
 pub fn AudioBuffer(comptime FloatType: type) type {
-    return extern struct {
+    return struct {
         input: [*]const [*]const FloatType,
-        output: [*][*]FloatType,
+        output: [*]const [*]FloatType,
         num_ch: usize,
-        num_samples: usize,
+        frames: usize,
+        /// For now, this is necessary w/ sample-accurate automation
+        offset: usize,
     };
 }
 
