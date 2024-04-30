@@ -36,7 +36,7 @@ pub const Plugin = struct {
         /// short description of plugin
         description: [:0]const u8,
         /// format-agnostic list of plugin features
-        features: []const ?[*:0]const u8,
+        features: []const PluginFeatures,
     };
 
     pub extern fn init() *Plugin;
@@ -132,11 +132,9 @@ pub fn createFormatDescription(comptime desc: Plugin.Description) DescType {
                 .support_url = desc.contact.ptr,
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
-                .features = desc.features.ptr,
-                // FIX: Parsing features
-                // parseClapFeatures(desc.features) catch |e| {
-                //     log.fatal("Parse CLAP features failed: {!}\n", .{e});
-                // },
+                .features = (parseClapFeatures(desc.features) catch |e| {
+                    log.fatal("Parse CLAP features failed: {!}\n", .{e});
+                }).constSlice().ptr,
             };
         },
         else => @compileError("Unimplemented format"),
@@ -180,9 +178,11 @@ pub const PluginFeatures = enum {
 // TODO: Improve this. Couldn't think of a better way to compare features.
 // There's gotta be a simple data structure which can aid converting between
 // our enum and a format's string representation.
-fn parseClapFeatures(feat: []const PluginFeatures) ![*]const ?[*:0]const u8 {
+pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, @intFromEnum(PluginFeatures.count));
+
+pub fn parseClapFeatures(feat: []const PluginFeatures) !FeaturesArray {
     const F = clap.PluginFeatures;
-    var out = try std.BoundedArray(?[*:0]const u8, @intFromEnum(PluginFeatures.count)).init(0);
+    var out = try FeaturesArray.init(0);
     for (feat) |f| {
         switch (f) {
             .mono => try out.append(F.MONO),
@@ -211,7 +211,7 @@ fn parseClapFeatures(feat: []const PluginFeatures) ![*]const ?[*:0]const u8 {
 
     try out.append(null);
 
-    return @ptrCast(out.constSlice());
+    return out;
 }
 
 // UTILS //

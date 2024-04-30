@@ -14,7 +14,7 @@ export const plugin_desc = arbor.createFormatDescription(.{
     .contact = "contact@arborealaudio.com",
     .manual = "",
     .description = "Basic distortion plugin",
-    .features = &.{ "audio-effect", "stereo", "distortion", null },
+    .features = &.{ .effect, .stereo, .distortion },
 });
 
 const Mode = enum {
