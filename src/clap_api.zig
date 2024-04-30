@@ -91,7 +91,7 @@ pub const PluginDescriptor = extern struct {
     version: [*:0]const u8,
     description: [*:0]const u8,
 
-    features: ?[*][*:0]const u8,
+    features: [*]const ?[*:0]const u8,
 };
 
 pub const Plugin = extern struct {
