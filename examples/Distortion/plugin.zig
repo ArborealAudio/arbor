@@ -62,7 +62,7 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     const mode = plugin.getParamValue(Mode, "Mode");
 
     const start = buffer.offset;
-    const end = buffer.offset + buffer.num_samples;
+    const end = buffer.offset + buffer.frames;
 
     for (buffer.input[0..buffer.num_ch], 0..) |ch, ch_idx| {
         var out = buffer.output[ch_idx];
