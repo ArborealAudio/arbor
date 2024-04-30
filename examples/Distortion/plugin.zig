@@ -6,14 +6,15 @@ const log = arbor.log;
 const Distortion = @This();
 
 export const plugin_desc = arbor.createFormatDescription(.{
-    .id = "com.ArborealAudio.ZigVerb",
+    .id = "com.arbor.ExDist",
     .name = "Example Distortion",
     .company = "Arboreal Audio",
     .version = "0.1",
     .url = "https://arborealaudio.com",
     .contact = "contact@arborealaudio.com",
-    .manual = "https://manuals.arborealaudio.com/Distortion",
+    .manual = "",
     .description = "Basic distortion plugin",
+    .features = &.{ "audio-effect", "stereo", "distortion", null },
 });
 
 const Mode = enum {

@@ -14,6 +14,9 @@ pub const Gui = @import("gui/Gui.zig");
 
 pub const clap = @import("clap_api.zig");
 
+/// User-defined plugin description, converted to format type
+pub extern const plugin_desc: DescType;
+
 pub const Plugin = struct {
     pub const Description = struct {
         /// plugin name
@@ -32,7 +35,8 @@ pub const Plugin = struct {
         manual: [:0]const u8,
         /// short description of plugin
         description: [:0]const u8,
-        // TODO: Plugin features
+        /// format-agnostic list of plugin features
+        features: []const ?[*:0]const u8,
     };
 
     pub extern fn init() *Plugin;
@@ -85,9 +89,6 @@ pub const Plugin = struct {
     }
 };
 
-/// User-defined plugin description, converted to format type
-pub extern const plugin_desc: DescType;
-
 /// Initialize a Plugin. Caller owns the returned pointer and must free it by
 /// calling "deinit".
 pub fn init(
@@ -118,13 +119,11 @@ const DescType = switch (format) {
 
 /// Create a description that satisfies the requirements of the format being
 /// compiled for.
-pub fn createFormatDescription(desc: Plugin.Description) DescType {
+pub fn createFormatDescription(comptime desc: Plugin.Description) DescType {
     switch (DescType) {
         clap.PluginDescriptor => {
             return .{
-                .clap_version = clap.Version.fromString(desc.version) catch {
-                    log.fatal("Failed to create CLAP version", .{});
-                },
+                .clap_version = clap.Version.init(),
                 .id = desc.id.ptr,
                 .name = desc.name.ptr,
                 .vendor = desc.company.ptr,
@@ -133,12 +132,89 @@ pub fn createFormatDescription(desc: Plugin.Description) DescType {
                 .support_url = desc.contact.ptr,
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
-                .features = null, // TODO: PLugin features
+                .features = desc.features.ptr,
+                // FIX: Parsing features
+                // parseClapFeatures(desc.features) catch |e| {
+                //     log.fatal("Parse CLAP features failed: {!}\n", .{e});
+                // },
             };
         },
         else => @compileError("Unimplemented format"),
     }
 }
+
+/// Generic audio buffer
+pub fn AudioBuffer(comptime FloatType: type) type {
+    return struct {
+        input: [*]const [*]const FloatType,
+        output: [*]const [*]FloatType,
+        num_ch: usize,
+        frames: usize,
+        /// For now, this is necessary w/ sample-accurate automation
+        offset: usize,
+    };
+}
+
+/// List of supported plugin features, which will be converted to format-specific feature list
+pub const PluginFeatures = enum {
+    mono,
+    stereo,
+    surround,
+    ambisonic,
+    effect,
+    distortion,
+    dynamics,
+    eq,
+    reverb,
+    pitch_shift,
+    mastering,
+    analyzer,
+    restoration,
+    instrument,
+    synth,
+    sampler,
+    drum,
+    count,
+};
+
+// TODO: Improve this. Couldn't think of a better way to compare features.
+// There's gotta be a simple data structure which can aid converting between
+// our enum and a format's string representation.
+fn parseClapFeatures(feat: []const PluginFeatures) ![*]const ?[*:0]const u8 {
+    const F = clap.PluginFeatures;
+    var out = try std.BoundedArray(?[*:0]const u8, @intFromEnum(PluginFeatures.count)).init(0);
+    for (feat) |f| {
+        switch (f) {
+            .mono => try out.append(F.MONO),
+            .stereo => try out.append(F.STEREO),
+            .surround => try out.append(F.SURROUND),
+            .ambisonic => try out.append(F.AMBISONIC),
+            .effect => try out.append(F.AUDIO_EFFECT),
+            .distortion => try out.append(F.DISTORTION),
+            .dynamics => try out.appendSlice(&.{ F.COMPRESSOR, F.GATE, F.EXPANDER }),
+            .eq => try out.append(F.EQUALIZER),
+            .reverb => try out.append(F.REVERB),
+            .pitch_shift => try out.append(F.PITCH_SHIFTER),
+            .mastering => try out.append(F.MASTERING),
+            .analyzer => try out.append(F.ANALYZER),
+            .restoration => try out.append(F.RESTORATION),
+            .instrument => try out.append(F.INSTRUMENT),
+            .synth => try out.append(F.SYNTHESIZER),
+            .sampler => try out.append(F.SAMPLER),
+            .drum => try out.appendSlice(&.{ F.DRUM, F.DRUM_MACHINE }),
+            .count => {
+                log.err("Don't actually pass `.count`. That's for internal use\n", .{});
+                return error.UserPassedEnumCount;
+            },
+        }
+    }
+
+    try out.append(null);
+
+    return @ptrCast(out.constSlice());
+}
+
+// UTILS //
 
 /// Extern-compatible slice
 pub fn Slice(comptime T: type) type {
@@ -158,20 +234,6 @@ pub fn Slice(comptime T: type) type {
         }
     };
 }
-
-/// Generic audio buffer
-pub fn AudioBuffer(comptime FloatType: type) type {
-    return struct {
-        input: [*]const [*]const FloatType,
-        output: [*]const [*]FloatType,
-        num_ch: usize,
-        frames: usize,
-        /// For now, this is necessary w/ sample-accurate automation
-        offset: usize,
-    };
-}
-
-// UTILS //
 
 pub const log = struct {
     /// default info

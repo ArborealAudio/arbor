@@ -35,11 +35,11 @@ pub fn build(b: *std.Build) !void {
     copy_step.dependOn(&copy_cmd.step);
 
     // Creates a step for unit testing.
-    // const clap_tests = b.addTest(.{
-    //     .root_source_file = .{ .path = "src/clap_plugin.zig" },
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
+    const tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/arbor.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
     // const vst3_tests = b.addTest(.{
     //     .root_source_file = .{ .path = "src/vst3_plugin.zig" },
@@ -50,7 +50,8 @@ pub fn build(b: *std.Build) !void {
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
-    // const test_step = b.step("test", "Run library tests");
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&tests.step);
     // test_step.dependOn(&clap_tests.step);
     // test_step.dependOn(&vst3_tests.step);
 }
@@ -238,8 +239,8 @@ fn pluginCopyStep(
                 output.name, //CFBundleExecutable
                 "com.ArborealAudio.Distortion", //CF BundleIdentifier
                 output.name, //CFBundleName
-                "0.1", //CFBundleShortVersion
-                "0.1", //CFBundleVersion
+                "0.1.0", //CFBundleShortVersion
+                "0.1.0", //CFBundleVersion
                 "(c) 2024 Arboreal Audio, LLC", //NSHumanReadableCopyright
             });
             const bndl = try contents_dir.createFile("PkgInfo", .{});
