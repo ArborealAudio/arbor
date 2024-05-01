@@ -57,6 +57,8 @@ pub const Plugin = struct {
     user: ?*anyopaque = null,
     gui: ?*Gui = null,
 
+    mutex: std.Thread.Mutex = .{},
+
     allocator: std.mem.Allocator = std.heap.c_allocator,
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
@@ -87,6 +89,26 @@ pub const Plugin = struct {
         if (id >= plugin.params.len) return error.ParamNotFound;
         return plugin.param_info[id].name;
     }
+
+    pub fn pollGuiEvents(plugin: *Plugin) void {
+        const gui = plugin.gui orelse {
+            log.err("How did this get called if GUI is null?\n", .{});
+            return;
+        };
+        while (gui.nextOutEvent()) |event| {
+            switch (event) {
+                // NOTE: We should decide on a convention for whether or not
+                // the param values from the GUI are expected to be normalized
+                // or not.
+                .param_change => |change| {
+                    plugin.mutex.lock();
+                    defer plugin.mutex.unlock();
+                    const p = plugin.param_info[change.id];
+                    plugin.params[change.id] = p.valueFromNormalized(change.value);
+                },
+            }
+        }
+    }
 };
 
 /// Initialize a Plugin. Caller owns the returned pointer and must free it by
@@ -106,6 +128,7 @@ pub fn init(
     return plug;
 }
 
+// NOTE: SHould we call the user's deinit fn here rather than expect them to call this?
 /// Deinit a Plugin using the allocator passed to it in init().
 pub fn deinit(plugin: *Plugin) void {
     plugin.allocator.free(plugin.params);

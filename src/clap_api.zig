@@ -318,12 +318,14 @@ pub const EventMidi2 = extern struct {
     data: [4]u32,
 };
 
+/// Incoming events, probably from the host
 pub const InputEvents = extern struct {
     ctx: ?*anyopaque,
     size: *const fn (list: ?*const InputEvents) callconv(.C) u32,
     get: *const fn (list: ?*const InputEvents, index: u32) callconv(.C) ?*const EventHeader,
 };
 
+/// Any outgoing events you want to send
 pub const OutputEvents = extern struct {
     ctx: ?*anyopaque,
     try_push: *const fn (list: ?*OutputEvents, event: ?*EventHeader) callconv(.C) bool,

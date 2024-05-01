@@ -2,6 +2,7 @@
 
 const windows = @import("std").os.windows;
 const builtin = @import("builtin");
+const Gui = @import("Gui.zig");
 
 pub const Window = switch (builtin.os.tag) {
     .windows => windows.HWND,
@@ -38,7 +39,15 @@ pub const GuiImpl = switch (builtin.os.tag) {
     else => @panic("Unsupported OS\n"),
 };
 
-pub extern fn guiCreate(user: ?*anyopaque, bits: [*]u32, w: u32, h: u32) *GuiImpl;
+pub const GuiState = enum(u8) {
+    Idle,
+    MouseOver,
+    MouseDown,
+    MouseUp,
+    MouseDrag,
+};
+
+pub extern fn guiCreate(user: ?*Gui, bits: [*]u32, w: u32, h: u32) *GuiImpl;
 pub extern fn guiDestroy(gui: *GuiImpl) void;
 pub extern fn guiOnPosixFd(gui: *GuiImpl) void;
 pub extern fn guiSetParent(gui: *GuiImpl, window: Window) void;

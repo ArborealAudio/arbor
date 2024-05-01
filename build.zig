@@ -36,24 +36,16 @@ pub fn build(b: *std.Build) !void {
 
     // Creates a step for unit testing.
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/arbor.zig" },
+        .root_source_file = .{ .path = "src/tests.zig" },
         .target = target,
         .optimize = optimize,
     });
-
-    // const vst3_tests = b.addTest(.{
-    //     .root_source_file = .{ .path = "src/vst3_plugin.zig" },
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&tests.step);
-    // test_step.dependOn(&clap_tests.step);
-    // test_step.dependOn(&vst3_tests.step);
 }
 
 fn buildGUI(

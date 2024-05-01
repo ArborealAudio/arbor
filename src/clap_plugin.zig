@@ -300,15 +300,13 @@ const Timer = struct {
         const clap_plug = plug_cast(plugin);
         if (id != clap_plug.timer_id) return;
 
-        // currently just infinitely repainting...
-        // MAYBE: we should check if a repaint is needed
-        // so that means moving the interaction logic to here
-        // BUT: It doesn't work! Never gets a gesture
-        // if (clap_plug.plugin) |plug| {
-        //     if (plug.gui) |gui| {
-        //         PlatformGui.guiRender(gui.impl, true);
-        //     }
-        // }
+        if (clap_plug.plugin) |plug| {
+            if (plug.gui) |gui| {
+                if (gui.wants_repaint.load(.acquire))
+                    GuiPlatform.guiRender(gui.impl, true);
+                plug.pollGuiEvents();
+            }
+        }
     }
 
     pub const Data = clap.PluginTimer{
@@ -378,7 +376,7 @@ const Gui = struct {
                     _ = host_fd.unregister_fd(clap_plug.host, plug.gui.?.impl.fd);
                 }
             }
-            arbor.Gui.gui_deinit(plug);
+            plug.gui.?.deinit();
             plug.gui = null;
         }
     }
@@ -588,6 +586,8 @@ pub fn reset(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
 
+// So we need to create a generic event wrapper over this, which can take a clap
+// event and process it, or whatever a VST3 event looks like, etc.
 pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callconv(.C) void {
     const plug = plugin.plugin orelse {
         log.err("Plugin is null\n", .{});
@@ -599,11 +599,17 @@ pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callco
                 .PARAM_VALUE => {
                     const param_event = cast(*const clap.EventParamValue, e);
                     plug.params[param_event.param_id] = @floatCast(param_event.value);
-                    // TODO: Use a callback here
-                    // TODO: Synchronize the GUI
-                    // Plugin.parameter_changed[valueEvent.*.param_id] = true;
-                    // self.plugin.onParamChange(valueEvent.*.param_id);
-                    // self.need_repaint = true;
+                    if (plug.gui) |gui| {
+                        gui.pushInEvent(.{ .param_change = .{
+                            .id = param_event.param_id,
+                            .value = plug.param_info[param_event.param_id]
+                                .getNormalizedValue(@floatCast(param_event.value)),
+                        } }) catch |err| {
+                            log.err("Event push failed: {!}\n", .{err});
+                            return;
+                        };
+                        gui.wants_repaint.store(true, .release);
+                    }
                 },
                 // TODO: Separate functions for audio & MIDI events
                 else => log.err("Unhandled event: {s}\n", .{@tagName(e.type)}),

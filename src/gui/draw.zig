@@ -4,7 +4,6 @@ pub const Text = @import("Text.zig");
 pub usingnamespace Text;
 pub const Color = @import("Color.zig");
 pub usingnamespace Color;
-// pub usingnamespace @This();
 
 pub const Vec2 = extern struct {
     x: f32,

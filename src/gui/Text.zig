@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const ascii = std.ascii;
 const Gui = @import("Gui.zig");
 const draw = Gui.draw;
-const Label = Gui.Component.Label;
+const Label = Gui.Label;
 const Rect = draw.Recti;
 
 pub const BMP_WIDTH = 128;
@@ -48,7 +48,7 @@ pub fn drawText(
             @intCast(rect.y),
             @intCast(rect.width),
             @intCast(rect.height),
-            label.background,
+            label.background.toBits(),
         );
     }
     if (label.flags.border) {
@@ -59,7 +59,7 @@ pub fn drawText(
             @intCast(rect.width),
             @intCast(rect.height),
             2,
-            label.border,
+            label.border.toBits(),
         );
     }
 
@@ -84,7 +84,7 @@ pub fn drawText(
             const glyph_line = glyph[glyph_line_offset..glyph_line_end];
 
             for (glyph_rect.x..glyph_rect.x + glyph_rect.width) |col| {
-                if (glyph_line[(col - x) / scale] == 1) bits_line[col - x] = label.color;
+                if (glyph_line[(col - x) / scale] == 1) bits_line[col - x] = label.color.toBits();
             }
         }
 

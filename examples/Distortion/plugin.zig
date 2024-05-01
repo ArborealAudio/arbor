@@ -25,7 +25,7 @@ const Mode = enum {
 
 const plugin_params = &[_]arbor.Parameter{
     param.create("Gain", .{ 1.0, 30.0, 1.0 }),
-    param.create("Out", .{ 0.0, 12.0, 1.0 }),
+    param.create("Out", .{ 0.0, 2.0, 1.0 }),
     // TODO: Read enum fields by default. Passing a list of choices should be optional
     param.create("Mode", .{ Mode.Vintage, &.{ "Vintage", "Modern", "Apocalypse" } }),
 };
@@ -102,14 +102,24 @@ pub const HEIGHT = 600;
 const background_color = draw.Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
 const border_color = draw.Color{ .r = 0xc0, .g = 0xf0, .b = 0xc0, .a = 0xff };
 
-// Since we passed a pointer to our outer struct, the user ptr will refer to it
+// Export an entry to our GUI implementation
 export fn gui_init(plugin: *arbor.Plugin) void {
-    const gui = arbor.Gui.init(plugin, allocator, WIDTH, HEIGHT);
+    const gui = arbor.Gui.init(allocator, .{
+        .plugin = plugin,
+        .width = WIDTH,
+        .height = HEIGHT,
+        .interface = .{
+            .deinit = gui_deinit,
+            .render = gui_render,
+        },
+    });
     plugin.gui = gui;
 
     // TODO: Allow the user to describe layout in more relative terms rather
     // than computing based on window size, etc.
-    const slider_width = (WIDTH / plugin_params.len) / 2;
+    // somehting like getNextLayoutSection() and it will provide a rect which corresponds
+    // to the appropriate area based on a layout chosen *prior* to instantiating components
+    const comp_width = (WIDTH / plugin_params.len) / 2;
     const gap = WIDTH / 8;
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
@@ -119,77 +129,69 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             log.err("{}\n", .{e});
             return;
         };
-        gui.addComponent(.{
-            .canvas = gui.canvas,
-            .id = @intCast(i),
-            .draw_proc = arbor.Gui.Component.draw_slider,
-            .value = param_info.getNormalizedValue(plugin.params[i]),
-            .pos = .{
-                .x = @floatFromInt(i * slider_width + gap * (i + 1)),
-                .y = HEIGHT / 2 - 100,
-            },
-            .width = @as(f32, @floatFromInt(slider_width)),
-            .height = 200,
-            .fill_color = (draw.Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc }).bits(),
-            .border_color = (draw.Color{ .a = 0xff, .g = 0x70, .r = 0, .b = 0x70 }).bits(),
-            .label = .{
-                .text = param_info.name,
-                .height = 18,
-                .color = 0xffffffff,
-                .border = (draw.Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc }).bits(),
-                .flags = .{
-                    .border = true,
-                    .center_x = true,
-                    .center_y = false,
+        if (!std.mem.eql(u8, param_info.name, "Mode")) {
+            gui.addComponent(.{
+                .canvas = gui.canvas,
+                .interface = arbor.Gui.Slider.interface,
+                .value = param_info.getNormalizedValue(plugin.params[i]),
+                .pos = .{
+                    .x = @floatFromInt(i * comp_width + gap * (i + 1)),
+                    .y = HEIGHT / 2 - 100,
                 },
-            },
-        });
-    }
-}
-
-export fn gui_deinit(plugin: *arbor.Plugin) void {
-    if (plugin.gui) |gui| gui.deinit();
-}
-
-fn poll_event(plugin: *arbor.Plugin) void {
-    const gui = plugin.gui orelse {
-        log.err("Gui is null\n", .{});
-        return;
-    };
-
-    while (gui.nextEvent()) |event| {
-        switch (event) {
-            .drag => |drag| {
-                // get parameter value of component under mouse
-                const param_info = plugin.getParamId(@intCast(drag.id)) catch |e| {
-                    log.err("{}\n", .{e});
-                    return;
-                };
-                var p_val = param_info.getNormalizedValue(plugin.params[drag.id]);
-                p_val += -drag.mouse_delta.y * 0.025;
-                p_val = @min(1, @max(0, p_val));
-                // change parameter
-                // TODO: Figure out a better way to sync GUI values & param values.
-                // PRobably via a two-way event system
-                // WE're currently "hard-syncing" by reading the direct param
-                // values here
-                plugin.params[drag.id] = param_info.valueFromNormalized(p_val);
-                const component = gui.getComponent(drag.id);
-                component.setValue(p_val);
-            },
-            else => {},
+                .width = @as(f32, @floatFromInt(comp_width)),
+                .height = 200,
+                .background_color = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff },
+                .label = .{
+                    .text = param_info.name,
+                    .height = 18,
+                    .color = draw.Color{ .a = 0xff, .r = 0xff, .g = 0xff, .b = 0xff },
+                    .border = draw.Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc },
+                    .flags = .{
+                        .border = true,
+                        .center_x = true,
+                        .center_y = false,
+                    },
+                },
+            });
+        } else { // mode menu
+            gui.addComponent(.{
+                .canvas = gui.canvas,
+                .interface = arbor.Gui.Menu.interface,
+                .value = plugin.params[i], // don't bother normalizing since we just care about the int
+                .pos = .{
+                    .x = @floatFromInt(i * comp_width + gap * (i + 1)),
+                    .y = HEIGHT / 2 - 50,
+                },
+                .width = @as(f32, @floatFromInt(comp_width)) * 1.5,
+                .height = 100,
+                .background_color = draw.Color.NULL,
+                .label = .{
+                    .text = param_info.name,
+                    .height = 18,
+                    .color = draw.Color.WHITE,
+                },
+                .sub_type = .{ .menu = .{
+                    .choices = param_info.enum_choices orelse {
+                        log.err("No enum choices available\n", .{});
+                        return;
+                    },
+                    .border_color = draw.Color.WHITE,
+                    .border_thickness = 3,
+                } },
+            });
         }
     }
 }
 
-export fn gui_render(plugin: *arbor.Plugin) void {
-    if (plugin.gui) |gui| {
-        poll_event(plugin);
-        draw.olivec_fill(gui.canvas, background_color.bits());
-        draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.bits());
+fn gui_deinit(gui: *arbor.Gui) void {
+    _ = gui;
+}
 
-        for (gui.components.items) |c| {
-            c.draw_proc(c);
-        }
+fn gui_render(gui: *arbor.Gui) void {
+    draw.olivec_fill(gui.canvas, background_color.toBits());
+    draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
+
+    for (gui.components.items) |*c| {
+        c.interface.draw_proc(c);
     }
 }

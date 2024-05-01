@@ -1,53 +1,71 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 const arbor = @import("../arbor.zig");
 const log = arbor.log;
+
 const Plugin = arbor.Plugin;
-pub const Component = @import("Component.zig");
 pub const draw = @import("draw.zig");
 pub const Platform = @import("platform.zig");
 pub const GuiImpl = Platform.GuiImpl;
+pub const GuiState = Platform.GuiState;
+
+const AtomicBool = std.atomic.Value(bool);
 
 const Gui = @This();
+
+/// User gui init
+pub extern fn gui_init(*Plugin) void;
+
+pub const GuiConfig = struct {
+    plugin: *Plugin,
+    width: u32,
+    height: u32,
+    interface: Interface,
+};
+
+pub const Interface = struct {
+    render: *const fn (*Gui) void,
+    deinit: *const fn (*Gui) void,
+};
 
 bits: []u32,
 impl: *GuiImpl,
 canvas: draw.Canvas,
 
+interface: Interface,
+
 components: std.ArrayList(Component),
 
-events: std.ArrayList(Event),
+in_events: std.ArrayList(InEvent),
+out_events: std.ArrayList(OutEvent),
 
 allocator: std.mem.Allocator,
 
 state: struct {
-    type: enum {
-        Idle,
-        MouseDown,
-        MouseDragging,
-    } = .Idle,
+    type: GuiState = .Idle,
 
     mouse_pos: draw.Vec2 = .{ .x = 0, .y = 0 },
     comp_id: ?usize = null,
 } = .{},
 
-/// User gui init
-pub extern fn gui_init(*Plugin) void;
-pub extern fn gui_render(*Plugin) void;
-pub extern fn gui_event(*Gui) void;
-pub extern fn gui_deinit(*Plugin) void;
+wants_repaint: AtomicBool,
 
 /// Call this from within your gui_init function to init the GUI backend
-pub fn init(plugin: *Plugin, allocator: std.mem.Allocator, width: u32, height: u32) *Gui {
+pub fn init(allocator: std.mem.Allocator, config: GuiConfig) *Gui {
     const ptr = allocator.create(Gui) catch |e| log.fatal("{}\n", .{e});
-    const bits = allocator.alloc(u32, width * height) catch |e| log.fatal("{}\n", .{e});
+    const bits = allocator.alloc(u32, config.width * config.height) catch |e|
+        log.fatal("{}\n", .{e});
     ptr.* = .{
         .bits = bits,
-        .impl = Platform.guiCreate(plugin, bits.ptr, width, height),
+        .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height),
+        .interface = config.interface,
         .allocator = allocator,
         .components = std.ArrayList(Component).init(allocator),
-        .events = std.ArrayList(Event).init(allocator),
-        .canvas = draw.olivec_canvas(bits.ptr, width, height, width),
+        .in_events = std.ArrayList(InEvent).init(allocator),
+        .out_events = std.ArrayList(OutEvent).init(allocator),
+        .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
+        .wants_repaint = AtomicBool.init(false),
     };
 
     return ptr;
@@ -55,11 +73,64 @@ pub fn init(plugin: *Plugin, allocator: std.mem.Allocator, width: u32, height: u
 
 /// Call this from gui_deinit after all your own deinit logic
 pub fn deinit(self: *Gui) void {
+    self.interface.deinit(self);
     Platform.guiDestroy(self.impl);
     self.allocator.free(self.bits);
     self.components.deinit();
-    self.events.deinit();
+    self.in_events.deinit();
+    self.out_events.deinit();
     self.allocator.destroy(self);
+}
+
+pub fn guiRender(self: *Gui) callconv(.C) void {
+    // unload event queue
+    while (self.nextInEvent()) |event| {
+        switch (event) {
+            .param_change => |change| {
+                const comp = self.getComponent(change.id);
+                comp.value = change.value;
+            },
+        }
+    }
+    self.interface.render(self);
+
+    if (debug_mouse_pos) {
+        draw.olivec_circle(
+            self.canvas,
+            @intFromFloat(self.state.mouse_pos.x),
+            @intFromFloat(self.state.mouse_pos.y),
+            3,
+            debug_mouse_color.toBits(),
+        );
+    }
+
+    // check for component param change flags & push to plugin
+    for (self.components.items, 0..) |*c, i| {
+        if (c.param_changed) {
+            self.pushOutEvent(.{
+                .param_change = .{ .id = i, .value = c.value },
+            }) catch |e| {
+                log.err("{!}\n", .{e});
+                return;
+            };
+            c.param_changed = false;
+        }
+    }
+
+    self.wants_repaint.store(false, .release);
+}
+
+fn sysInputEvent(self: *Gui, cursorX: i32, cursorY: i32, state: GuiState) callconv(.C) void {
+    if (self.state.type != state)
+        self.state.type = state;
+    self.processGesture(
+        .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) },
+    ) catch |e| {
+        log.err("{!}\n", .{e});
+        return;
+    };
+
+    Platform.guiRender(self.impl, true);
 }
 
 pub fn getSize(self: Gui) draw.Vec2 {
@@ -75,23 +146,44 @@ pub fn getComponent(self: *Gui, id: usize) *Component {
     return &self.components.items[id];
 }
 
-pub const Event = union(enum) {
-    click: struct {
-        mouse_pos: draw.Vec2,
+pub fn getComponentUnderMouse(self: *Gui, mouse: Vec2) ?struct {
+    *Component,
+    usize,
+} {
+    for (self.components.items, 0..) |*c, i| {
+        if (c.hitTest(mouse)) return .{ c, i };
+    }
+    return null;
+}
+
+pub const InEvent = union(enum) {
+    param_change: struct {
         id: usize,
-    },
-    drag: struct {
-        mouse_delta: draw.Vec2,
-        id: usize,
+        value: f32,
     },
 };
 
-fn pushEvent(self: *Gui, event: Event) !void {
-    try self.events.append(event);
+pub const OutEvent = union(enum) {
+    param_change: struct {
+        id: usize,
+        value: f32,
+    },
+};
+
+pub fn pushInEvent(self: *Gui, event: InEvent) !void {
+    try self.in_events.append(event);
 }
 
-pub fn nextEvent(self: *Gui) ?Event {
-    return self.events.popOrNull();
+pub fn nextInEvent(self: *Gui) ?InEvent {
+    return self.in_events.popOrNull();
+}
+
+pub fn pushOutEvent(self: *Gui, event: OutEvent) !void {
+    try self.out_events.append(event);
+}
+
+pub fn nextOutEvent(self: *Gui) ?OutEvent {
+    return self.out_events.popOrNull();
 }
 
 fn processGesture(
@@ -99,77 +191,324 @@ fn processGesture(
     mouse_pos: draw.Vec2,
 ) !void {
     switch (self.state.type) {
-        .MouseDragging => {
+        .MouseDrag => {
             const mouse_delta: draw.Vec2 = .{
                 .x = mouse_pos.x - self.state.mouse_pos.x,
                 .y = mouse_pos.y - self.state.mouse_pos.y,
             };
             if (self.state.comp_id) |id| {
-                try self.pushEvent(.{ .drag = .{
-                    .mouse_delta = mouse_delta,
-                    .id = id,
-                } });
-            }
-            self.state.mouse_pos = mouse_pos;
-        },
-        .MouseDown => {
-            // Mouse down
-            for (self.components.items, 0..) |c, i| {
-                if (c.hit_test(mouse_pos)) {
-                    self.state.comp_id = i;
-                    try self.pushEvent(.{ .click = .{
-                        .mouse_pos = mouse_pos,
-                        .id = i,
-                    } });
-                    break;
+                const comp = self.getComponent(id);
+                if (comp.interface.on_mouse_drag) |func|
+                    func(comp, mouse_delta);
+            } else {
+                if (self.getComponentUnderMouse(mouse_pos)) |c| {
+                    if (c[0].interface.on_mouse_drag) |func|
+                        func(c[0], mouse_delta);
+                    self.state.comp_id = c[1];
                 }
             }
             self.state.mouse_pos = mouse_pos;
         },
-        .Idle => {
-            self.state.comp_id = null;
+        .MouseDown => {
+            if (self.state.comp_id) |id| {
+                const comp = self.getComponent(id);
+                if (comp.interface.on_mouse_click) |func|
+                    func(comp);
+            } else {
+                if (self.getComponentUnderMouse(mouse_pos)) |c| {
+                    if (c[0].interface.on_mouse_click) |func|
+                        func(c[0]);
+                    self.state.comp_id = c[1];
+                }
+            }
+            self.state.mouse_pos = mouse_pos;
         },
+        .MouseOver => {
+            if (self.getComponentUnderMouse(mouse_pos)) |c| {
+                if (c[0].interface.on_mouse_enter) |func|
+                    func(c[0]);
+                self.state.comp_id = c[1];
+            } else {
+                if (self.state.comp_id) |id| {
+                    // mouse left last comp
+                    const comp = self.getComponent(id);
+                    if (comp.interface.on_mouse_exit) |func|
+                        func(comp);
+                    self.state.type = .Idle;
+                    self.state.comp_id = null;
+                }
+            }
+            self.state.mouse_pos = mouse_pos;
+        },
+        .MouseUp => {
+            self.state.comp_id = null; // easiest just to null it. If we get another
+            // click or drag we hit test again anyway
+            self.state.mouse_pos = mouse_pos;
+            self.state.type = .MouseOver;
+        },
+        .Idle => {}, // will this ever be called when state is idle?
     }
 }
 
-fn inputEvent(plugin: *const Plugin, cursorX: i32, cursorY: i32, button: i8) callconv(.C) void {
-    const self = plugin.gui orelse log.fatal("GUI is null\n", .{});
-    switch (self.state.type) {
-        .Idle => {
-            switch (button) {
-                -1 => log.info("Weird...mouse up after no mouse down\n", .{}),
-                0 => self.state.type = .MouseDragging,
-                1 => self.state.type = .MouseDown,
-                else => {},
-            }
-        },
-        .MouseDown => {
-            switch (button) {
-                -1 => self.state.type = .Idle,
-                0 => self.state.type = .MouseDragging,
-                1 => {},
-                else => {},
-            }
-        },
-        .MouseDragging => {
-            switch (button) {
-                -1 => self.state.type = .Idle,
-                0 => {},
-                1 => self.state.type = .MouseDown,
-                else => {},
-            }
-        },
-    }
-    self.processGesture(
-        .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) },
-    ) catch |e| {
-        log.err("{}\n", .{e});
-        return;
+const Vec2 = draw.Vec2;
+const Color = draw.Color;
+
+/// Struct for organizing text attached to a component
+pub const Label = struct {
+    pub const Flags = packed struct {
+        center_x: bool = true,
+        center_y: bool = true,
+        background: bool = false,
+        border: bool = false,
     };
 
-    Platform.guiRender(self.impl, true);
-}
+    text: []const u8,
+    height: u32,
+    flags: Flags = .{},
+    color: Color,
+    background: Color = std.mem.zeroes(Color),
+    border: Color = std.mem.zeroes(Color),
+    // TODO: Kerning
+};
+
+pub const Component = struct {
+    pub const Interface = struct {
+        draw_proc: *const fn (self: *Component) void,
+        on_mouse_enter: ?*const fn (self: *Component) void,
+        on_mouse_exit: ?*const fn (self: *Component) void,
+        on_mouse_click: ?*const fn (self: *Component) void,
+        on_mouse_drag: ?*const fn (self: *Component, Vec2) void,
+    };
+
+    // TODO: Move canvas to a graphics context which each component will be pased in their draw_proc()
+    canvas: draw.Canvas,
+    pos: Vec2,
+    width: f32,
+    height: f32,
+    background_color: Color,
+
+    value: f32,
+
+    /// every component may have a label, and it's up to the drawing procedure
+    /// to determine how it is displayed.
+    label: ?Label,
+
+    interface: Component.Interface,
+
+    /// flag to let the GUI know a parameter needs to be updated
+    param_changed: bool = false,
+
+    sub_type: union(enum) {
+        slider: Slider,
+        menu: Menu,
+        none: void,
+    } = .none,
+
+    pub fn hitTest(self: Component, pt: Vec2) bool {
+        return (pt.x >= self.pos.x and
+            pt.y >= self.pos.y and
+            pt.x <= self.pos.x + self.width and
+            pt.y <= self.pos.y + self.height);
+    }
+
+    pub fn setValue(self: *Component, val: f32) void {
+        self.value = val;
+    }
+};
+
+pub const Slider = struct {
+    // base: *Component,
+
+    // pub fn init(base: Component) *Component {
+    //     const self = Slider{ .base = &base };
+    //     return self.base;
+    // }
+
+    fn draw_proc(self: *Component) void {
+        const height = if (self.label) |label|
+            self.height - @as(f32, @floatFromInt(label.height))
+        else
+            self.height;
+        const val_height = height * self.value;
+        const top = self.pos.y + (height - val_height);
+        const fill = Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc };
+        // draw borders
+        draw.olivec_rect(
+            self.canvas,
+            @intFromFloat(self.pos.x),
+            @intFromFloat(self.pos.y),
+            @intFromFloat(self.width),
+            @intFromFloat(height),
+            self.background_color.toBits(),
+        );
+
+        draw.olivec_rect(
+            self.canvas,
+            @intFromFloat(self.pos.x),
+            @intFromFloat(top),
+            @intFromFloat(self.width),
+            @intFromFloat(val_height),
+            fill.toBits(),
+        );
+
+        if (self.label) |l| {
+            const text_y = self.pos.y + height;
+            const text_x = self.pos.x;
+            draw.drawText(self.canvas, l, .{
+                .x = @intFromFloat(text_x),
+                .y = @intFromFloat(text_y),
+                .width = @intFromFloat(self.width),
+                .height = l.height,
+            });
+        }
+    }
+
+    fn on_mouse_drag(self: *Component, mouse_delta: Vec2) void {
+        var val = self.value;
+        val += -mouse_delta.y * 0.025;
+        val = @min(1, @max(0, val));
+        self.value = val;
+        self.param_changed = true;
+    }
+
+    pub const interface = Component.Interface{
+        .draw_proc = draw_proc,
+        .on_mouse_drag = on_mouse_drag,
+        .on_mouse_exit = null,
+        .on_mouse_enter = null,
+        .on_mouse_click = null,
+    };
+};
+
+pub const Menu = struct {
+    // base: *Component,
+
+    choices: []const []const u8,
+
+    border_color: Color,
+    last_background: Color = Color{ .r = 0xaa, .g = 0xaa, .b = 0, .a = 0xff },
+    border_thickness: u32,
+
+    pub fn draw_proc(self: *Component) void {
+        const menu = self.sub_type.menu;
+        draw.olivec_rect(
+            self.canvas,
+            @intFromFloat(self.pos.x),
+            @intFromFloat(self.pos.y),
+            @intFromFloat(self.width),
+            @intFromFloat(self.height),
+            self.background_color.toBits(),
+        );
+        draw.olivec_frame(
+            self.canvas,
+            @intFromFloat(self.pos.x),
+            @intFromFloat(self.pos.y),
+            @intFromFloat(self.width),
+            @intFromFloat(self.height),
+            menu.border_thickness,
+            menu.border_color.toBits(),
+        );
+
+        if (self.label) |label| {
+            draw.drawText(self.canvas, label, .{
+                .x = @intFromFloat(self.pos.x),
+                .y = @intFromFloat(self.pos.y),
+                .width = @intFromFloat(self.width),
+                .height = @intFromFloat(self.height),
+            });
+        }
+    }
+
+    fn on_mouse_click(self: *Component) void {
+        const menu = &self.sub_type.menu;
+        self.background_color = menu.last_background;
+        menu.last_background = self.background_color;
+    }
+
+    fn on_mouse_enter(self: *Component) void {
+        var menu = &self.sub_type.menu;
+        menu.border_color = Color{ .r = 0xff, .g = 0xff, .b = 0, .a = 0xff };
+    }
+
+    fn on_mouse_exit(self: *Component) void {
+        var menu = &self.sub_type.menu;
+        menu.border_color = Color.WHITE;
+    }
+
+    pub const interface = Component.Interface{
+        .draw_proc = draw_proc,
+        .on_mouse_enter = on_mouse_enter,
+        .on_mouse_exit = on_mouse_exit,
+        .on_mouse_click = on_mouse_click,
+        .on_mouse_drag = null,
+    };
+};
+
+pub const Knob = struct {
+    base: *Component,
+
+    // pointer length as a fraction of radius
+    pointer_length: f32 = 0.5,
+    // pointer thickness in pixels
+    pointer_thickness: f32 = 5.0,
+
+    flags: Flags = .{},
+
+    const Flags = packed struct {
+        drop_shadow: bool = false,
+    };
+
+    pub fn draw_proc(self: Component) void {
+        const radius: f32 = self.width / 2.0;
+        const centerX = self.pos.x + radius;
+        const centerY = self.pos.y + radius;
+        // if (self.flags.filled)
+        //     rl.DrawCircle(self.centerX, self.centerY, radius, self.color)
+        // else
+        //     rl.DrawCircleLines(self.centerX, self.centerY, radius, self.color);
+        // Gui.drawCircle(bits, .{
+        //     .pos = .{ .x = centerX, .y = centerY },
+        //     .radius = self.width,
+        // }, self.fill_color, self.border_color, self.border_size);
+        draw.olivec_circle(self.canvas.*, centerX, centerY, @intFromFloat(radius), self.fill_color);
+
+        const min_knob_pos: f32 = std.math.pi * 0.25;
+        const max_knob_pos: f32 = std.math.pi * 1.75;
+        // point along circumference to draw pointer
+        const pointer_angle = min_knob_pos + self.value * (max_knob_pos - min_knob_pos);
+        const cos = @cos(pointer_angle);
+        const sin = @sin(pointer_angle);
+        const x1 = centerX + (cos * radius);
+        const y1 = centerY + (sin * radius);
+
+        draw.olivec_circle(self.canvas.*, x1, y1, @intFromFloat(10), self.border_color);
+
+        // Gui.drawCircle(
+        //     bits,
+        //     .{ .pos = .{ .x = x1, .y = y1 }, .radius = 10 },
+        //     0xffff0000,
+        //     0,
+        //     0,
+        // );
+
+        // if (self.flags.draw_label) {
+        //     var label = self.label.text;
+        //     const max_chars = 4;
+        //     if (self.is_mouse_over) {
+        //         var buf: [max_chars + 1]u8 = undefined;
+        //         label = std.fmt.bufPrintZ(&buf, "{d:.2}", .{self.value}) catch @panic("Buffer write error");
+        //     }
+        //     const text_width = rl.MeasureTextEx(Gui.font, label, self.label.size, 1.5);
+        //     const half_text = text_width.x / 2.0;
+        //     rl.DrawTextEx(Gui.font, label, .{ .x = @as(f32, @floatFromInt(self.centerX)) - half_text, .y = @as(f32, @floatFromInt(self.centerY + self.label.spacing)) + radius }, self.label.size, 1.5, rl.RAYWHITE);
+        // }
+    }
+};
+
+const debug_mouse_pos = true;
+const debug_mouse_color = Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
 
 comptime {
-    @export(inputEvent, .{ .name = "inputEvent", .linkage = .weak });
+    @export(guiRender, .{ .name = "gui_render", .linkage = .weak });
+    @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
 }

@@ -1,18 +1,28 @@
 // gui_mac.m
 // gui implementation for MacOS
 
-#import <Cocoa/Cocoa.h>
+#include <stdbool.h>
+#include <stdio.h>
 #import <Foundation/Foundation.h>
+#import <Cocoa/Cocoa.h>
 
-extern void inputEvent(void *user, int32_t cursorX, int32_t cursorY, int8_t button);
-extern void gui_render(void *);
+enum {
+    Idle,
+    MouseOver,
+    MouseDown,
+    MouseUp,
+    MouseDrag,
+};
+
+extern void sysInputEvent(void *user, int32_t cursorX, int32_t cursorY, uint8_t state);
+extern void gui_render(void *user);
 
 @interface GuiImpl : NSView
 @property (nonatomic) void *user;
 @property (nonatomic) uint32_t *bits;
 @property (nonatomic) uint32_t width;
 @property (nonatomic) uint32_t height;
-@property (nonatomic) BOOL hasSuperView;
+@property (nonatomic) bool hasSuperView;
 @end
 
 @implementation GuiImpl
@@ -28,21 +38,32 @@ extern void gui_render(void *);
     return YES;
 }
 
+- (BOOL)acceptsFirstResponder {
+    return YES;
+}
+
 // Adapt mouse y to be consistent w/ more standard top-down method
 - (void)mouseDown:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    inputEvent(_user, cursor.x, _height - cursor.y, 1);
+    sysInputEvent(_user, cursor.x, _height - cursor.y, MouseDown);
 }
 
 - (void)mouseUp:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    inputEvent(_user, cursor.x, _height - cursor.y, -1);
+    sysInputEvent(_user, cursor.x, _height - cursor.y, MouseUp);
 }
 
 - (void)mouseDragged:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
-    inputEvent(_user, cursor.x, _height - cursor.y, 0);
+    sysInputEvent(_user, cursor.x, _height - cursor.y, MouseDrag);
 }
+
+- (void)mouseMoved:(NSEvent *)event {
+    NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
+    sysInputEvent(_user, cursor.x, _height - cursor.y, MouseOver);
+}
+
+// TODO: Override key methods
 @end
 
 GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
@@ -67,10 +88,14 @@ void guiDestroy(GuiImpl *gui)
 
 void guiSetParent(GuiImpl *gui, const void *parent)
 {
+    if (!parent)
+        if (gui.hasSuperView) [gui removeFromSuperview];
+
     NSView *parentView = (NSView *)parent;
     if (gui.hasSuperView) [gui removeFromSuperview];
     [parentView addSubview:gui];
     gui.hasSuperView = true;
+    [[gui window] setAcceptsMouseMovedEvents:YES];
 }
 
 void guiSetVisible(GuiImpl *gui, bool visible)
