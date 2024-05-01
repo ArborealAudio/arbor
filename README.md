@@ -9,7 +9,7 @@ blank-slate plugin.
 
 * Ideally only require Zig as a toolchain dependency, not as a programming
 language. You should be able to write plugins in C/C++/whatever and easily link
-that code to Arbor using the Zig build system.
+that code to Arbor via a C API and the Zig build system.
 
 	* Could also have a `get_zig.sh` that will download latest stable Zig if you
 	don't already have it
@@ -53,7 +53,15 @@ as such
 
 		- [ ] Options menu
 
+- [ ] Add a basic volume meter to/as an example
+
 - [ ] Simple & robust events system
+
+	- [x] Decent syncing of parameter changes
+
+	- [ ] Handle CLAP parameter modulation
+
+- [ ] Make GUI optional (should allow cross-compiling)
 
 - [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
 
@@ -101,7 +109,7 @@ export const plugin_desc = arbor.createFormatDescription(
 	.contact = "contact@plug-o-corp.biz",
 	.manual = "https://plug-o-corp.biz/Evil/manual.pdf", // CLAP needs this
 	.description = "Vintage Analog Warmth",
-	// etc...
+	.features = &.{.effect, .stereo, .eq},
 );
 
 const Mode = enum {
@@ -131,9 +139,13 @@ const allocator = std.heap.c_allocator;
 
 // initialize plugin 
 export fn init() *arbor.Plugin {
-	const plugin = arbor.configure(allocator, params);
-	const user_plugin = allocator.create(Plugin) catch |err| // catch allocation error
-		arbor.log.fatal("Plugin create failed: {}\n", .{err});
+	const plugin = arbor.configure(allocator, .{
+		.deinit = deinit,
+		.prepare = prepare,
+		.process = process,
+	});
+	const user_plugin = allocator.create(Plugin) catch |err| // catch any allocation errors
+		arbor.log.fatal("Plugin create failed: {!}\n", .{err});
 
 	user_plugin.* = .{}; // init our plugin to default
 	plugin.user = user_plugin; // set user context pointer
@@ -141,7 +153,11 @@ export fn init() *arbor.Plugin {
 	return plugin;
 }
 
-export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
+fn deinit(plugin: *arbor.Plugin) void {
+	_ = plugin;
+}
+
+fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
 	// prepare your effect if needed
 	_ = plugin;
 	_ = sample_rate;
@@ -149,13 +165,15 @@ export fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) 
 }
 
 // process audio
-export fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
+fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
 
 	// load an audio parameter value
-	const gain_param = arbor.getParamValue(f32, "Gain");
+	const gain_param = plugin.getParamValue(f32, "Gain");
+
+	const end = buffer.offset + buffer.frames;
 	
 	for (buffer.input[0..buffer.num_ch], 0..) |channel_data, ch_num| {
-	  	for (channel_data[0..buffer.num_samples], 0..) |sample, i| {
+	  	for (channel_data[buffer.offset..end], 0..) |sample, i| {
 			buffer.output[ch_num][i] = sample * gain_param;
 		}
 	}
@@ -169,6 +187,7 @@ To build:
 
 ```sh
 zig build
+# Eventual compile options:
 # You can add -Dformat=[VST2/VST3/CLAP/AU]
 # Not providing a format will compile all formats available on your platform
 # Add 'copy' to put built plugin in appropriate system dir
