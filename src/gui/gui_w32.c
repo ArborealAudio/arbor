@@ -1,3 +1,4 @@
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wingdi.h>
 #include <winuser.h>
@@ -14,10 +15,18 @@ typedef struct GuiImpl {
 	void *user;
 } GuiImpl_t;
 
-void gui_render(void *);
+enum GuiState{
+	Idle,
+	MouseOver,
+	MouseDown,
+	MouseUp,
+	MouseDrag,
+};
+
+void gui_render(void *user);
 
 // button 0 = drag, 1 = press, -1 = release
-void inputEvent(void *user, int32_t x, int32_t y, int8_t button);
+void sysInputEvent(void *user, int32_t x, int32_t y, uint8_t button);
 
 static int globalOpenGUICount = 0;
 
@@ -43,16 +52,21 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 			gui->bits, &info, DIB_RGB_COLORS, SRCCOPY);
 		EndPaint(window, &paint);
 	} break;
-	case WM_MOUSEMOVE:
-		inputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), 0);
-		break;
+	case WM_MOUSEMOVE: {
+		bool drag = (MK_LBUTTON & wParam) > 0;
+		sysInputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), drag ?
+		              MouseDrag : MouseOver);
+		} break;
 	case WM_LBUTTONDOWN:
 	 	SetCapture(window);
-		inputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), 1);
+		sysInputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), MouseDown);
 		break;
 	case WM_LBUTTONUP:
 		ReleaseCapture();
-		inputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), -1);
+		sysInputEvent(gui->user, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), MouseUp);
+		break;
+	case WM_MOUSELEAVE:
+		ReleaseCapture();
 		break;
 	default:
 		return DefWindowProc(window, message, wParam, lParam);
