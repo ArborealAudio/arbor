@@ -4,6 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 // ISSUE: Build options appears to be bugged, it won't allow import
 // const build_options = @import("build_options");
+const Allocator = std.mem.Allocator;
 
 pub const param = @import("params.zig");
 pub const Parameter = param.Parameter;
@@ -11,6 +12,7 @@ pub const Format = enum { CLAP, VST3, VST2 };
 // const format = build_options.format;
 const format = Format.CLAP;
 pub const Gui = @import("gui/Gui.zig");
+pub const GuiPlatform = Gui.Platform;
 
 pub const clap = @import("clap_api.zig");
 
@@ -58,8 +60,9 @@ pub const Plugin = struct {
     gui: ?*Gui = null,
 
     mutex: std.Thread.Mutex = .{},
+    timer: *Timer,
 
-    allocator: std.mem.Allocator = std.heap.c_allocator,
+    allocator: Allocator = std.heap.c_allocator,
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
@@ -114,7 +117,7 @@ pub const Plugin = struct {
 /// Initialize a Plugin. Caller owns the returned pointer and must free it by
 /// calling "deinit".
 pub fn init(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     params: []const Parameter,
     interface: Plugin.Interface,
 ) *Plugin {
@@ -124,6 +127,8 @@ pub fn init(
         .param_info = params,
         .params = param.createSlice(allocator, params),
         .allocator = allocator,
+        .timer = Timer.init(allocator, 16, on_timer, plug) catch |e|
+            log.fatal("Timer init failed: {!}\n", .{e}),
     };
     return plug;
 }
@@ -131,8 +136,17 @@ pub fn init(
 // NOTE: SHould we call the user's deinit fn here rather than expect them to call this?
 /// Deinit a Plugin using the allocator passed to it in init().
 pub fn deinit(plugin: *Plugin) void {
+    plugin.timer.deinit();
     plugin.allocator.free(plugin.params);
     plugin.allocator.destroy(plugin);
+}
+
+pub fn on_timer(self: *Plugin) void {
+    if (self.gui) |gui| {
+        if (gui.wants_repaint.load(.acquire))
+            GuiPlatform.guiRender(gui.impl, true);
+        self.pollGuiEvents();
+    }
 }
 
 const DescType = switch (format) {
@@ -175,6 +189,51 @@ pub fn AudioBuffer(comptime FloatType: type) type {
         offset: usize,
     };
 }
+
+// Specifically implementing this to replace CLAP timer right now, could be
+// made more generic in the future
+pub const Timer = struct {
+    const time = std.time;
+    const Thread = std.Thread;
+
+    time_ms: u32,
+    should_run: bool = true,
+    thread_handle: Thread = undefined,
+    allocator: Allocator,
+
+    cb: *const fn (*Plugin) void,
+    plugin: *Plugin,
+
+    pub fn init(
+        allocator: Allocator,
+        time_ms: u32,
+        cb: *const fn (*Plugin) void,
+        plugin: *Plugin,
+    ) !*Timer {
+        const self = try allocator.create(Timer);
+        self.* = .{
+            .cb = cb,
+            .plugin = plugin,
+            .time_ms = time_ms,
+            .allocator = allocator,
+            .thread_handle = try Thread.spawn(.{}, timer_loop, .{self}),
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *Timer) void {
+        self.should_run = false;
+        self.thread_handle.join();
+        self.allocator.destroy(self);
+    }
+
+    pub fn timer_loop(self: *Timer) void {
+        while (self.should_run) {
+            self.cb(self.plugin);
+            time.sleep(self.time_ms * time.ns_per_ms);
+        }
+    }
+};
 
 /// List of supported plugin features, which will be converted to format-specific feature list
 pub const PluginFeatures = enum {
