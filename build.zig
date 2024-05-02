@@ -279,6 +279,17 @@ fn pluginCopyStep(
                     } else return err;
                 }
                 _ = try std.fs.cwd().updateFile(gen_file, plugin_dir, contents_path, .{});
+                if (output.root_module.optimize) |opt| {
+                    if (opt == .Debug) {
+                        const gen_pdb = output.getEmittedPdb().generated.getPath();
+                        _ = try std.fs.cwd().updateFile(
+                            gen_pdb,
+                            plugin_dir,
+                            try std.mem.concat(allocator, u8, &.{ output.name, ".pdb" }),
+                            .{},
+                        );
+                    }
+                }
             }
         },
         else => @panic("Unsupported OS"),
