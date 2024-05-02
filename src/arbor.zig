@@ -12,7 +12,6 @@ pub const Format = enum { CLAP, VST3, VST2 };
 // const format = build_options.format;
 const format = Format.CLAP;
 pub const Gui = @import("gui/Gui.zig");
-pub const GuiPlatform = Gui.Platform;
 
 pub const clap = @import("clap_api.zig");
 

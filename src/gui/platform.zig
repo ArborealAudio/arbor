@@ -21,6 +21,7 @@ pub const GuiImpl = switch (builtin.os.tag) {
         width: u32,
         height: u32,
         user: ?*anyopaque,
+        timer_id: c_ulonglong,
     },
     .linux => extern struct {
         display: ?*anyopaque,

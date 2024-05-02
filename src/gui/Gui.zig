@@ -133,7 +133,8 @@ fn sysInputEvent(self: *Gui, cursorX: i32, cursorY: i32, state: GuiState) callco
         log.err("{!}\n", .{e});
         return;
     };
-    Platform.guiRender(self.impl, true);
+    self.wants_repaint.store(true, .release);
+    // Platform.guiRender(self.impl, true);
 }
 
 pub fn getSize(self: Gui) draw.Vec2 {

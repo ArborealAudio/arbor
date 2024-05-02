@@ -13,6 +13,7 @@ typedef struct GuiImpl {
 	uint32_t *bits;
 	uint32_t width, height;
 	void *user;
+	UINT_PTR timer_id;
 } GuiImpl_t;
 
 enum GuiState{
@@ -27,6 +28,7 @@ void gui_render(void *user);
 
 // button 0 = drag, 1 = press, -1 = release
 void sysInputEvent(void *user, int32_t x, int32_t y, uint8_t button);
+void guiTimerCallback(void *timer, void *user);
 
 static int globalOpenGUICount = 0;
 
@@ -68,6 +70,9 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 	case WM_MOUSELEAVE:
 		ReleaseCapture();
 		break;
+	case WM_TIMER:
+		guiTimerCallback(NULL, gui->user);
+		break;
 	default:
 		return DefWindowProc(window, message, wParam, lParam);
 		break;
@@ -98,6 +103,8 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h)
 	gui->height = h;
 	gui->user = user;
 	SetWindowLongPtr(gui->window, 0, (LONG_PTR)gui);
+
+	SetTimer(gui->window, 0, 16, NULL);
 
 	return gui;
 }
