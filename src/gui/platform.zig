@@ -11,6 +11,9 @@ pub const Window = switch (builtin.os.tag) {
     else => @panic("Unsupported OS\n"),
 };
 
+/// Opaque type over MacOS CFRunLoopTimerRef
+pub const NSTimerRef = *opaque {};
+
 pub const GuiImpl = switch (builtin.os.tag) {
     .windows => extern struct {
         window: Window,
@@ -35,6 +38,7 @@ pub const GuiImpl = switch (builtin.os.tag) {
         width: u32,
         height: u32,
         has_super_view: bool,
+        timer: NSTimerRef,
     },
     else => @panic("Unsupported OS\n"),
 };
@@ -53,3 +57,11 @@ pub extern fn guiOnPosixFd(gui: *GuiImpl) void;
 pub extern fn guiSetParent(gui: *GuiImpl, window: Window) void;
 pub extern fn guiSetVisible(gui: *GuiImpl, visible: bool) void;
 pub extern fn guiRender(gui: *GuiImpl, internal: bool) void;
+
+pub fn guiTimerCallback(timer: NSTimerRef, gui: *Gui) callconv(.C) void {
+    _ = timer;
+    if (gui.wants_repaint.load(.acquire)) {
+        guiRender(gui.impl, true);
+        gui.wants_repaint.store(false, .release);
+    }
+}

@@ -37,8 +37,8 @@ interface: Interface,
 
 components: std.ArrayList(Component),
 
-in_events: std.ArrayList(InEvent),
-out_events: std.ArrayList(OutEvent),
+in_events: *Queue,
+out_events: *Queue,
 
 allocator: std.mem.Allocator,
 
@@ -49,29 +49,27 @@ state: struct {
     comp_id: ?usize = null,
 } = .{},
 
-wants_repaint: AtomicBool,
+wants_repaint: AtomicBool = AtomicBool.init(true),
 
 /// Call this from within your gui_init function to init the GUI backend
 pub fn init(allocator: std.mem.Allocator, config: GuiConfig) *Gui {
-    const ptr = allocator.create(Gui) catch |e| log.fatal("{}\n", .{e});
+    const ptr = allocator.create(Gui) catch |e| log.fatal("{!}\n", .{e});
     const bits = allocator.alloc(u32, config.width * config.height) catch |e|
-        log.fatal("{}\n", .{e});
+        log.fatal("{!}\n", .{e});
     ptr.* = .{
         .bits = bits,
         .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height),
         .interface = config.interface,
         .allocator = allocator,
         .components = std.ArrayList(Component).init(allocator),
-        .in_events = std.ArrayList(InEvent).init(allocator),
-        .out_events = std.ArrayList(OutEvent).init(allocator),
+        .in_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}),
+        .out_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}),
         .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
-        .wants_repaint = AtomicBool.init(false),
     };
 
     return ptr;
 }
 
-/// Call this from gui_deinit after all your own deinit logic
 pub fn deinit(self: *Gui) void {
     self.interface.deinit(self);
     Platform.guiDestroy(self.impl);
@@ -84,14 +82,8 @@ pub fn deinit(self: *Gui) void {
 
 pub fn guiRender(self: *Gui) callconv(.C) void {
     // unload event queue
-    while (self.nextInEvent()) |event| {
-        switch (event) {
-            .param_change => |change| {
-                const comp = self.getComponent(change.id);
-                comp.value = change.value;
-            },
-        }
-    }
+    self.pollInEvents();
+
     self.interface.render(self);
 
     if (debug_mouse_pos) {
@@ -107,17 +99,29 @@ pub fn guiRender(self: *Gui) callconv(.C) void {
     // check for component param change flags & push to plugin
     for (self.components.items, 0..) |*c, i| {
         if (c.param_changed) {
-            self.pushOutEvent(.{
+            self.out_events.push_wait(.{
                 .param_change = .{ .id = i, .value = c.value },
             }) catch |e| {
-                log.err("{!}\n", .{e});
+                log.err("out_events push failed: {!}\n", .{e});
                 return;
             };
             c.param_changed = false;
         }
     }
+}
 
-    self.wants_repaint.store(false, .release);
+// wraps all event handling under one lock
+fn pollInEvents(self: *Gui) void {
+    self.in_events.mutex.lock();
+    defer self.in_events.mutex.unlock();
+    while (self.in_events.next_no_lock()) |event| {
+        switch (event) {
+            .param_change => |change| {
+                const comp = self.getComponent(change.id);
+                comp.value = change.value;
+            },
+        }
+    }
 }
 
 fn sysInputEvent(self: *Gui, cursorX: i32, cursorY: i32, state: GuiState) callconv(.C) void {
@@ -129,7 +133,6 @@ fn sysInputEvent(self: *Gui, cursorX: i32, cursorY: i32, state: GuiState) callco
         log.err("{!}\n", .{e});
         return;
     };
-
     Platform.guiRender(self.impl, true);
 }
 
@@ -156,35 +159,67 @@ pub fn getComponentUnderMouse(self: *Gui, mouse: Vec2) ?struct {
     return null;
 }
 
-pub const InEvent = union(enum) {
+pub const Event = union(enum) {
     param_change: struct {
         id: usize,
         value: f32,
     },
 };
 
-pub const OutEvent = union(enum) {
-    param_change: struct {
-        id: usize,
-        value: f32,
-    },
+pub const queue_size = 512;
+pub const Queue = struct {
+    const QueueType = std.BoundedArray(Event, queue_size);
+    events: QueueType,
+    mutex: std.Thread.Mutex = .{},
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) !*Queue {
+        const self = try allocator.create(Queue);
+        self.* = .{
+            .events = try QueueType.init(0),
+            .allocator = allocator,
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *Queue) void {
+        self.allocator.destroy(self);
+    }
+
+    pub fn push(self: *Queue, event: Event) !void {
+        if (self.mutex.tryLock()) {
+            defer self.mutex.unlock();
+            try self.events.append(event);
+        }
+    }
+
+    pub fn push_wait(self: *Queue, event: Event) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        try self.events.append(event);
+    }
+
+    pub fn push_no_lock(self: *Queue, event: Event) !void {
+        try self.events.append(event);
+    }
+
+    pub fn next(self: *Queue) ?Event {
+        if (self.mutex.tryLock()) {
+            defer self.mutex.unlock();
+            return self.events.popOrNull();
+        } else return null;
+    }
+
+    pub fn next_wait(self: *Queue) ?Event {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.events.popOrNull();
+    }
+
+    pub fn next_no_lock(self: *Queue) ?Event {
+        return self.events.popOrNull();
+    }
 };
-
-pub fn pushInEvent(self: *Gui, event: InEvent) !void {
-    try self.in_events.append(event);
-}
-
-pub fn nextInEvent(self: *Gui) ?InEvent {
-    return self.in_events.popOrNull();
-}
-
-pub fn pushOutEvent(self: *Gui, event: OutEvent) !void {
-    try self.out_events.append(event);
-}
-
-pub fn nextOutEvent(self: *Gui) ?OutEvent {
-    return self.out_events.popOrNull();
-}
 
 fn processGesture(
     self: *Gui,
@@ -298,6 +333,8 @@ pub const Component = struct {
     /// flag to let the GUI know a parameter needs to be updated
     param_changed: bool = false,
 
+    // TODO: Would prefer to do "inheritance" by making any subtype hold a
+    // *Component and just call @fieldParentPtr() from within the subtype
     sub_type: union(enum) {
         slider: Slider,
         menu: Menu,
@@ -505,10 +542,11 @@ pub const Knob = struct {
     }
 };
 
-const debug_mouse_pos = true;
+const debug_mouse_pos = false;
 const debug_mouse_color = Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
 
 comptime {
     @export(guiRender, .{ .name = "gui_render", .linkage = .weak });
     @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
+    @export(Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
 }

@@ -18,6 +18,8 @@ pub const clap = @import("clap_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub extern const plugin_desc: DescType;
+// NOTE: How to propagate user-defined name to this file?
+const plugin_name = "Example Distortion";
 
 pub const Plugin = struct {
     pub const Description = struct {
@@ -60,7 +62,6 @@ pub const Plugin = struct {
     gui: ?*Gui = null,
 
     mutex: std.Thread.Mutex = .{},
-    timer: *Timer,
 
     allocator: Allocator = std.heap.c_allocator,
 
@@ -98,14 +99,12 @@ pub const Plugin = struct {
             log.err("How did this get called if GUI is null?\n", .{});
             return;
         };
-        while (gui.nextOutEvent()) |event| {
+        while (gui.out_events.next()) |event| {
             switch (event) {
                 // NOTE: We should decide on a convention for whether or not
                 // the param values from the GUI are expected to be normalized
                 // or not.
                 .param_change => |change| {
-                    plugin.mutex.lock();
-                    defer plugin.mutex.unlock();
                     const p = plugin.param_info[change.id];
                     plugin.params[change.id] = p.valueFromNormalized(change.value);
 
@@ -145,8 +144,6 @@ pub fn init(
         .param_info = params,
         .params = param.createSlice(allocator, params),
         .allocator = allocator,
-        .timer = Timer.init(allocator, 16, on_timer, plug) catch |e|
-            log.fatal("Timer init failed: {!}\n", .{e}),
     };
     return plug;
 }
@@ -154,17 +151,8 @@ pub fn init(
 // NOTE: SHould we call the user's deinit fn here rather than expect them to call this?
 /// Deinit a Plugin using the allocator passed to it in init().
 pub fn deinit(plugin: *Plugin) void {
-    plugin.timer.deinit();
     plugin.allocator.free(plugin.params);
     plugin.allocator.destroy(plugin);
-}
-
-pub fn on_timer(self: *Plugin) void {
-    if (self.gui) |gui| {
-        if (gui.wants_repaint.load(.acquire))
-            GuiPlatform.guiRender(gui.impl, true);
-        // self.pollGuiEvents();
-    }
 }
 
 const DescType = switch (format) {
@@ -336,19 +324,27 @@ pub fn Slice(comptime T: type) type {
 }
 
 pub const log = struct {
+    const format_str = @tagName(format);
+    /// debug logger which gets compiled out in release modes
+    pub fn debug(comptime fmt: []const u8, args: anytype) void {
+        std.debug.print(plugin_name ++ " " ++ format_str ++ ": " ++ fmt, args);
+    }
+
     /// default info
     pub fn info(comptime fmt: []const u8, args: anytype) void {
-        std.log.info(fmt, args);
+        std.log.info(plugin_name ++ " " ++ format_str ++ ": " ++ fmt, args);
     }
 
     /// default nonfatal error
     pub fn err(comptime fmt: []const u8, args: anytype) void {
-        std.log.err(fmt, args);
+        std.log.err(plugin_name ++ " " ++ format_str ++ ": " ++
+            fmt, args);
     }
 
     /// default fatal error
     pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
-        std.log.err(fmt, args);
+        std.log.err(plugin_name ++ " " ++ format_str ++ ": " ++
+            fmt, args);
         std.process.exit(1);
     }
 };

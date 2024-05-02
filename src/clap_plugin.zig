@@ -340,7 +340,7 @@ const Gui = struct {
                     _ = host_fd.register_fd(clap_plug.host, plug.gui.?.impl.fd, .{ .FD_READ = true });
                 }
             }
-            GuiPlatform.guiRender(plug.gui.?.impl, true);
+            // GuiPlatform.guiRender(plug.gui.?.impl, true);
             return true;
         }
         return false;
@@ -581,12 +581,12 @@ pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callco
                     const param_event = cast(*const clap.EventParamValue, e);
                     plug.params[param_event.param_id] = @floatCast(param_event.value);
                     if (plug.gui) |gui| {
-                        gui.pushInEvent(.{ .param_change = .{
+                        gui.in_events.push(.{ .param_change = .{
                             .id = param_event.param_id,
                             .value = plug.param_info[param_event.param_id]
                                 .getNormalizedValue(@floatCast(param_event.value)),
                         } }) catch |err| {
-                            log.err("Event push failed: {!}\n", .{err});
+                            log.err("in_events push failed: {!}\n", .{err});
                             return;
                         };
                         gui.wants_repaint.store(true, .release);
@@ -623,7 +623,8 @@ pub fn process(
     var event_index: u32 = 0;
     var next_event_frame: u32 = if (num_events > 0) 0 else num_frames;
 
-    if (p_info.out_events) |out_ev| plug.pollGuiEvents(out_ev);
+    if (plug.gui) |_|
+        if (p_info.out_events) |out_ev| plug.pollGuiEvents(out_ev);
 
     var i: u32 = 0;
     while (i < num_frames) {

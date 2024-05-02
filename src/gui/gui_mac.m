@@ -23,12 +23,13 @@ extern void gui_render(void *user);
 @property (nonatomic) uint32_t width;
 @property (nonatomic) uint32_t height;
 @property (nonatomic) bool hasSuperView;
+@property CFRunLoopTimerRef timer;
 @end
 
 @implementation GuiImpl
 - (void)drawRect:(NSRect)dirtyRect {
     gui_render(_user);
-    const unsigned char *data = (const unsigned char *)_bits;
+    const unsigned char *const data = (const unsigned char *)_bits;
     NSDrawBitmap(self.bounds, _width, _height, 8 /*bits per channel*/,
     4 /*channels per pixel*/, 32 /*bits per pixel*/,
     4 * _width /*bytes per row*/, NO /*planar*/, YES /*alpha*/, NSDeviceRGBColorSpace, &data);
@@ -66,6 +67,8 @@ extern void gui_render(void *user);
 // TODO: Override key methods
 @end
 
+void guiTimerCallback(CFRunLoopTimerRef timer, void *info);
+
 GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
 {
     NSRect frame;
@@ -78,11 +81,19 @@ GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
     gui.bits = bits;
     gui.width = w;
     gui.height = h;
+
+    CFRunLoopTimerContext timer = {};
+    timer.info = gui.user;
+    gui.timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 0.016,
+                                     0.016, 0, 0, guiTimerCallback, &timer);
+    CFRunLoopAddTimer(CFRunLoopGetMain(), gui.timer, kCFRunLoopCommonModes);
+    
     return gui;
 }
 
 void guiDestroy(GuiImpl *gui)
 {
+    CFRunLoopTimerInvalidate(gui.timer);
     [((GuiImpl *) gui) release];
 }
 
