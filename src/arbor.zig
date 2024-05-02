@@ -93,7 +93,7 @@ pub const Plugin = struct {
         return plugin.param_info[id].name;
     }
 
-    pub fn pollGuiEvents(plugin: *Plugin) void {
+    pub fn pollGuiEvents(plugin: *Plugin, out: *const clap.OutputEvents) void {
         const gui = plugin.gui orelse {
             log.err("How did this get called if GUI is null?\n", .{});
             return;
@@ -108,6 +108,24 @@ pub const Plugin = struct {
                     defer plugin.mutex.unlock();
                     const p = plugin.param_info[change.id];
                     plugin.params[change.id] = p.valueFromNormalized(change.value);
+
+                    const out_event = clap.EventParamValue{
+                        .header = .{
+                            .size = @sizeOf(clap.EventParamValue),
+                            .time = 0,
+                            .space_id = clap.CLAP_CORE_EVENT_SPACE_ID,
+                            .flags = .{},
+                            .type = .PARAM_VALUE,
+                        },
+                        .cookie = null,
+                        .param_id = @intCast(change.id),
+                        .note_id = -1,
+                        .port_index = -1,
+                        .channel = -1,
+                        .key = -1,
+                        .value = @floatCast(plugin.params[change.id]),
+                    };
+                    _ = out.try_push(out, &out_event.header);
                 },
             }
         }
@@ -145,7 +163,7 @@ pub fn on_timer(self: *Plugin) void {
     if (self.gui) |gui| {
         if (gui.wants_repaint.load(.acquire))
             GuiPlatform.guiRender(gui.impl, true);
-        self.pollGuiEvents();
+        // self.pollGuiEvents();
     }
 }
 
