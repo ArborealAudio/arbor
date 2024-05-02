@@ -37,7 +37,6 @@ host_log: ?*const clap.HostLog = null,
 host_thread_check: ?*const clap.HostThreadCheck = null,
 host_state: ?*const clap.HostState = null,
 host_params: ?*const clap.params.HostParams = null,
-host_timer_support: ?*const clap.HostTimer = null,
 host_fd_support: ?*const clap.posix_fd.HostSupport = null,
 timer_id: clap.Id,
 
@@ -294,26 +293,6 @@ const Params = struct {
     };
 };
 
-// Timer
-const Timer = struct {
-    fn onTimer(plugin: ?*const clap.Plugin, id: clap.Id) callconv(.C) void {
-        const clap_plug = plug_cast(plugin);
-        if (id != clap_plug.timer_id) return;
-
-        if (clap_plug.plugin) |plug| {
-            if (plug.gui) |gui| {
-                if (gui.wants_repaint.load(.acquire))
-                    GuiPlatform.guiRender(gui.impl, true);
-                plug.pollGuiEvents();
-            }
-        }
-    }
-
-    pub const Data = clap.PluginTimer{
-        .on_timer = onTimer,
-    };
-};
-
 // GUI //
 const GuiPlatform = arbor.Gui.Platform;
 const GuiImpl = arbor.Gui.GuiImpl;
@@ -536,12 +515,14 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
     if (get_ext(host, clap.EXT_PARAMS)) |ptr|
         clap_plug.host_params = @ptrCast(@alignCast(ptr));
 
-    if (get_ext(host, clap.EXT_TIMER_SUPPORT)) |ptr| {
-        clap_plug.host_timer_support = @ptrCast(@alignCast(ptr));
-        if (clap_plug.host_timer_support) |timer| {
-            _ = timer.register_timer(host, timer_ms, &clap_plug.timer_id);
-        }
-    }
+    // if (get_ext(host, clap.EXT_TIMER_SUPPORT)) |ptr| {
+    //     clap_plug.host_timer_support = @ptrCast(@alignCast(ptr));
+    //     if (clap_plug.host_timer_support) |timer| {
+    //         if (!timer.register_timer(host, timer_ms, &clap_plug.timer_id)) {
+    //             log.err("Host timer register failed\n", .{});
+    //         }
+    //     }
+    // }
 
     if (get_ext(host, clap.EXT_POSIX_FD_SUPPORT)) |ptr|
         clap_plug.host_fd_support = @ptrCast(@alignCast(ptr));
@@ -551,10 +532,10 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
 
 pub fn destroy(plugin: ?*const clap.Plugin) callconv(.C) void {
     const clap_plug = plug_cast(plugin);
-    const host = clap_plug.host orelse log.fatal("Clap host is null\n", .{});
-    if (clap_plug.host_timer_support) |timer| {
-        _ = timer.unregister_timer(host, clap_plug.timer_id);
-    }
+    // const host = clap_plug.host orelse log.fatal("Clap host is null\n", .{});
+    // if (clap_plug.host_timer_support) |timer| {
+    //     _ = timer.unregister_timer(host, clap_plug.timer_id);
+    // }
     if (clap_plug.plugin) |plug|
         plug.interface.deinit(plug);
     allocator.destroy(clap_plug);
@@ -715,8 +696,8 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
         return &Params.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
         return &Gui.Data;
-    if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
-        return &Timer.Data;
+    // if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
+    //     return &Timer.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
         return &PosixFDSupport.Data;
     return null;
