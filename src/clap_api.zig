@@ -328,7 +328,7 @@ pub const InputEvents = extern struct {
 /// Any outgoing events you want to send
 pub const OutputEvents = extern struct {
     ctx: ?*anyopaque,
-    try_push: *const fn (list: ?*OutputEvents, event: ?*EventHeader) callconv(.C) bool,
+    try_push: *const fn (list: ?*const OutputEvents, event: ?*const EventHeader) callconv(.C) bool,
 };
 
 pub const Host = extern struct {
