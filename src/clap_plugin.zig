@@ -623,6 +623,8 @@ pub fn process(
     var event_index: u32 = 0;
     var next_event_frame: u32 = if (num_events > 0) 0 else num_frames;
 
+    if (p_info.out_events) |out_ev| plug.pollGuiEvents(out_ev);
+
     var i: u32 = 0;
     while (i < num_frames) {
         // handle all events at frame i
