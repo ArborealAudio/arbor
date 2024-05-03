@@ -18,13 +18,14 @@ that code to Arbor via a C API and the Zig build system.
 batteries included.
 
 * Cross-platform graphics. A simple software renderer, but also native graphics
-programming, ideally using something like [sokol](https://github.com/floooh/sokol.git)
-for cross-platform graphics abstraction.
+programming, potentially using something like [sokol](https://github.com/floooh/sokol.git),
+or making a thin wrapper around Direct2D/CoreGraphics for cross-platform graphics abstraction.
 
-* Simple, declarative UI design. Probably using a custom CSS-like syntax (or
-[Ziggy](https://github.com/kristoff-it/ziggy.git)) to declare, arrange, and
-style UI widgets at **runtime** or **compile-time**, all compiling to native
-code--not running in some god-forsaken web browser embedded in a plugin UI 🤮
+* Simple, declarative UI design. Possibly with the option of using a custom
+CSS-like syntax (or [Ziggy](https://github.com/kristoff-it/ziggy.git)) to
+declare, arrange, and style UI widgets at **runtime** or **compile-time**, all
+compiling to native code--not running in some god-forsaken web browser embedded
+in a plugin UI 🤮
 
 ## TODO:
 
