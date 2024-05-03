@@ -23,7 +23,9 @@ pub fn build(b: *std.Build) !void {
     // build UI library
     buildGUI(b, arbor_mod, target, optimize);
 
-    const plug = if (b.option([]const u8, "example", "Build an example plugin")) |example| blk: {
+    const plug = if (b.option([]const u8, "example", "Build an example plugin")) |option| blk: {
+        const example_id = try matchExample(option);
+        const example = examples[example_id];
         std.log.info("Building example: {s}\n", .{example});
         break :blk try buildExample(b, format, example, arbor_mod, target, optimize);
     } else return error.NoExample;
@@ -92,6 +94,18 @@ fn buildGUI(
         .file = b.path("src/gui/olive.c"),
         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
     });
+}
+
+const examples: []const []const u8 = &.{
+    "Distortion",
+};
+
+/// returns index into examples list
+fn matchExample(option: []const u8) !usize {
+    inline for (examples, 0..) |name, i| {
+        if (std.mem.eql(u8, name, option)) return i;
+    }
+    return error.ExampleNotFound;
 }
 
 fn buildExample(
