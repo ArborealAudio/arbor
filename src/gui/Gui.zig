@@ -355,12 +355,12 @@ pub const Component = struct {
 };
 
 pub const Slider = struct {
-    // base: *Component,
+    base: *const Component,
 
-    // pub fn init(base: Component) *Component {
-    //     const self = Slider{ .base = &base };
-    //     return self.base;
-    // }
+    pub fn init(base: *const Component) *const Component {
+        const self = Slider{ .base = base };
+        return self.base;
+    }
 
     fn draw_proc(self: *Component) void {
         const height = if (self.label) |label|

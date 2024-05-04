@@ -18,6 +18,26 @@ pub const BuildConfig = struct {
     root_source_file: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+
+    // in-place modification of certain properties
+
+    pub fn withName(self: BuildConfig, name: [:0]const u8) BuildConfig {
+        var new = self;
+        new.description.name = name;
+        return new;
+    }
+
+    pub fn withID(self: BuildConfig, id: [:0]const u8) BuildConfig {
+        var new = self;
+        new.description.id = id;
+        return new;
+    }
+
+    pub fn withSource(self: BuildConfig, src: []const u8) BuildConfig {
+        var new = self;
+        new.root_source_file = src;
+        return new;
+    }
 };
 
 pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
@@ -41,7 +61,7 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
     arbor_mod.addOptions("build_options", build_options);
 
     // build UI library
-    buildGUI(b, arbor_mod, target, optimize);
+    buildGUI(b, arbor_mod, target);
 
     const plug = try buildPlugin(b, arbor_mod, format, config);
     plug.root_module.addOptions("build_options", build_options);
@@ -65,45 +85,34 @@ fn buildGUI(
     b: *std.Build,
     arbor_mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
 ) void {
     const dep = b.dependencyFromBuildZig(@This(), .{});
-    // NOTE: Is it really necessary to make it a static lib? Could we just add
-    // the relevant C files to the plugin?
-    const platform = b.addStaticLibrary(.{
-        .name = "platform-gui",
-        .root_source_file = dep.path("src/gui/platform.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
     switch (target.result.os.tag) {
         .linux => {
-            platform.addSystemIncludePath(.{ .path = "/usr/include/" });
-            platform.linkSystemLibrary("X11");
-            platform.addCSourceFile(.{
+            arbor_mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/" });
+            arbor_mod.linkSystemLibrary("X11", .{});
+            arbor_mod.addCSourceFile(.{
                 .file = dep.path("src/gui/gui_x11.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .windows => {
-            platform.linkSystemLibrary("gdi32");
-            platform.linkSystemLibrary("user32");
-            platform.addCSourceFile(.{
+            arbor_mod.linkSystemLibrary("gdi32", .{});
+            arbor_mod.linkSystemLibrary("user32", .{});
+            arbor_mod.addCSourceFile(.{
                 .file = dep.path("src/gui/gui_w32.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .macos => {
-            platform.linkFramework("Cocoa");
-            platform.addCSourceFile(.{
+            arbor_mod.linkFramework("Cocoa", .{});
+            arbor_mod.addCSourceFile(.{
                 .file = dep.path("src/gui/gui_mac.m"),
                 .flags = &.{"-ObjC"},
             });
         },
         else => @panic("Unimplemented OS\n"),
     }
-    arbor_mod.linkLibrary(platform);
     arbor_mod.addCSourceFile(.{
         .file = dep.path("src/gui/olive.c"),
         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
@@ -123,7 +132,7 @@ fn buildPlugin(
 
     const usr_plug = b.addStaticLibrary(.{
         .name = name,
-        .root_source_file = b.path(config.root_source_file),
+        .root_source_file = dep.path(config.root_source_file),
         .target = config.target,
         .optimize = config.optimize,
     });
@@ -145,8 +154,38 @@ fn buildPlugin(
 }
 
 pub fn build(b: *std.Build) !void {
-    _ = b;
+    if (b.option(bool, "examples", "Build example plugins")) |_| {
+        inline for (examples) |ex| {
+            var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
+            config = config.withName("Example Distortion");
+            config.target = b.standardTargetOptions(.{});
+            config.optimize = b.standardOptimizeOption(.{});
+            try addPlugin(b, config);
+        }
+    }
 }
+
+const default_config = BuildConfig{
+    .description = .{
+        .name = undefined,
+        .id = undefined,
+        .company = "Arboreal Audio",
+        .version = "0.1",
+        .copyright = "(c) 2024 Arboreal Audio, LLC",
+        .url = "",
+        .manual = "",
+        .contact = "",
+        .description = "Vintage analog warmth",
+    },
+    .features = features.STEREO | features.EFFECT,
+    .root_source_file = undefined,
+    .target = undefined,
+    .optimize = undefined,
+};
+
+const examples = [_]BuildConfig{
+    default_config.withName("Distortion").withID("com.Arbor.ExDist"),
+};
 
 pub const CopyStep = struct {
     const Step = std.Build.Step;

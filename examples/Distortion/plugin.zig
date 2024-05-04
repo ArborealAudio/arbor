@@ -119,7 +119,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             return;
         };
         if (!std.mem.eql(u8, param_info.name, "Mode")) {
-            gui.addComponent(.{
+            gui.addComponent(arbor.Gui.Slider.init(&.{
                 .canvas = gui.canvas,
                 .interface = arbor.Gui.Slider.interface,
                 .value = param_info.getNormalizedValue(plugin.params[i]),
@@ -141,7 +141,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
                         .center_y = false,
                     },
                 },
-            });
+            }).*);
         } else { // mode menu
             gui.addComponent(.{
                 .canvas = gui.canvas,
