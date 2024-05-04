@@ -3,8 +3,11 @@ const arbor = @import("arbor.zig");
 
 test "Plugin features" {
     const span = std.mem.span;
-    const features = &[_]arbor.PluginFeatures{ .stereo, .synth, .eq };
+    const features: arbor.PluginFeatures = arbor.features.STEREO | arbor.features.SYNTH |
+        arbor.features.EQ | arbor.features.EFFECT;
 
+    try std.testing.expect(features & arbor.features.EFFECT > 0);
+    try std.testing.expect(features & arbor.features.INSTRUMENT == 0);
     var parsed = try arbor.parseClapFeatures(features);
 
     var i: u32 = 0;
@@ -14,8 +17,10 @@ test "Plugin features" {
         if (i == 0)
             try std.testing.expectEqualStrings(span(feat.?), "stereo");
         if (i == 1)
-            try std.testing.expectEqualStrings(span(feat.?), "synthesizer");
+            try std.testing.expectEqualStrings(span(feat.?), "audio-effect");
         if (i == 2)
             try std.testing.expectEqualStrings(span(feat.?), "equalizer");
+        if (i == 3)
+            try std.testing.expectEqualStrings(span(feat.?), "synthesizer");
     }
 }

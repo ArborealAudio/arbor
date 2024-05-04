@@ -173,7 +173,7 @@ pub fn createFormatDescription() DescType {
                 .support_url = desc.contact.ptr,
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
-                .features = (parseClapFeatures() catch |e| {
+                .features = (parseClapFeatures(build_options.plugin_features) catch |e| {
                     log.fatal("Parse CLAP features failed: {!}\n", .{e});
                 }).constSlice().ptr,
             };
@@ -229,8 +229,7 @@ pub const features = struct {
 // our enum and a format's string representation.
 pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, 17);
 
-pub fn parseClapFeatures() !FeaturesArray {
-    const feat = build_options.plugin_features;
+pub fn parseClapFeatures(comptime feat: PluginFeatures) !FeaturesArray {
     const F = clap.PluginFeatures;
     var out = try FeaturesArray.init(0);
 
