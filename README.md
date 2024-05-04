@@ -85,7 +85,6 @@ pub fn build(b: *std.Build) !void {
 
 	try arbor.addPlugin(b, .{
 		.description = .{
-			.name = "Your Plugin Name",
 			.id = "com.Plug-O.Evil",
 			.name = "My Evil Plugin",
 			.company = "Plug-O Corp, Ltd.",
