@@ -1,24 +1,20 @@
 //! Main source file for framework, collecting everything in one place
-
 const std = @import("std");
 const assert = std.debug.assert;
-// ISSUE: Build options appears to be bugged, it won't allow import
-// const build_options = @import("build_options");
+const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 
 pub const param = @import("params.zig");
 pub const Parameter = param.Parameter;
 pub const Format = enum { CLAP, VST3, VST2 };
-// const format = build_options.format;
-const format = Format.CLAP;
+const format = build_options.format;
 pub const Gui = @import("gui/Gui.zig");
 
 pub const clap = @import("clap_api.zig");
 
 /// User-defined plugin description, converted to format type
-pub extern const plugin_desc: DescType;
-// NOTE: How to propagate user-defined name to this file?
-const plugin_name = "Example Distortion";
+pub const plugin_desc: DescType = createFormatDescription();
+pub const plugin_name = build_options.plugin_desc.name;
 
 pub const Plugin = struct {
     pub const Description = struct {
@@ -30,7 +26,9 @@ pub const Plugin = struct {
         company: [:0]const u8,
         /// version string
         version: [:0]const u8,
-        /// url of your website
+        /// copyright string
+        copyright: [:0]const u8,
+        /// url of your website, not that you need one. It's nice to have!
         url: [:0]const u8,
         /// contact url
         contact: [:0]const u8,
@@ -38,8 +36,9 @@ pub const Plugin = struct {
         manual: [:0]const u8,
         /// short description of plugin
         description: [:0]const u8,
-        /// format-agnostic list of plugin features
-        features: []const PluginFeatures,
+        // NOTE: Removed features from this struct until bugs w/ Zig build options are fixed
+        // format-agnostic list of plugin features
+        // features: []const PluginFeatures,
     };
 
     pub extern fn init() *Plugin;
@@ -48,7 +47,7 @@ pub const Plugin = struct {
         deinit: *const fn (*Plugin) void,
         prepare: *const fn (*Plugin, f32, u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
-        // processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
+        // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
     };
 
     interface: Interface,
@@ -147,7 +146,6 @@ pub fn init(
     return plug;
 }
 
-// NOTE: SHould we call the user's deinit fn here rather than expect them to call this?
 /// Deinit a Plugin using the allocator passed to it in init().
 pub fn deinit(plugin: *Plugin) void {
     plugin.allocator.free(plugin.params);
@@ -161,7 +159,8 @@ const DescType = switch (format) {
 
 /// Create a description that satisfies the requirements of the format being
 /// compiled for.
-pub fn createFormatDescription(comptime desc: Plugin.Description) DescType {
+pub fn createFormatDescription() DescType {
+    const desc = build_options.plugin_desc;
     switch (DescType) {
         clap.PluginDescriptor => {
             return .{
@@ -174,13 +173,92 @@ pub fn createFormatDescription(comptime desc: Plugin.Description) DescType {
                 .support_url = desc.contact.ptr,
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
-                .features = (parseClapFeatures(desc.features) catch |e| {
+                .features = (parseClapFeatures() catch |e| {
                     log.fatal("Parse CLAP features failed: {!}\n", .{e});
                 }).constSlice().ptr,
             };
         },
         else => @compileError("Unimplemented format"),
     }
+}
+
+// NOTE: Had to convert from an enum to C-style bit flags, since Zig build options
+// generation seems bugged
+/// Bit-packed list of supported plugin features, which will be converted to format-specific feature list
+pub const PluginFeatures = u32;
+pub const features = struct {
+    pub const MONO = 1 << 0;
+    pub const STEREO = 1 << 1;
+    pub const SURROUND = 1 << 2;
+    pub const AMBISONIC = 1 << 3;
+    pub const EFFECT = 1 << 4;
+    pub const DISTORTION = 1 << 5;
+    pub const DYNAMICS = 1 << 6;
+    pub const EQ = 1 << 7;
+    pub const REVERB = 1 << 8;
+    pub const PITCH_SHIFT = 1 << 9;
+    pub const MASTERING = 1 << 10;
+    pub const ANALYZER = 1 << 11;
+    pub const RESTORATION = 1 << 12;
+    pub const INSTRUMENT = 1 << 13;
+    pub const SYNTH = 1 << 14;
+    pub const SAMPLER = 1 << 15;
+    pub const DRUM = 1 << 16;
+};
+// MONO,
+// STEREO,
+// SURROUND,
+// AMBISONIC,
+// EFFECT,
+// DISTORTION,
+// DYNAMICS,
+// EQ,
+// REVERB,
+// PITCH_SHIFT,
+// MASTERING,
+// ANALYZER,
+// RESTORATION,
+// INSTRUMENT,
+// SYNTH,
+// SAMPLER,
+// DRUM,
+// END,
+
+// TODO: Improve this. Couldn't think of a better way to compare features.
+// There's gotta be a simple data structure which can aid converting between
+// our enum and a format's string representation.
+pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, 17);
+
+pub fn parseClapFeatures() !FeaturesArray {
+    const feat = build_options.plugin_features;
+    const F = clap.PluginFeatures;
+    var out = try FeaturesArray.init(0);
+
+    if (feat & features.INSTRUMENT == 0 and feat & features.EFFECT == 0 and
+        feat & features.ANALYZER == 0)
+        @compileError("Must have one main CLAP feature: 'instrument', 'audio-effect', 'note-effect', or 'analyzer' ");
+
+    if (feat & features.MONO > 0) try out.append(F.MONO);
+    if (feat & features.STEREO > 0) try out.append(F.STEREO);
+    if (feat & features.SURROUND > 0) try out.append(F.SURROUND);
+    if (feat & features.AMBISONIC > 0) try out.append(F.AMBISONIC);
+    if (feat & features.EFFECT > 0) try out.append(F.AUDIO_EFFECT);
+    if (feat & features.DISTORTION > 0) try out.append(F.DISTORTION);
+    if (feat & features.DYNAMICS > 0) try out.appendSlice(&.{ F.COMPRESSOR, F.GATE, F.EXPANDER });
+    if (feat & features.EQ > 0) try out.append(F.EQUALIZER);
+    if (feat & features.REVERB > 0) try out.append(F.REVERB);
+    if (feat & features.PITCH_SHIFT > 0) try out.append(F.PITCH_SHIFTER);
+    if (feat & features.MASTERING > 0) try out.append(F.MASTERING);
+    if (feat & features.ANALYZER > 0) try out.append(F.ANALYZER);
+    if (feat & features.RESTORATION > 0) try out.append(F.RESTORATION);
+    if (feat & features.INSTRUMENT > 0) try out.append(F.INSTRUMENT);
+    if (feat & features.SYNTH > 0) try out.append(F.SYNTHESIZER);
+    if (feat & features.SAMPLER > 0) try out.append(F.SAMPLER);
+    if (feat & features.DRUM > 0) try out.appendSlice(&.{ F.DRUM, F.DRUM_MACHINE });
+
+    try out.append(null);
+
+    return out;
 }
 
 /// Generic audio buffer
@@ -239,67 +317,6 @@ pub const Timer = struct {
         }
     }
 };
-
-/// List of supported plugin features, which will be converted to format-specific feature list
-pub const PluginFeatures = enum {
-    mono,
-    stereo,
-    surround,
-    ambisonic,
-    effect,
-    distortion,
-    dynamics,
-    eq,
-    reverb,
-    pitch_shift,
-    mastering,
-    analyzer,
-    restoration,
-    instrument,
-    synth,
-    sampler,
-    drum,
-    count,
-};
-
-// TODO: Improve this. Couldn't think of a better way to compare features.
-// There's gotta be a simple data structure which can aid converting between
-// our enum and a format's string representation.
-pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, @intFromEnum(PluginFeatures.count));
-
-pub fn parseClapFeatures(feat: []const PluginFeatures) !FeaturesArray {
-    const F = clap.PluginFeatures;
-    var out = try FeaturesArray.init(0);
-    for (feat) |f| {
-        switch (f) {
-            .mono => try out.append(F.MONO),
-            .stereo => try out.append(F.STEREO),
-            .surround => try out.append(F.SURROUND),
-            .ambisonic => try out.append(F.AMBISONIC),
-            .effect => try out.append(F.AUDIO_EFFECT),
-            .distortion => try out.append(F.DISTORTION),
-            .dynamics => try out.appendSlice(&.{ F.COMPRESSOR, F.GATE, F.EXPANDER }),
-            .eq => try out.append(F.EQUALIZER),
-            .reverb => try out.append(F.REVERB),
-            .pitch_shift => try out.append(F.PITCH_SHIFTER),
-            .mastering => try out.append(F.MASTERING),
-            .analyzer => try out.append(F.ANALYZER),
-            .restoration => try out.append(F.RESTORATION),
-            .instrument => try out.append(F.INSTRUMENT),
-            .synth => try out.append(F.SYNTHESIZER),
-            .sampler => try out.append(F.SAMPLER),
-            .drum => try out.appendSlice(&.{ F.DRUM, F.DRUM_MACHINE }),
-            .count => {
-                log.err("Don't actually pass `.count`. That's for internal use\n", .{});
-                return error.UserPassedEnumCount;
-            },
-        }
-    }
-
-    try out.append(null);
-
-    return out;
-}
 
 // UTILS //
 

@@ -5,18 +5,6 @@ const log = arbor.log;
 
 const Distortion = @This();
 
-export const plugin_desc = arbor.createFormatDescription(.{
-    .id = "com.arbor.ExDist",
-    .name = "Example Distortion",
-    .company = "Arboreal Audio",
-    .version = "0.1",
-    .url = "https://arborealaudio.com",
-    .contact = "contact@arborealaudio.com",
-    .manual = "",
-    .description = "Basic distortion plugin",
-    .features = &.{ .effect, .stereo, .distortion },
-});
-
 const Mode = enum {
     Vintage,
     Modern,
@@ -68,7 +56,8 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     for (buffer.input[0..buffer.num_ch], 0..) |ch, ch_idx| {
         var out = buffer.output[ch_idx];
         for (ch[start..end], start..) |sample, idx| {
-            // You wouldn't want to branch inside this loop, but...example
+            // For performance reasons, you wouldn't want to branch inside
+            // this loop, but...example
             switch (mode) {
                 .Modern => {
                     out[idx] = (3.0 / 2.0) * std.math.tanh(in_gain * sample) * out_gain;

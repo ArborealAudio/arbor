@@ -29,12 +29,11 @@ in a plugin UI 🤮
 
 ## TODO:
 
-- [ ] Make the framework a proper module that can be imported thru Zig build and used
-as such
-
 - [ ] VST3 API
 
 - [ ] AUv2 API
+
+- [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
 
 - [ ] Simple cross-platform rendering
 
@@ -60,11 +59,11 @@ as such
 
 	- [x] Decent syncing of parameter changes
 
-	- [ ] Handle CLAP parameter modulation
+	- [ ] Handle CLAP non-destructive parameter modulation
 
 - [ ] Make GUI optional (should allow cross-compiling)
 
-- [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
+	- [x] Semi-working by handling user leaving gui null after `gui_init`
 
 ## Usage
 
@@ -78,21 +77,30 @@ In top-level build.zig:
 
 ```zig
 const std = @import("std");
-const arbor = @import("arbor/build.zig");
+const arbor = @import("arbor");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
 	const target = b.standardTargetOptions(.{});
 	const optimize = b.standardOptimizeOption(.{});
-	// your code is a static lib linked to the shared plugin lib
-	// TODO: Make a framework build function which takes in some options and
-	// spits out the proper build step
-	const plugin = b.addStaticLibrary(.{
-		.name = plugin_name,
-		.root_source_file = b.path("src/plugin.zig"),
+
+	try arbor.addPlugin(b, .{
+		.description = .{
+			.name = "Your Plugin Name",
+			.id = "com.Plug-O.Evil",
+			.name = "My Evil Plugin",
+			.company = "Plug-O Corp, Ltd.",
+			.version = "0.1",
+			.url = "https://plug-o-corp.biz",
+			.contact = "contact@plug-o-corp.biz",
+			.manual = "https://plug-o-corp.biz/Evil/manual.pdf",
+			.description = "Vintage Analog Warmth",
+		},
+		.features = arbor.features.STEREO | arbor.features.EFFECT |
+			arbor.features.EQ,
+		.root_source_file = "src/plugin.zig",
 		.target = target,
 		.optimize = optimize,
 	});
-	plugin.addImport("arbor", arbor.build(b, plugin, target, optimize));
 }
 ```
 
@@ -100,18 +108,6 @@ In plugin.zig:
 
 ```zig
 const arbor = @import("arbor");
-
-export const plugin_desc = arbor.createFormatDescription(
-	.id = "com.Plug-O.Evil",
-	.name = "My Evil Plugin",
-	.company = "Plug-O Corp, Ltd.",
-	.version = "0.1",
-	.url = "https://plug-o-corp.biz",
-	.contact = "contact@plug-o-corp.biz",
-	.manual = "https://plug-o-corp.biz/Evil/manual.pdf", // CLAP needs this
-	.description = "Vintage Analog Warmth",
-	.features = &.{.effect, .stereo, .eq},
-);
 
 const Mode = enum {
 	Vintage,
@@ -140,7 +136,7 @@ const allocator = std.heap.c_allocator;
 
 // initialize plugin 
 export fn init() *arbor.Plugin {
-	const plugin = arbor.configure(allocator, .{
+	const plugin = arbor.init(allocator, params .{
 		.deinit = deinit,
 		.prepare = prepare,
 		.process = process,
@@ -155,7 +151,11 @@ export fn init() *arbor.Plugin {
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
-	_ = plugin;
+	if (plugin.user) |ptr| {
+		const plugin: *Plugin = arbor.cast(*Plugin, ptr);
+		plugin.allocator.destroy(plugin);
+	}
+	arbor.deinit(plugin);
 }
 
 fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
@@ -174,7 +174,7 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
 	const end = buffer.offset + buffer.frames;
 	
 	for (buffer.input[0..buffer.num_ch], 0..) |channel_data, ch_num| {
-	  	for (channel_data[buffer.offset..end], 0..) |sample, i| {
+	  	for (channel_data[buffer.offset..end], buffer.offset..) |sample, i| {
 			buffer.output[ch_num][i] = sample * gain_param;
 		}
 	}
@@ -188,6 +188,7 @@ To build:
 
 ```sh
 zig build
+# Add 'copy' to copy plugin to user plugin dir
 # Eventual compile options:
 # You can add -Dformat=[VST2/VST3/CLAP/AU]
 # Not providing a format will compile all formats available on your platform

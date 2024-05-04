@@ -1,20 +1,40 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const arbor = @import("src/arbor.zig");
 const Format = arbor.Format;
+const Description = arbor.Plugin.Description;
+pub const features = arbor.features;
+
+comptime {
+    if (builtin.zig_version.minor != 12) @compileError("Requires Zig 0.12 stable");
+}
 
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo
 // TODO: Configure OSX sysroot so we can supply our own SDK
 
-pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+pub const BuildConfig = struct {
+    description: Description,
+    features: arbor.PluginFeatures,
+    root_source_file: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+};
+
+pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
+    const root = b.dependencyFromBuildZig(@This(), .{});
+    const target = config.target;
+    const optimize = config.optimize;
 
     const build_options = b.addOptions();
+    // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
+    // Or -- CLI option overrides build options or vice-versa.
     const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
     build_options.addOption(Format, "format", format);
+    build_options.addOption(Description, "plugin_desc", config.description);
+    build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
 
     const arbor_mod = b.addModule("arbor", .{
-        .root_source_file = b.path("src/arbor.zig"),
+        .root_source_file = root.path("src/arbor.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -23,29 +43,20 @@ pub fn build(b: *std.Build) !void {
     // build UI library
     buildGUI(b, arbor_mod, target, optimize);
 
-    const plug = if (b.option([]const u8, "example", "Build an example plugin")) |option| blk: {
-        const example_id = try matchExample(option);
-        const example = examples[example_id];
-        std.log.info("Building example: {s}\n", .{example});
-        break :blk try buildExample(b, format, example, arbor_mod, target, optimize);
-    } else return error.NoExample;
+    const plug = try buildPlugin(b, arbor_mod, format, config);
+    plug.root_module.addOptions("build_options", build_options);
 
     b.installArtifact(plug);
-    const copy_cmd = try CopyStep.createStep(b, format, target, plug);
+    const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
     copy_cmd.step.dependOn(b.getInstallStep());
-    const copy_step = b.step("copy", "Copy plugin to system dir");
-    copy_step.dependOn(&copy_cmd.step);
+    _ = b.step("copy", "Copy plugin to user plugins dir").dependOn(&copy_cmd.step);
 
     // Creates a step for unit testing.
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/tests.zig" },
+        .root_source_file = root.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build test`
-    // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&tests.step);
 }
@@ -56,9 +67,12 @@ fn buildGUI(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
+    const dep = b.dependencyFromBuildZig(@This(), .{});
+    // NOTE: Is it really necessary to make it a static lib? Could we just add
+    // the relevant C files to the plugin?
     const platform = b.addStaticLibrary(.{
         .name = "platform-gui",
-        .root_source_file = b.path("src/gui/platform.zig"),
+        .root_source_file = dep.path("src/gui/platform.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -68,22 +82,22 @@ fn buildGUI(
             platform.addSystemIncludePath(.{ .path = "/usr/include/" });
             platform.linkSystemLibrary("X11");
             platform.addCSourceFile(.{
-                .file = b.path("src/gui/gui_x11.c"),
+                .file = dep.path("src/gui/gui_x11.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .windows => {
-            platform.root_module.linkSystemLibrary("gdi32", .{ .needed = true });
-            platform.root_module.linkSystemLibrary("user32", .{ .needed = true });
+            platform.linkSystemLibrary("gdi32");
+            platform.linkSystemLibrary("user32");
             platform.addCSourceFile(.{
-                .file = b.path("src/gui/gui_w32.c"),
+                .file = dep.path("src/gui/gui_w32.c"),
                 .flags = &.{"-std=c99"},
             });
         },
         .macos => {
             platform.linkFramework("Cocoa");
             platform.addCSourceFile(.{
-                .file = b.path("src/gui/gui_mac.m"),
+                .file = dep.path("src/gui/gui_mac.m"),
                 .flags = &.{"-ObjC"},
             });
         },
@@ -91,71 +105,61 @@ fn buildGUI(
     }
     arbor_mod.linkLibrary(platform);
     arbor_mod.addCSourceFile(.{
-        .file = b.path("src/gui/olive.c"),
+        .file = dep.path("src/gui/olive.c"),
         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
     });
 }
 
-const examples: []const []const u8 = &.{
-    "Distortion",
-};
-
-/// returns index into examples list
-fn matchExample(option: []const u8) !usize {
-    inline for (examples, 0..) |name, i| {
-        if (std.mem.eql(u8, name, option)) return i;
-    }
-    return error.ExampleNotFound;
-}
-
-fn buildExample(
+fn buildPlugin(
     b: *std.Build,
-    format: Format,
-    example: []const u8,
     module: *std.Build.Module,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    format: Format,
+    config: BuildConfig,
 ) !*std.Build.Step.Compile {
-    const lib_src = try std.mem.concat(
-        b.allocator,
-        u8,
-        &.{ "examples/", example, "/plugin.zig" },
-    );
-    const lib = b.addStaticLibrary(.{
-        .name = example,
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path(lib_src),
-        .link_libc = true,
+    const dep = b.dependencyFromBuildZig(@This(), .{});
+    // make sure we have a file name w/ no spaces
+    const name = try b.allocator.dupe(u8, config.description.name);
+    std.mem.replaceScalar(u8, name, ' ', '_');
+
+    const usr_plug = b.addStaticLibrary(.{
+        .name = name,
+        .root_source_file = b.path(config.root_source_file),
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    lib.root_module.addImport("arbor", module);
+    usr_plug.root_module.addImport("arbor", module);
 
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
-        else => @panic("TODO: this format\n"),
+        else => @panic("TODO: This format"),
     };
     const plug = b.addSharedLibrary(.{
-        .name = example,
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path(plug_src),
-        .link_libc = true,
+        .name = name,
+        .root_source_file = dep.path(plug_src),
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    plug.linkLibrary(lib);
+    plug.linkLibrary(usr_plug);
 
     return plug;
+}
+
+pub fn build(b: *std.Build) !void {
+    _ = b;
 }
 
 pub const CopyStep = struct {
     const Step = std.Build.Step;
     step: Step,
     format: Format,
+    config: BuildConfig,
     target: std.Build.ResolvedTarget,
     artifact: *Step.Compile,
 
     pub fn createStep(
         b: *std.Build,
         format: Format,
+        config: BuildConfig,
         target: std.Build.ResolvedTarget,
         artifact: *Step.Compile,
     ) !*CopyStep {
@@ -167,6 +171,7 @@ pub const CopyStep = struct {
                 .owner = b,
                 .makeFn = make,
             }),
+            .config = config,
             .format = format,
             .target = target,
             .artifact = artifact,
@@ -177,12 +182,13 @@ pub const CopyStep = struct {
 
     pub fn make(step: *Step, _: *std.Progress.Node) !void {
         const self: *CopyStep = @fieldParentPtr("step", step);
-        try pluginCopyStep(step.owner, self.target, self.format, self.artifact);
+        try pluginCopyStep(step.owner, self.config, self.target, self.format, self.artifact);
     }
 };
 
 fn pluginCopyStep(
     b: *std.Build,
+    config: BuildConfig,
     target: std.Build.ResolvedTarget,
     format: Format,
     output: *std.Build.Step.Compile,
@@ -220,7 +226,10 @@ fn pluginCopyStep(
     defer plugin_dir.close();
     const gen_file = output.getEmittedBin().generated.getPath();
 
-    // write MacOS plist & bundle thing
+    // make double sure we have a file name w/ no spaces
+    const out_name = try b.allocator.dupe(u8, output.name);
+    std.mem.replaceScalar(u8, out_name, ' ', '_');
+
     switch (os) {
         .macos => {
             const extension = switch (format) {
@@ -228,26 +237,24 @@ fn pluginCopyStep(
                 .VST3 => ".vst3/Contents",
                 .VST2 => ".vst/Contents",
             };
-            const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
+            const contents_path = try std.mem.concat(allocator, u8, &.{ out_name, extension });
             var contents_dir = try plugin_dir.makeOpenPath(contents_path, .{});
             defer contents_dir.close();
-            // write copy bin file
             _ = try std.fs.cwd().updateFile(
                 gen_file,
                 contents_dir,
-                try std.mem.concat(allocator, u8, &.{ "MacOS/", output.name }),
+                try std.mem.concat(allocator, u8, &.{ "MacOS/", out_name }),
                 .{},
             );
             const plist = try contents_dir.createFile("Info.plist", .{});
             defer plist.close();
-            // TODO: Get these from user description
             try plist.writer().print(osx_bundle_plist, .{
-                output.name, //CFBundleExecutable
-                "com.ArborealAudio.Distortion", //CF BundleIdentifier
-                output.name, //CFBundleName
-                "0.1.0", //CFBundleShortVersion
-                "0.1.0", //CFBundleVersion
-                "(c) 2024 Arboreal Audio, LLC", //NSHumanReadableCopyright
+                out_name, //CFBundleExecutable
+                config.description.id, //CF BundleIdentifier
+                out_name, //CFBundleName
+                config.description.version, //CFBundleShortVersion
+                config.description.version, //CFBundleVersion
+                config.description.copyright, //NSHumanReadableCopyright
             });
             const bndl = try contents_dir.createFile("PkgInfo", .{});
             defer bndl.close();
@@ -259,7 +266,7 @@ fn pluginCopyStep(
                 .VST3 => ".vst3/Contents",
                 .VST2 => ".so",
             };
-            const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
+            const contents_path = try std.mem.concat(allocator, u8, &.{ out_name, extension });
             if (format != .VST3) {
                 _ = try std.fs.cwd().updateFile(
                     gen_file,
@@ -273,7 +280,7 @@ fn pluginCopyStep(
                 _ = try std.fs.cwd().updateFile(
                     gen_file,
                     dest_dir,
-                    try std.mem.concat(allocator, u8, &.{ "x86_64-linux/", output.name, ".so" }),
+                    try std.mem.concat(allocator, u8, &.{ "x86_64-linux/", out_name, ".so" }),
                     .{},
                 );
             }
@@ -284,7 +291,7 @@ fn pluginCopyStep(
                 .VST3 => ".vst3/Contents",
                 .VST2 => ".dll",
             };
-            const contents_path = try std.mem.concat(allocator, u8, &.{ output.name, extension });
+            const contents_path = try std.mem.concat(allocator, u8, &.{ out_name, extension });
             if (format != .VST3) {
                 if (plugin_dir.access(contents_path, .{})) {} else |err| {
                     if (err == error.FileNotFound) {
@@ -299,7 +306,7 @@ fn pluginCopyStep(
                         _ = try std.fs.cwd().updateFile(
                             gen_pdb,
                             plugin_dir,
-                            try std.mem.concat(allocator, u8, &.{ output.name, ".pdb" }),
+                            try std.mem.concat(allocator, u8, &.{ out_name, ".pdb" }),
                             .{},
                         );
                     }

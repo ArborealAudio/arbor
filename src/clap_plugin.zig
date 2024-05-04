@@ -334,14 +334,15 @@ const Gui = struct {
         if (plug_cast(plugin).plugin) |plug| {
             std.debug.assert(plug.gui == null);
             arbor.Gui.gui_init(plug);
-            const clap_plug = plug_cast(plugin);
-            if (builtin.os.tag == .linux) {
-                if (clap_plug.host_fd_support) |host_fd| {
-                    _ = host_fd.register_fd(clap_plug.host, plug.gui.?.impl.fd, .{ .FD_READ = true });
+            if (plug.gui) |gui| {
+                const clap_plug = plug_cast(plugin);
+                if (builtin.os.tag == .linux) {
+                    if (clap_plug.host_fd_support) |host_fd| {
+                        _ = host_fd.register_fd(clap_plug.host, gui.impl.fd, .{ .FD_READ = true });
+                    }
                 }
-            }
-            // GuiPlatform.guiRender(plug.gui.?.impl, true);
-            return true;
+                return true;
+            } else return false; // No GUI supplied
         }
         return false;
     }
