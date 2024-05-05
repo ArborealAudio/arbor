@@ -93,7 +93,7 @@ const border_color = draw.Color{ .r = 0xc0, .g = 0xf0, .b = 0xc0, .a = 0xff };
 
 // Export an entry to our GUI implementation
 export fn gui_init(plugin: *arbor.Plugin) void {
-    const gui = arbor.Gui.init(allocator, .{
+    const gui = arbor.Gui.init(plugin.allocator, .{
         .plugin = plugin,
         .width = WIDTH,
         .height = HEIGHT,
@@ -108,8 +108,9 @@ export fn gui_init(plugin: *arbor.Plugin) void {
     // than computing based on window size, etc.
     // somehting like getNextLayoutSection() and it will provide a rect which corresponds
     // to the appropriate area based on a layout chosen *prior* to instantiating components
-    const comp_width = (WIDTH / plugin_params.len) / 2;
-    const gap = WIDTH / 8;
+    const slider_width = (WIDTH / 2) / 3;
+    const slider_height = 200;
+    const gap = WIDTH / 4;
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
     // setup unique properties here
@@ -119,16 +120,17 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             return;
         };
         if (!std.mem.eql(u8, param_info.name, "Mode")) {
-            gui.addComponent(arbor.Gui.Slider.init(&.{
+            gui.addComponent(.{
                 .canvas = gui.canvas,
+                .sub_type = arbor.Gui.Slider.init(allocator),
                 .interface = arbor.Gui.Slider.interface,
                 .value = param_info.getNormalizedValue(plugin.params[i]),
                 .pos = .{
-                    .x = @floatFromInt(i * comp_width + gap * (i + 1)),
-                    .y = HEIGHT / 2 - 100,
+                    .x = @floatFromInt(i * slider_width + gap * (i + 1)),
+                    .y = HEIGHT / 2 - (slider_height / 2),
                 },
-                .width = @as(f32, @floatFromInt(comp_width)),
-                .height = 200,
+                .width = @as(f32, @floatFromInt(slider_width)),
+                .height = slider_height,
                 .background_color = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff },
                 .label = .{
                     .text = param_info.name,
@@ -141,32 +143,31 @@ export fn gui_init(plugin: *arbor.Plugin) void {
                         .center_y = false,
                     },
                 },
-            }).*);
+            });
         } else { // mode menu
+            const menu_width = WIDTH / 2;
+            const menu_height = HEIGHT / 8;
+            const bot_pad = 50;
             gui.addComponent(.{
                 .canvas = gui.canvas,
+                .sub_type = arbor.Gui.Menu.init(allocator, param_info.enum_choices orelse {
+                    log.err("No enum choices available\n", .{});
+                    return;
+                }, draw.Color.fromBits(0xffaaaaaa), 3),
                 .interface = arbor.Gui.Menu.interface,
-                .value = plugin.params[i], // don't bother normalizing since we just care about the int
+                .value = param_info.getNormalizedValue(plugin.params[i]), // don't bother normalizing since we just care about the int
                 .pos = .{
-                    .x = @floatFromInt(i * comp_width + gap * (i + 1)),
-                    .y = HEIGHT / 2 - 50,
+                    .x = (WIDTH - menu_width) - menu_width / 2,
+                    .y = HEIGHT - menu_height - bot_pad,
                 },
-                .width = @as(f32, @floatFromInt(comp_width)) * 1.5,
-                .height = 100,
-                .background_color = draw.Color.NULL,
+                .width = menu_width,
+                .height = menu_height,
+                .background_color = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff },
                 .label = .{
                     .text = param_info.name,
-                    .height = 18,
+                    .height = menu_height / 2,
                     .color = draw.Color.WHITE,
                 },
-                .sub_type = .{ .menu = .{
-                    .choices = param_info.enum_choices orelse {
-                        log.err("No enum choices available\n", .{});
-                        return;
-                    },
-                    .border_color = draw.Color.WHITE,
-                    .border_thickness = 3,
-                } },
             });
         }
     }
