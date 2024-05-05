@@ -6,7 +6,8 @@ const Description = arbor.Plugin.Description;
 pub const features = arbor.features;
 
 comptime {
-    if (builtin.zig_version.minor != 12) @compileError("Requires Zig 0.12 stable");
+    if (builtin.zig_version.minor != 12 and
+        builtin.zig_version.patch != 0) @compileError("Requires Zig 0.12 stable");
 }
 
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo
@@ -70,15 +71,6 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
     const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
     copy_cmd.step.dependOn(b.getInstallStep());
     _ = b.step("copy", "Copy plugin to user plugins dir").dependOn(&copy_cmd.step);
-
-    // Creates a step for unit testing.
-    const tests = b.addTest(.{
-        .root_source_file = root.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&tests.step);
 }
 
 fn buildGUI(
@@ -132,7 +124,7 @@ fn buildPlugin(
 
     const usr_plug = b.addStaticLibrary(.{
         .name = name,
-        .root_source_file = dep.path(config.root_source_file),
+        .root_source_file = b.path(config.root_source_file),
         .target = config.target,
         .optimize = config.optimize,
     });
@@ -152,40 +144,6 @@ fn buildPlugin(
 
     return plug;
 }
-
-pub fn build(b: *std.Build) !void {
-    if (b.option(bool, "examples", "Build example plugins")) |_| {
-        inline for (examples) |ex| {
-            var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
-            config = config.withName("Example Distortion");
-            config.target = b.standardTargetOptions(.{});
-            config.optimize = b.standardOptimizeOption(.{});
-            try addPlugin(b, config);
-        }
-    }
-}
-
-const default_config = BuildConfig{
-    .description = .{
-        .name = undefined,
-        .id = undefined,
-        .company = "Arboreal Audio",
-        .version = "0.1",
-        .copyright = "(c) 2024 Arboreal Audio, LLC",
-        .url = "",
-        .manual = "",
-        .contact = "",
-        .description = "Vintage analog warmth",
-    },
-    .features = features.STEREO | features.EFFECT,
-    .root_source_file = undefined,
-    .target = undefined,
-    .optimize = undefined,
-};
-
-const examples = [_]BuildConfig{
-    default_config.withName("Distortion").withID("com.Arbor.ExDist"),
-};
 
 pub const CopyStep = struct {
     const Step = std.Build.Step;
@@ -393,3 +351,156 @@ const osx_bundle_plist =
     \\</plist>
     \\
 ;
+
+pub fn build(b: *std.Build) !void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    if (b.option(bool, "examples", "Build example plugins")) |_| {
+        inline for (examples) |ex| {
+            var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
+            config = config.withName("Example Distortion");
+            config.target = target;
+            config.optimize = optimize;
+            try addExample(b, config);
+        }
+    }
+
+    // Creates a step for unit testing.
+    const tests = b.addTest(.{
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&tests.step);
+}
+
+const default_config = BuildConfig{
+    .description = .{
+        .name = undefined,
+        .id = undefined,
+        .company = "Arboreal Audio",
+        .version = "0.1",
+        .copyright = "(c) 2024 Arboreal Audio, LLC",
+        .url = "",
+        .manual = "",
+        .contact = "",
+        .description = "Vintage analog warmth",
+    },
+    .features = features.STEREO | features.EFFECT,
+    .root_source_file = undefined,
+    .target = undefined,
+    .optimize = undefined,
+};
+
+const examples = [_]BuildConfig{
+    default_config.withName("Distortion").withID("com.Arbor.ExDist"),
+};
+
+// NOTE: WOW had to copy all build logic b/c I couldn't figure out how to diverge
+// it based on relative build root. That is to say, you can't use dependency-relative
+// paths while using this repo on its own (as you probably would when testing w/
+// example plugins) and you can't use build-relative paths when using this as a module,
+// so this is a bad solution that is also the only thing I can think to do.
+
+pub fn addExample(b: *std.Build, config: BuildConfig) !void {
+    const target = config.target;
+    const optimize = config.optimize;
+
+    const build_options = b.addOptions();
+    // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
+    // Or -- CLI option overrides build options or vice-versa.
+    const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
+    build_options.addOption(Format, "format", format);
+    build_options.addOption(Description, "plugin_desc", config.description);
+    build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
+
+    const arbor_mod = b.addModule("arbor", .{
+        .root_source_file = b.path("src/arbor.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    arbor_mod.addOptions("build_options", build_options);
+
+    // build UI library
+    buildGUIExample(b, arbor_mod, target);
+
+    const plug = try buildExample(b, arbor_mod, format, config);
+    plug.root_module.addOptions("build_options", build_options);
+
+    b.installArtifact(plug);
+    const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
+    copy_cmd.step.dependOn(b.getInstallStep());
+    _ = b.step("copy", "Copy plugin to user plugins dir").dependOn(&copy_cmd.step);
+}
+
+fn buildGUIExample(
+    b: *std.Build,
+    arbor_mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+) void {
+    switch (target.result.os.tag) {
+        .linux => {
+            arbor_mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/" });
+            arbor_mod.linkSystemLibrary("X11", .{});
+            arbor_mod.addCSourceFile(.{
+                .file = b.path("src/gui/gui_x11.c"),
+                .flags = &.{"-std=c99"},
+            });
+        },
+        .windows => {
+            arbor_mod.linkSystemLibrary("gdi32", .{});
+            arbor_mod.linkSystemLibrary("user32", .{});
+            arbor_mod.addCSourceFile(.{
+                .file = b.path("src/gui/gui_w32.c"),
+                .flags = &.{"-std=c99"},
+            });
+        },
+        .macos => {
+            arbor_mod.linkFramework("Cocoa", .{});
+            arbor_mod.addCSourceFile(.{
+                .file = b.path("src/gui/gui_mac.m"),
+                .flags = &.{"-ObjC"},
+            });
+        },
+        else => @panic("Unimplemented OS\n"),
+    }
+    arbor_mod.addCSourceFile(.{
+        .file = b.path("src/gui/olive.c"),
+        .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
+    });
+}
+
+fn buildExample(
+    b: *std.Build,
+    module: *std.Build.Module,
+    format: Format,
+    config: BuildConfig,
+) !*std.Build.Step.Compile {
+    // make sure we have a file name w/ no spaces
+    const name = try b.allocator.dupe(u8, config.description.name);
+    std.mem.replaceScalar(u8, name, ' ', '_');
+
+    const usr_plug = b.addStaticLibrary(.{
+        .name = name,
+        .root_source_file = b.path(config.root_source_file),
+        .target = config.target,
+        .optimize = config.optimize,
+    });
+    usr_plug.root_module.addImport("arbor", module);
+
+    const plug_src = switch (format) {
+        .CLAP => "src/clap_plugin.zig",
+        else => @panic("TODO: This format"),
+    };
+    const plug = b.addSharedLibrary(.{
+        .name = name,
+        .root_source_file = b.path(plug_src),
+        .target = config.target,
+        .optimize = config.optimize,
+    });
+    plug.linkLibrary(usr_plug);
+
+    return plug;
+}
