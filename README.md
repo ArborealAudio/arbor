@@ -29,8 +29,6 @@ in a plugin UI 🤮
 
 ## TODO:
 
-- [ ] Get the example to compile nicely again with some simple option in `zig build`
-
 - [ ] VST3 API
 
 - [ ] AUv2 API
@@ -47,13 +45,13 @@ in a plugin UI 🤮
 
 		- [x] Slider (vertical slider at least)
 		
-		* Knob
-		
-		* Button
+		- [ ] Knob
+
+		- [ ] Button
 		
 		- [x] Label
 
-		- [ ] Options menu
+		- [x] Options menu
 
 - [ ] Add a basic volume meter to/as an example
 
