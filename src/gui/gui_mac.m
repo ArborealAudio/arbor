@@ -5,6 +5,7 @@
 #include <stdio.h>
 #import <Foundation/Foundation.h>
 #import <Cocoa/Cocoa.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 enum {
     Idle,
@@ -29,10 +30,16 @@ extern void gui_render(void *user);
 @implementation GuiImpl
 - (void)drawRect:(NSRect)dirtyRect {
     gui_render(_user);
-    const unsigned char *const data = (const unsigned char *)_bits;
-    NSDrawBitmap(self.bounds, _width, _height, 8 /*bits per channel*/,
-    4 /*channels per pixel*/, 32 /*bits per pixel*/,
-    4 * _width /*bytes per row*/, NO /*planar*/, YES /*alpha*/, NSDeviceRGBColorSpace, &data);
+    CGContextRef cg_context = [[NSGraphicsContext currentContext] CGContext];
+    if (cg_context == NULL) return;
+    CGColorSpaceRef color_space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, _bits, _width * _height * 4, NULL);
+    CGImageRef image = CGImageCreate(_width, _height, 8, 32, _width * 4, color_space,
+                  kCGBitmapByteOrder32Little | kCGImageAlphaFirst, provider, NULL, false, kCGRenderingIntentDefault);
+    CGColorSpaceRelease(color_space);
+    CGDataProviderRelease(provider);
+    CGContextDrawImage(cg_context, self.bounds, image);
+    CGImageRelease(image);
 }
 
 - (BOOL)acceptsFirstMouse:(NSEvent *)event {
@@ -46,6 +53,7 @@ extern void gui_render(void *user);
 // Adapt mouse y to be consistent w/ more standard top-down method
 - (void)mouseDown:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (![self mouse:cursor inRect:self.bounds]) return;
     sysInputEvent(_user, cursor.x, _height - cursor.y, MouseDown);
 }
 
@@ -56,11 +64,13 @@ extern void gui_render(void *user);
 
 - (void)mouseDragged:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (![self mouse:cursor inRect:self.bounds]) return;
     sysInputEvent(_user, cursor.x, _height - cursor.y, MouseDrag);
 }
 
 - (void)mouseMoved:(NSEvent *)event {
     NSPoint cursor = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (![self mouse:cursor inRect:self.bounds]) return;
     sysInputEvent(_user, cursor.x, _height - cursor.y, MouseOver);
 }
 

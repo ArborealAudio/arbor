@@ -21,6 +21,7 @@ pub const Vec2u = extern struct {
     y: u32,
 
     pub fn fromVec2i(v: Vec2i) Vec2u {
+        std.debug.assert(v.x >= 0 and v.y >= 0);
         return .{ .x = @intCast(v.x), .y = @intCast(v.y) };
     }
 };
