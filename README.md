@@ -18,10 +18,9 @@ that code to Arbor via a C API and the Zig build system.
 batteries included.
 
 * Cross-platform graphics. A simple software renderer (like Olivec), but also
-native graphics programming, potentially using something like [sokol](https://
-github.com/floooh/sokol.git), or making a thin wrapper around Direct2D/
-CoreGraphics for cross-platform graphics abstraction, giving the programmer
-a simple choice with little to no platform-specific considerations.
+native graphics programming, potentially using something like [sokol](https://github.com/floooh/sokol.git), or making a thin wrapper around Direct2D/CoreGraphics for
+cross-platform graphics abstraction, giving the programmer a simple choice with
+little to no platform-specific considerations.
 
 * Simple, declarative UI design. Possibly with the option of using a custom
 CSS-like syntax (or [Ziggy](https://github.com/kristoff-it/ziggy.git)) to
