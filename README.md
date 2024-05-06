@@ -53,6 +53,8 @@ in a plugin UI 🤮
 
 		- [x] Options menu
 
+- [ ] Add GUI timer on Linux
+
 - [ ] Add a basic volume meter to/as an example
 
 - [ ] Simple & robust events system

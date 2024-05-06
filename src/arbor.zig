@@ -97,7 +97,7 @@ pub const Plugin = struct {
             log.err("How did this get called if GUI is null?\n", .{});
             return;
         };
-        while (gui.out_events.next()) |event| {
+        while (gui.out_events.next_try()) |event| {
             switch (event) {
                 // NOTE: We should decide on a convention for whether or not
                 // the param values from the GUI are expected to be normalized

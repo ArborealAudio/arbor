@@ -371,8 +371,8 @@ const Gui = struct {
         if (plug_cast(plugin).plugin) |plug| {
             if (plug.gui) |gui| {
                 const size = gui.getSize();
-                if (width) |ptr| ptr.* = @intFromFloat(size.x);
-                if (height) |ptr| ptr.* = @intFromFloat(size.y);
+                if (width) |ptr| ptr.* = @intCast(size.x);
+                if (height) |ptr| ptr.* = @intCast(size.y);
             }
         }
         return true;
@@ -582,7 +582,7 @@ pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callco
                     const param_event = cast(*const clap.EventParamValue, e);
                     plug.params[param_event.param_id] = @floatCast(param_event.value);
                     if (plug.gui) |gui| {
-                        gui.in_events.push(.{ .param_change = .{
+                        gui.in_events.push_try(.{ .param_change = .{
                             .id = param_event.param_id,
                             .value = plug.param_info[param_event.param_id]
                                 .getNormalizedValue(@floatCast(param_event.value)),

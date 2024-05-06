@@ -7,6 +7,10 @@ const log = arbor.log;
 
 const Plugin = arbor.Plugin;
 pub const draw = @import("draw.zig");
+const Vec2 = draw.Vec2i;
+const Rect = draw.Recti;
+const Color = draw.Color;
+
 pub const Platform = @import("platform.zig");
 pub const GuiImpl = Platform.GuiImpl;
 pub const GuiState = Platform.GuiState;
@@ -19,7 +23,7 @@ const Gui = @This();
 pub extern fn gui_init(*Plugin) void;
 
 pub const GuiConfig = struct {
-    plugin: *Plugin,
+    layout: LayoutType,
     width: u32,
     height: u32,
     interface: Interface,
@@ -35,7 +39,7 @@ impl: *GuiImpl,
 canvas: draw.Canvas,
 
 interface: Interface,
-
+layout: LayoutType,
 components: std.ArrayList(Component),
 
 in_events: *Queue,
@@ -46,7 +50,7 @@ allocator: Allocator,
 state: struct {
     type: GuiState = .Idle,
 
-    mouse_pos: draw.Vec2 = .{ .x = 0, .y = 0 },
+    mouse_pos: Vec2 = .{ .x = 0, .y = 0 },
     comp_id: ?usize = null,
 } = .{},
 
@@ -62,6 +66,7 @@ pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
         .bits = bits,
         .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height),
         .interface = config.interface,
+        .layout = config.layout,
         .components = std.ArrayList(Component).init(allocator),
         .in_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}),
         .out_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}),
@@ -81,20 +86,40 @@ pub fn deinit(self: *Gui) void {
     self.allocator.destroy(self);
 }
 
-pub fn guiRender(self: *Gui) callconv(.C) void {
+pub fn render(self: *Gui) callconv(.C) void {
     // unload event queue
     self.pollInEvents();
 
     self.interface.render(self);
 
-    if (debug_mouse_pos) {
-        draw.olivec_circle(
-            self.canvas,
-            @intFromFloat(self.state.mouse_pos.x),
-            @intFromFloat(self.state.mouse_pos.y),
-            3,
-            debug_mouse_color.toBits(),
-        );
+    if (builtin.mode == .Debug) {
+        if (debug_mouse_pos) {
+            draw.olivec_circle(
+                self.canvas,
+                @intFromFloat(self.state.mouse_pos.x),
+                @intFromFloat(self.state.mouse_pos.y),
+                3,
+                debug_mouse_color.toBits(),
+            );
+        }
+        if (debug_grid) {
+            draw.olivec_line(
+                self.canvas,
+                @divTrunc(self.getSize().x, 2),
+                0,
+                @divTrunc(self.getSize().x, 2),
+                self.getSize().y,
+                debug_grid_color.toBits(),
+            );
+            draw.olivec_line(
+                self.canvas,
+                0,
+                @divTrunc(self.getSize().y, 2),
+                self.getSize().x,
+                @divTrunc(self.getSize().y, 2),
+                debug_grid_color.toBits(),
+            );
+        }
     }
 
     // check for component param change flags & push to plugin
@@ -125,21 +150,20 @@ fn pollInEvents(self: *Gui) void {
     }
 }
 
-fn sysInputEvent(self: *Gui, cursorX: i32, cursorY: i32, state: GuiState) callconv(.C) void {
+fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.C) void {
     if (self.state.type != state)
         self.state.type = state;
     self.processGesture(
-        .{ .x = @floatFromInt(cursorX), .y = @floatFromInt(cursorY) },
+        .{ .x = cursor_x, .y = cursor_y },
     ) catch |e| {
         log.err("{!}\n", .{e});
         return;
     };
     self.wants_repaint.store(true, .release);
-    // Platform.guiRender(self.impl, true);
 }
 
-pub fn getSize(self: Gui) draw.Vec2 {
-    return .{ .x = @floatFromInt(self.canvas.width), .y = @floatFromInt(self.canvas.height) };
+pub fn getSize(self: Gui) Vec2 {
+    return .{ .x = @intCast(self.canvas.width), .y = @intCast(self.canvas.height) };
 }
 
 // NOTE: We do expect pointers for now, would prefer not to rely on heap
@@ -172,15 +196,15 @@ pub const Event = union(enum) {
 
 pub const queue_size = 512;
 pub const Queue = struct {
-    const QueueType = std.BoundedArray(Event, queue_size);
-    events: QueueType,
+    const QueueArray = std.BoundedArray(Event, queue_size);
+    events: QueueArray,
     mutex: std.Thread.Mutex = .{},
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) !*Queue {
         const self = try allocator.create(Queue);
         self.* = .{
-            .events = try QueueType.init(0),
+            .events = try QueueArray.init(0),
             .allocator = allocator,
         };
         return self;
@@ -190,7 +214,7 @@ pub const Queue = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn push(self: *Queue, event: Event) !void {
+    pub fn push_try(self: *Queue, event: Event) !void {
         if (self.mutex.tryLock()) {
             defer self.mutex.unlock();
             try self.events.append(event);
@@ -207,7 +231,7 @@ pub const Queue = struct {
         try self.events.append(event);
     }
 
-    pub fn next(self: *Queue) ?Event {
+    pub fn next_try(self: *Queue) ?Event {
         if (self.mutex.tryLock()) {
             defer self.mutex.unlock();
             return self.events.popOrNull();
@@ -227,11 +251,11 @@ pub const Queue = struct {
 
 fn processGesture(
     self: *Gui,
-    mouse_pos: draw.Vec2,
+    mouse_pos: Vec2,
 ) !void {
     switch (self.state.type) {
         .MouseDrag => {
-            const mouse_delta: draw.Vec2 = .{
+            const mouse_delta: Vec2 = .{
                 .x = mouse_pos.x - self.state.mouse_pos.x,
                 .y = mouse_pos.y - self.state.mouse_pos.y,
             };
@@ -252,11 +276,11 @@ fn processGesture(
             if (self.state.comp_id) |id| {
                 const comp = self.getComponent(id);
                 if (comp.interface.on_mouse_click) |func|
-                    func(comp);
+                    func(comp, mouse_pos);
             } else {
                 if (self.getComponentUnderMouse(mouse_pos)) |c| {
                     if (c[0].interface.on_mouse_click) |func|
-                        func(c[0]);
+                        func(c[0], mouse_pos);
                     self.state.comp_id = c[1];
                 }
             }
@@ -298,10 +322,56 @@ fn processGesture(
     }
 }
 
-const Vec2 = draw.Vec2;
-const Color = draw.Color;
+const LayoutType = union(enum) {
+    default: void,
+    grid: struct {
+        rows: u32,
+        cols: u32,
+    },
+    binary,
+};
 
-/// Struct for organizing text attached to a component
+pub fn performLayout(self: *Gui) void {
+    const gui_size = self.getSize();
+    switch (self.layout) {
+        .default => {
+            for (self.components.items) |*c| {
+                const pad = draw.Vec2u.fromVec2i(c.padding);
+                c.bounds.x += pad.x;
+                c.bounds.y += pad.y;
+                c.bounds.width -= @intCast(pad.x * 2);
+                c.bounds.height -= @intCast(pad.y * 2);
+            }
+        },
+        .grid => |grid| {
+            var row: u32 = 0;
+            var col: u32 = 0;
+            for (self.components.items) |*c| {
+                const pad = draw.Vec2u.fromVec2i(c.padding);
+                const unit_width = @as(u32, @intCast(gui_size.x)) / grid.cols -
+                    @as(u32, @intCast(pad.x)) * 2;
+                const unit_height = @as(u32, @intCast(gui_size.y)) / grid.rows -
+                    @as(u32, @intCast(pad.y)) * 2;
+                c.bounds.x = @intCast(unit_width * col);
+                c.bounds.x += pad.x;
+                c.bounds.y = @intCast(unit_height * row);
+                c.bounds.y += pad.y;
+                c.bounds.width = unit_width;
+                c.bounds.height = unit_height;
+
+                col += 1;
+                if (col > grid.cols - 1) {
+                    col = 0;
+                    row += 1;
+                }
+            }
+        },
+        .binary => {},
+    }
+}
+
+/// Struct for organizing text attached to a component, or for creating a quick
+/// text layout for passing into a text drawing function.
 pub const Label = struct {
     pub const Flags = packed struct {
         center_x: bool = true,
@@ -324,15 +394,14 @@ pub const Component = struct {
         draw_proc: *const fn (self: *Component) void,
         on_mouse_over: ?*const fn (self: *Component, Vec2) void,
         on_mouse_exit: ?*const fn (self: *Component) void,
-        on_mouse_click: ?*const fn (self: *Component) void,
+        on_mouse_click: ?*const fn (self: *Component, Vec2) void,
         on_mouse_drag: ?*const fn (self: *Component, Vec2) void,
     };
 
     // TODO: Move canvas to a graphics context which each component will be pased in their draw_proc()
     canvas: draw.Canvas,
-    pos: Vec2,
-    width: f32,
-    height: f32,
+    bounds: Rect = Rect.zero,
+    padding: Vec2 = .{ .x = 0, .y = 0 },
     background_color: Color,
 
     sub_type: ?*anyopaque = null,
@@ -349,10 +418,11 @@ pub const Component = struct {
     param_changed: bool = false,
 
     pub fn hitTest(self: Component, pt: Vec2) bool {
-        return (pt.x >= self.pos.x and
-            pt.y >= self.pos.y and
-            pt.x <= self.pos.x + self.width and
-            pt.y <= self.pos.y + self.height);
+        const pu = draw.Vec2u.fromVec2i(pt);
+        return (pu.x >= self.bounds.x and
+            pu.y >= self.bounds.y and
+            pu.x <= self.bounds.x + self.bounds.width and
+            pu.y <= self.bounds.y + self.bounds.height);
     }
 
     pub fn setValue(self: *Component, val: f32) void {
@@ -361,47 +431,51 @@ pub const Component = struct {
 };
 
 pub const Slider = struct {
-    // base: Component,
+    color: Color,
 
-    pub fn init(allocator: Allocator) *Slider {
-        return allocator.create(Slider) catch |e|
+    pub fn init(allocator: Allocator, color: Color) *Slider {
+        const self = allocator.create(Slider) catch |e|
             log.fatal("Slider alloc failed: {!}\n", .{e});
+        self.* = .{ .color = color };
+        return self;
     }
 
     fn draw_proc(self: *Component) void {
+        const slider = arbor.cast(*Slider, self.sub_type);
         const height = if (self.label) |label|
-            self.height - @as(f32, @floatFromInt(label.height))
+            self.bounds.height - label.height
         else
-            self.height;
-        const val_height = height * self.value;
-        const top = self.pos.y + (height - val_height);
-        const fill = Color{ .a = 0xff, .r = 0xcc, .g = 0xcc, .b = 0xcc };
+            self.bounds.height;
+        const val_height: u32 = @intFromFloat(@as(f32, @floatFromInt(height)) *
+            self.value);
+        const top = self.bounds.y + (height - val_height);
+
         // draw borders
         draw.olivec_rect(
             self.canvas,
-            @intFromFloat(self.pos.x),
-            @intFromFloat(self.pos.y),
-            @intFromFloat(self.width),
-            @intFromFloat(height),
+            @intCast(self.bounds.x),
+            @intCast(self.bounds.y),
+            @intCast(self.bounds.width),
+            @intCast(height),
             self.background_color.toBits(),
         );
 
         draw.olivec_rect(
             self.canvas,
-            @intFromFloat(self.pos.x),
-            @intFromFloat(top),
-            @intFromFloat(self.width),
-            @intFromFloat(val_height),
-            fill.toBits(),
+            @intCast(self.bounds.x),
+            @intCast(top),
+            @intCast(self.bounds.width),
+            @intCast(val_height),
+            slider.color.toBits(),
         );
 
         if (self.label) |l| {
-            const text_y = self.pos.y + height;
-            const text_x = self.pos.x;
+            const text_y: u32 = self.bounds.y + height;
+            const text_x: u32 = self.bounds.x;
             draw.drawText(self.canvas, l, .{
-                .x = @intFromFloat(text_x),
-                .y = @intFromFloat(text_y),
-                .width = @intFromFloat(self.width),
+                .x = text_x,
+                .y = text_y,
+                .width = self.bounds.width,
                 .height = l.height,
             });
         }
@@ -409,7 +483,7 @@ pub const Slider = struct {
 
     fn on_mouse_drag(self: *Component, mouse_delta: Vec2) void {
         var val = self.value;
-        val += -mouse_delta.y * 0.025;
+        val += -@as(f32, @floatFromInt(mouse_delta.y)) * 0.025;
         val = @min(1, @max(0, val));
         self.value = val;
         self.param_changed = true;
@@ -430,7 +504,7 @@ pub const Menu = struct {
     border_color: Color,
     border_thickness: u32,
 
-    highlight_color: Color = Color{ .r = 0xff, .g = 0xff, .b = 0, .a = 0x90 },
+    highlight_color: Color,
 
     is_mouse_over: bool = false,
     mouse_choice: ?usize = null,
@@ -442,12 +516,14 @@ pub const Menu = struct {
         choices: []const []const u8,
         border_color: Color,
         border_thickness: u32,
+        highlight_color: Color,
     ) *Menu {
         const self = allocator.create(Menu) catch |e| log.fatal("Menu init failed: {!}\n", .{e});
         self.* = .{
             .choices = choices,
             .border_color = border_color,
             .border_thickness = border_thickness,
+            .highlight_color = highlight_color,
         };
         return self;
     }
@@ -455,45 +531,44 @@ pub const Menu = struct {
     pub fn draw_proc(self: *Component) void {
         const menu = arbor.cast(*Menu, self.sub_type);
         const border = if (menu.is_mouse_over)
-            Color{ .r = 0xff, .g = 0xff, .b = 0, .a = 0xff }
+            menu.highlight_color
         else
             menu.border_color;
 
-        const label_height = self.height / 2;
+        const label_height = self.bounds.height / 2;
 
-        const flen: f32 = @floatFromInt(menu.choices.len);
         if (menu.open and menu.is_mouse_over) {
             draw.olivec_rect(
                 self.canvas,
-                @intFromFloat(self.pos.x),
-                @intFromFloat(self.pos.y),
-                @intFromFloat(self.width),
-                @intFromFloat(self.height),
+                @intCast(self.bounds.x),
+                @intCast(self.bounds.y),
+                @intCast(self.bounds.width),
+                @intCast(self.bounds.height),
                 self.background_color.toBits(),
             );
-            const choice_h = self.height / flen;
+            const choice_h: u32 = self.bounds.height / @as(u32, @intCast(menu.choices.len));
             for (menu.choices, 0..) |choice, i| {
                 if (menu.mouse_choice) |mc| {
                     if (i == mc) {
                         draw.olivec_rect(
                             self.canvas,
-                            @intFromFloat(self.pos.x),
-                            @intFromFloat(self.pos.y + (choice_h * @as(f32, @floatFromInt(i)))),
-                            @intFromFloat(self.width),
-                            @intFromFloat(choice_h),
+                            @intCast(self.bounds.x),
+                            @intCast(self.bounds.y + (choice_h * @as(u32, @intCast(i)))),
+                            @intCast(self.bounds.width),
+                            @intCast(choice_h),
                             menu.highlight_color.toBits(),
                         );
                     }
                 }
                 draw.drawText(self.canvas, .{
                     .text = choice,
-                    .height = @intFromFloat(choice_h),
+                    .height = choice_h,
                     .color = Color.WHITE,
                 }, .{
-                    .x = @intFromFloat(self.pos.x),
-                    .y = @intFromFloat(self.pos.y + (choice_h * @as(f32, @floatFromInt(i)))),
-                    .width = @intFromFloat(self.width),
-                    .height = @intFromFloat(choice_h),
+                    .x = self.bounds.x,
+                    .y = (self.bounds.y + (choice_h * @as(u32, @intCast(i)))),
+                    .width = self.bounds.width,
+                    .height = choice_h,
                 });
             }
             return;
@@ -501,52 +576,51 @@ pub const Menu = struct {
 
         if (self.label) |label| {
             draw.drawText(self.canvas, label, .{
-                .x = @intFromFloat(self.pos.x),
-                .y = @intFromFloat(self.pos.y - 1),
-                .width = @intFromFloat(self.width),
-                .height = @intFromFloat(label_height),
+                .x = self.bounds.x,
+                .y = self.bounds.y,
+                .width = self.bounds.width,
+                .height = label_height,
             });
         }
 
-        const menu_y = self.pos.y + label_height;
+        const menu_y = self.bounds.y + label_height;
 
         draw.olivec_rect(
             self.canvas,
-            @intFromFloat(self.pos.x),
-            @intFromFloat(menu_y),
-            @intFromFloat(self.width),
-            @intFromFloat(label_height),
+            @intCast(self.bounds.x),
+            @intCast(menu_y),
+            @intCast(self.bounds.width),
+            @intCast(label_height),
             self.background_color.toBits(),
         );
         draw.olivec_frame(
             self.canvas,
-            @intFromFloat(self.pos.x),
-            @intFromFloat(menu_y),
-            @intFromFloat(self.width),
-            @intFromFloat(label_height),
+            @intCast(self.bounds.x),
+            @intCast(menu_y),
+            @intCast(self.bounds.width),
+            @intCast(label_height),
             menu.border_thickness,
             border.toBits(),
         );
 
-        const current = menu.choices[@intFromFloat(self.value * (flen - 1))];
-        const mod = 0.5;
-        draw.drawText(
-            self.canvas,
-            .{
-                .text = current,
-                .height = @intFromFloat(label_height * mod),
-                .color = Color.WHITE,
-            },
-            .{
-                .x = @intFromFloat(self.pos.x),
-                .y = @intFromFloat(menu_y),
-                .width = @intFromFloat(self.width),
-                .height = @intFromFloat(label_height),
-            },
-        );
+        const current = menu.choices[
+            @intFromFloat(self.value *
+                (@as(f32, @floatFromInt(menu.choices.len)) - 1))
+        ];
+        draw.drawText(self.canvas, .{
+            .text = current,
+            .height = label_height / 2,
+            .color = Color.WHITE,
+        }, .{
+            .x = self.bounds.x,
+            .y = menu_y,
+            .width = self.bounds.width,
+            .height = label_height,
+        });
     }
 
-    fn on_mouse_click(self: *Component) void {
+    fn on_mouse_click(self: *Component, mouse: Vec2) void {
+        _ = mouse;
         const menu = arbor.cast(*Menu, self.sub_type);
         if (menu.mouse_choice) |choice| {
             self.value = @as(f32, @floatFromInt(choice)) /
@@ -561,7 +635,8 @@ pub const Menu = struct {
     fn on_mouse_over(self: *Component, mouse: Vec2) void {
         const menu = arbor.cast(*Menu, self.sub_type);
         menu.is_mouse_over = true;
-        const norm = (mouse.y - self.pos.y) / self.height;
+        const norm: f32 = @as(f32, @floatFromInt(@as(u32, @intCast(mouse.y)) -
+            self.bounds.y)) / @as(f32, @floatFromInt(self.bounds.height));
         if (menu.open)
             menu.mouse_choice = @intFromFloat(@round(norm *
                 @as(f32, @floatFromInt(menu.choices.len - 1))));
@@ -647,8 +722,11 @@ pub const Knob = struct {
 const debug_mouse_pos = false;
 const debug_mouse_color = Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
 
+const debug_grid = false;
+const debug_grid_color = Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
+
 comptime {
-    @export(guiRender, .{ .name = "gui_render", .linkage = .weak });
+    @export(render, .{ .name = "gui_render", .linkage = .weak });
     @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
     @export(Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
 }

@@ -1,3 +1,4 @@
+const std = @import("std");
 pub const olivec = @import("olivec.zig");
 pub usingnamespace olivec;
 pub const Text = @import("Text.zig");
@@ -13,6 +14,15 @@ pub const Vec2 = extern struct {
 pub const Vec2i = extern struct {
     x: i32,
     y: i32,
+};
+
+pub const Vec2u = extern struct {
+    x: u32,
+    y: u32,
+
+    pub fn fromVec2i(v: Vec2i) Vec2u {
+        return .{ .x = @intCast(v.x), .y = @intCast(v.y) };
+    }
 };
 
 pub const Rect = extern struct {
@@ -36,6 +46,8 @@ pub const Recti = extern struct {
     y: u32,
     width: u32,
     height: u32,
+
+    pub const zero = std.mem.zeroes(Recti);
 
     pub fn intersection(a: Recti, b: Recti) Recti {
         var rect = Recti{ .x = 0, .y = 0, .width = 0, .height = 0 };

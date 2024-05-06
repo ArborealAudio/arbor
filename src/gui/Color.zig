@@ -45,6 +45,12 @@ pub fn fromBits(bits: u32) Color {
     }
 }
 
+pub fn withOpacity(color: Color, opacity: u8) Color {
+    var new = color;
+    new.a = opacity;
+    return new;
+}
+
 pub const ColorSpace = enum {
     ARGB,
     ABGR,
