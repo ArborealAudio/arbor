@@ -52,7 +52,6 @@ GuiImpl_t *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
     gui->window = XCreateWindow(gui->display, DefaultRootWindow(gui->display),
                                 0, 0, w, h, 0, 0, InputOutput, CopyFromParent,
                                 CWOverrideRedirect, &attributes);
-    XStoreName(gui->display, gui->window, "ZigVerb");
 
     Atom embedInfoAtom = XInternAtom(gui->display, "_XEMBED_INFO", 0);
     uint32_t embedInfoData[2] = {0, 0};

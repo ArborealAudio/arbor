@@ -95,8 +95,7 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h)
 		RegisterClass(&windowClass);
 	}
 
-	gui->window = CreateWindow("com.ArborealAudio.ZigVerb", "ZigVerb",
-		WS_CHILDWINDOW | WS_CLIPSIBLINGS,
+	gui->window = CreateWindow(NULL, NULL, WS_CHILDWINDOW | WS_CLIPSIBLINGS,
 		CW_USEDEFAULT, 0, w, h, GetDesktopWindow(), NULL, NULL, NULL);
 	gui->bits = bits;
 	gui->width = w;
