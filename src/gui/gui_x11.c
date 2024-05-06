@@ -22,13 +22,21 @@ typedef struct GuiImpl {
     void *user;
 } GuiImpl_t;
 
+typedef enum {
+    Idle,
+    MouseOver,
+    MouseDown,
+    MouseUp,
+    MouseDrag,
+} GuiState;
+
 /// button 0 = dragging, 1 = click, -1 = release
-extern void inputEvent(void* user, int32_t x, int32_t y, int8_t button);
-extern void render(void*);
+extern void sysInputEvent(void* user, int32_t x, int32_t y, GuiState button);
+extern void gui_render(void*);
 
 void guiRender(GuiImpl_t *gui, bool internal)
 {
-    if (internal) render(gui->user);
+    if (internal) gui_render(gui->user);
     XPutImage(gui->display, gui->window, DefaultGC(gui->display, 0), gui->image,
               0, 0, 0, 0, gui->width, gui->height);
 }
@@ -83,16 +91,19 @@ void processX11Event(GuiImpl_t *gui, XEvent *event)
             guiRender(gui, true);
         break;
     case MotionNotify:
-        if (event->xmotion.window == gui->window)
-            inputEvent(gui->user, event->xmotion.x, event->xmotion.y, 0);
+        if (event->xmotion.window == gui->window) {
+            int mouse = event->xmotion.state & Button1Mask;
+            sysInputEvent(gui->user, event->xmotion.x, event->xmotion.y, 
+                          mouse ? MouseDrag : MouseOver);
+        }
         break;
     case ButtonPress:
         if (event->xbutton.window == gui->window && event->xbutton.button == 1)
-            inputEvent(gui->user, event->xbutton.x, event->xbutton.y, 1);
+            sysInputEvent(gui->user, event->xbutton.x, event->xbutton.y, MouseDown);
         break;
     case ButtonRelease:
         if (event->xbutton.window == gui->window && event->xbutton.button == 1)
-            inputEvent(gui->user, event->xbutton.x, event->xbutton.y, -1);
+            sysInputEvent(gui->user, event->xbutton.x, event->xbutton.y, MouseUp);
         break;
     }
 }
