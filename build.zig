@@ -58,6 +58,7 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
         .root_source_file = root.path("src/arbor.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     arbor_mod.addOptions("build_options", build_options);
 
@@ -420,6 +421,7 @@ pub fn addExample(b: *std.Build, config: BuildConfig) !void {
         .root_source_file = b.path("src/arbor.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     arbor_mod.addOptions("build_options", build_options);
 
