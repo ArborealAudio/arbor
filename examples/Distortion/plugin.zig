@@ -94,7 +94,7 @@ const slider_dark = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff };
 const silver = draw.Color.fromBits(0xff_aa_aa_aa);
 
 const highlight_color = draw.Color{ .r = 0xff, .g = 0xff, .b = 0, .a = 0x90 };
-const border_color = draw.Color{ .r = 0x9f, .g = 0xbf, .b = 0x70, .a = 0xff };
+const border_color = draw.Color{ .r = 0x9f, .g = 0xbb, .b = 0x70, .a = 0xff };
 
 const TITLE = "DISTORTION";
 
