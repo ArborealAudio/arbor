@@ -1,4 +1,4 @@
-# Arbor
+# arbor
 
 ## For the future of plugin development
 
@@ -17,9 +17,11 @@ that code to Arbor via a C API and the Zig build system.
 * Easy cross-compilation. Compile to Mac/Linux/Windows from Mac/Linux/Windows,
 batteries included.
 
-* Cross-platform graphics. A simple software renderer, but also native graphics
-programming, potentially using something like [sokol](https://github.com/floooh/sokol.git),
-or making a thin wrapper around Direct2D/CoreGraphics for cross-platform graphics abstraction.
+* Cross-platform graphics. A simple software renderer (like Olivec), but also
+native graphics programming, potentially using something like [sokol](https://
+github.com/floooh/sokol.git), or making a thin wrapper around Direct2D/
+CoreGraphics for cross-platform graphics abstraction, giving the programmer
+a simple choice with little to no platform-specific considerations.
 
 * Simple, declarative UI design. Possibly with the option of using a custom
 CSS-like syntax (or [Ziggy](https://github.com/kristoff-it/ziggy.git)) to
@@ -39,7 +41,11 @@ in a plugin UI 🤮
 
 	- [x] Got basic shapes using Olivec software renderer
 
-	- [x] Make text drawing more robust and complete
+	- [ ] Make text drawing more robust and complete
+
+		- [ ] Allow importing/creating a custom font bitmap and using that for text rendering
+
+		- [ ] Text kerning
 
 	- [ ] Make some basic widgets for building UI:
 
@@ -53,7 +59,7 @@ in a plugin UI 🤮
 
 		- [x] Options menu
 
-- [ ] Add GUI timer on Linux
+	- [ ] Add GUI timer on Linux
 
 - [ ] Add a basic volume meter to/as an example
 
