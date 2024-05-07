@@ -59,8 +59,10 @@ wants_repaint: AtomicBool = AtomicBool.init(true),
 /// Call this from within your gui_init function to init the GUI backend
 pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
     const ptr = allocator.create(Gui) catch |e| log.fatal("{!}\n", .{e});
+    errdefer allocator.free(ptr);
     const bits = allocator.alloc(u32, config.width * config.height) catch |e|
         log.fatal("{!}\n", .{e});
+    errdefer allocator.free(bits);
     ptr.* = .{
         .allocator = allocator,
         .bits = bits,
