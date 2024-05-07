@@ -32,6 +32,8 @@ in a plugin UI 🤮
 
 - [ ] VST3 API
 
+	- [ ] Get rid of gross auto-gen VST3 Zig binding and write our own
+
 - [ ] AUv2 API
 
 - [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
@@ -39,6 +41,8 @@ in a plugin UI 🤮
 - [ ] Simple cross-platform rendering
 
 	- [x] Got basic shapes using Olivec software renderer
+
+	- [x] Simple bitmap text drawing
 
 	- [ ] Make text drawing more robust and complete
 
