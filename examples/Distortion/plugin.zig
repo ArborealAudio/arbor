@@ -178,6 +178,9 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             });
         }
     }
+
+    // we can draw the logo here and just copy it in our render function
+    drawLogo();
 }
 
 fn gui_deinit(gui: *arbor.Gui) void {
@@ -204,5 +207,36 @@ fn gui_render(gui: *arbor.Gui) void {
 
     for (gui.components.items) |*c| {
         c.interface.draw_proc(c);
+    }
+    draw.olivec_sprite_blend(gui.canvas, 6, 6, 64, 64, logo_canvas);
+}
+
+// TODO: Write Zig bindings for Olivec so we can run it at comptime
+var logo_pix: [32 * 32]u32 = undefined;
+var logo_canvas: draw.Canvas = .{
+    .pixels = @ptrCast(&logo_pix),
+    .width = 32,
+    .height = 32,
+    .stride = 32,
+};
+
+fn drawLogo() void {
+    const cx = 15;
+    const cy = 15;
+    draw.olivec_fill(logo_canvas, 0);
+    draw.olivec_circle(logo_canvas, cx, cy, 16, silver.toBits());
+    draw.olivec_line(logo_canvas, cx, 0, cx, 32, slider_dark.toBits());
+    var i: u32 = 3;
+    while (i < cy + 2) : (i += 3) {
+        const w = i * 2;
+        const x = 15 - (w / 2);
+        draw.olivec_line(
+            logo_canvas,
+            @intCast(x),
+            @intCast(i),
+            @intCast(x + w),
+            @intCast(i),
+            slider_dark.toBits(),
+        );
     }
 }
