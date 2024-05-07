@@ -481,7 +481,7 @@ OLIVECDEF void olivec_blend_color(uint32_t *c1, uint32_t c2)
     g1 = (g1*(255 - a2) + g2*a2)/255; if (g1 > 255) g1 = 255;
     b1 = (b1*(255 - a2) + b2*a2)/255; if (b1 > 255) b1 = 255;
 
-    *c1 = OLIVEC_RGBA(r1, g1, b1, a1);
+    *c1 = OLIVEC_RGBA(r1, g1, b1, (a1 + a2));
 }
 
 OLIVECDEF void olivec_fill(Olivec_Canvas oc, uint32_t color)
