@@ -82,7 +82,7 @@ pub const Plugin = struct {
         log.fatal("Param not found\n", .{});
     }
 
-    pub fn getParamId(plugin: Plugin, id: u32) !*const Parameter {
+    pub fn getParamWithId(plugin: Plugin, id: u32) !*const Parameter {
         if (id >= plugin.params.len) return error.ParamNotFound;
         return &plugin.param_info[id];
     }

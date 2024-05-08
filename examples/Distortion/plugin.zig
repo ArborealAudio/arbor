@@ -12,10 +12,9 @@ const Mode = enum {
 };
 
 const plugin_params = &[_]arbor.Parameter{
-    param.create("Gain", .{ 1.0, 30.0, 1.0 }),
-    param.create("Out", .{ 0.0, 2.0, 1.0 }),
-    // TODO: Read enum fields by default. Passing a list of choices should be optional
-    param.create("Mode", .{ Mode.Vintage, &.{ "Vintage", "Modern", "Apocalypse" } }),
+    param.Float("Gain", 0, 30, 0, .{ .flags = .{}, .value_to_text = dbValToText }),
+    param.Float("Out", -12, 12, 0, .{ .flags = .{}, .value_to_text = dbValToText }),
+    param.Choice("Mode", Mode.Vintage, .{ .flags = .{} }), // optionally pass a list of names
 };
 
 const allocator = std.heap.c_allocator;
@@ -46,9 +45,12 @@ fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
 }
 
 fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
-    const in_gain = plugin.getParamValue(f32, "Gain");
-    const out_gain = plugin.getParamValue(f32, "Out");
+    const in_gain_db = plugin.getParamValue(f32, "Gain");
+    const out_gain_db = plugin.getParamValue(f32, "Out");
     const mode = plugin.getParamValue(Mode, "Mode");
+
+    const in_gain = std.math.pow(f32, 10, in_gain_db * 0.05);
+    const out_gain = std.math.pow(f32, 10, out_gain_db * 0.05);
 
     const start = buffer.offset;
     const end = buffer.offset + buffer.frames;
@@ -60,13 +62,16 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
             // this loop, but...example
             switch (mode) {
                 .Modern => {
-                    out[idx] = (3.0 / 2.0) * std.math.tanh(in_gain * sample) * out_gain;
+                    var x = sample;
+                    x *= in_gain;
+                    x = @min(1, @max(-1, x));
+                    out[idx] = (5.0 / 4.0) * (x - (x * x * x * x * x) / 5) * out_gain;
                 },
                 .Vintage => {
                     var x = sample;
                     x *= in_gain;
-                    if (x > 0) {
-                        x = @min(1, x);
+                    if (x < 0) {
+                        x = @max(-1, x);
                         x = (3.0 / 2.0) * (x - (x * x * x) / 3.0);
                     } else x = (3.0 / 2.0) * std.math.tanh(x);
                     x *= out_gain;
@@ -84,6 +89,14 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     }
 }
 
+fn dbValToText(value: f32, buf: []u8) usize {
+    const out = std.fmt.bufPrint(buf, "{d:.2} dB", .{value}) catch |e| {
+        log.err("{!}\n", .{e});
+        return 0;
+    };
+    return out.len;
+}
+
 const draw = arbor.Gui.draw;
 
 pub const WIDTH = 500;
@@ -93,7 +106,7 @@ const background_color = draw.Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
 const slider_dark = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff };
 const silver = draw.Color.fromBits(0xff_aa_aa_aa);
 
-const highlight_color = draw.Color{ .r = 0xff, .g = 0xff, .b = 0, .a = 0x90 };
+const highlight_color = draw.Color{ .r = 0x9f, .g = 0xc4, .b = 0x72, .a = 0xff };
 const border_color = draw.Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
 
 const TITLE = "DISTORTION";
@@ -111,6 +124,10 @@ export fn gui_init(plugin: *arbor.Plugin) void {
     });
     plugin.gui = gui;
 
+    // we can draw the logo here and just copy its memory to the global canvas
+    // in our render function
+    drawLogo();
+
     // TODO: Allow the user to describe layout in more relative terms rather
     // than computing based on window size, etc.
     // somehting like getNextLayoutSection() and it will provide a rect which corresponds
@@ -120,16 +137,17 @@ export fn gui_init(plugin: *arbor.Plugin) void {
     // create pointers, assign IDs and values
     // this is how the components get "attached" to parameters
     // setup unique properties here
-    for (0..plugin_params.len) |i| {
-        const param_info = plugin.getParamId(@intCast(i)) catch |e| {
+    for (0..plugin.param_info.len) |i| {
+        const param_info = plugin.getParamWithId(@intCast(i)) catch |e| {
             log.err("{!}\n", .{e});
             return;
         };
         if (!std.mem.eql(u8, param_info.name, "Mode")) {
             const width = (WIDTH / 2) - (slider_gap * 2);
             gui.addComponent(.{
-                .canvas = gui.canvas,
-                .sub_type = arbor.Gui.Slider.init(allocator, silver),
+                // given the gui.allocator, the memory will be cleaned up
+                // on global GUI deinit. Otherwise, deallocate manually.
+                .sub_type = arbor.Gui.Slider.init(gui.allocator, param_info, silver),
                 .interface = arbor.Gui.Slider.interface,
                 .value = param_info.getNormalizedValue(plugin.params[i]),
                 .bounds = .{
@@ -156,8 +174,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             const menu_height = HEIGHT / 8;
             const bot_pad = 50;
             gui.addComponent(.{
-                .canvas = gui.canvas,
-                .sub_type = arbor.Gui.Menu.init(allocator, param_info.enum_choices orelse {
+                .sub_type = arbor.Gui.Menu.init(gui.allocator, param_info.enum_choices orelse {
                     log.err("No enum choices available\n", .{});
                     return;
                 }, silver, 3, highlight_color),
@@ -178,9 +195,6 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             });
         }
     }
-
-    // we can draw the logo here and just copy it in our render function
-    drawLogo();
 }
 
 fn gui_deinit(gui: *arbor.Gui) void {
@@ -188,9 +202,11 @@ fn gui_deinit(gui: *arbor.Gui) void {
 }
 
 fn gui_render(gui: *arbor.Gui) void {
+    // draw our background and frame
     draw.olivec_fill(gui.canvas, background_color.toBits());
     draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
 
+    // draw plugin title
     const title_width = WIDTH / 3;
     draw.drawText(gui.canvas, .{
         .text = TITLE,
@@ -205,9 +221,12 @@ fn gui_render(gui: *arbor.Gui) void {
         .height = 50,
     });
 
+    // draw each component
     for (gui.components.items) |*c| {
-        c.interface.draw_proc(c);
+        c.interface.draw_proc(c, gui.canvas);
     }
+
+    // render logo
     draw.olivec_sprite_blend(gui.canvas, 6, 6, 64, 64, logo_canvas);
 }
 

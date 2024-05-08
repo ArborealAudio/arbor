@@ -56,22 +56,26 @@ state: struct {
 
 wants_repaint: AtomicBool = AtomicBool.init(true),
 
+var arena_impl = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+const arena = arena_impl.allocator();
+
 /// Call this from within your gui_init function to init the GUI backend
 pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
-    const ptr = allocator.create(Gui) catch |e| log.fatal("{!}\n", .{e});
-    errdefer allocator.free(ptr);
-    const bits = allocator.alloc(u32, config.width * config.height) catch |e|
+    _ = allocator;
+    const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e});
+    errdefer arena.free(ptr);
+    const bits = arena.alloc(u32, config.width * config.height) catch |e|
         log.fatal("{!}\n", .{e});
-    errdefer allocator.free(bits);
+    errdefer arena.free(bits);
     ptr.* = .{
-        .allocator = allocator,
+        .allocator = arena,
         .bits = bits,
         .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height),
         .interface = config.interface,
         .layout = config.layout,
-        .components = std.ArrayList(Component).init(allocator),
-        .in_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}),
-        .out_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}),
+        .components = std.ArrayList(Component).init(arena),
+        .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}),
+        .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}),
         .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
     };
 
@@ -81,11 +85,12 @@ pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
 pub fn deinit(self: *Gui) void {
     self.interface.deinit(self);
     Platform.guiDestroy(self.impl);
-    self.allocator.free(self.bits);
-    self.components.deinit();
-    self.in_events.deinit();
-    self.out_events.deinit();
-    self.allocator.destroy(self);
+    // self.allocator.free(self.bits);
+    // self.components.deinit();
+    // self.in_events.deinit();
+    // self.out_events.deinit();
+    // self.allocator.destroy(self);
+    arena_impl.deinit();
 }
 
 pub fn render(self: *Gui) callconv(.C) void {
@@ -393,15 +398,13 @@ pub const Label = struct {
 
 pub const Component = struct {
     pub const Interface = struct {
-        draw_proc: *const fn (self: *Component) void,
+        draw_proc: *const fn (self: *Component, canvas: draw.Canvas) void,
         on_mouse_over: ?*const fn (self: *Component, Vec2) void,
         on_mouse_exit: ?*const fn (self: *Component) void,
         on_mouse_click: ?*const fn (self: *Component, Vec2) void,
         on_mouse_drag: ?*const fn (self: *Component, Vec2) void,
     };
 
-    // TODO: Move canvas to a graphics context which each component will be pased in their draw_proc()
-    canvas: draw.Canvas,
     bounds: Rect = Rect.zero,
     padding: Vec2 = .{ .x = 0, .y = 0 },
     background_color: Color,
@@ -410,6 +413,8 @@ pub const Component = struct {
 
     value: f32,
 
+    value_to_text: ?*const fn (value: f32, buf: []u8) usize = null,
+
     /// every component may have a label, and it's up to the drawing procedure
     /// to determine how it is displayed.
     label: ?Label,
@@ -417,6 +422,7 @@ pub const Component = struct {
     interface: Component.Interface,
 
     /// flag to let the GUI know a parameter needs to be updated
+    // NOTE: Would all components need this?
     param_changed: bool = false,
 
     pub fn hitTest(self: Component, pt: Vec2) bool {
@@ -433,16 +439,24 @@ pub const Component = struct {
 };
 
 pub const Slider = struct {
+    // reference to associated parameter
+    param: *const arbor.Parameter,
+
+    // main color of the slider
     color: Color,
 
-    pub fn init(allocator: Allocator, color: Color) *Slider {
+    flags: packed struct {
+        draw_value: bool = true,
+    },
+
+    pub fn init(allocator: Allocator, param: *const arbor.Parameter, color: Color) *Slider {
         const self = allocator.create(Slider) catch |e|
             log.fatal("Slider alloc failed: {!}\n", .{e});
-        self.* = .{ .color = color };
+        self.* = .{ .param = param, .color = color, .flags = .{} };
         return self;
     }
 
-    fn draw_proc(self: *Component) void {
+    fn draw_proc(self: *Component, canvas: draw.Canvas) void {
         const slider = arbor.cast(*Slider, self.sub_type);
         const height = if (self.label) |label|
             self.bounds.height - label.height
@@ -454,7 +468,7 @@ pub const Slider = struct {
 
         // draw borders
         draw.olivec_rect(
-            self.canvas,
+            canvas,
             @intCast(self.bounds.x),
             @intCast(self.bounds.y),
             @intCast(self.bounds.width),
@@ -463,7 +477,7 @@ pub const Slider = struct {
         );
 
         draw.olivec_rect(
-            self.canvas,
+            canvas,
             @intCast(self.bounds.x),
             @intCast(top),
             @intCast(self.bounds.width),
@@ -474,12 +488,30 @@ pub const Slider = struct {
         if (self.label) |l| {
             const text_y: u32 = self.bounds.y + height;
             const text_x: u32 = self.bounds.x;
-            draw.drawText(self.canvas, l, .{
+            draw.drawText(canvas, l, .{
                 .x = text_x,
                 .y = text_y,
                 .width = self.bounds.width,
                 .height = l.height,
             });
+        }
+
+        if (slider.flags.draw_value) {
+            var buf: [10]u8 = undefined;
+            if (slider.param.value_to_text) |func| {
+                const denorm = slider.param.valueFromNormalized(self.value);
+                const len = func(denorm, &buf);
+                draw.drawText(canvas, .{
+                    .text = buf[0..len],
+                    .height = 15,
+                    .color = Color.WHITE,
+                }, .{
+                    .x = self.bounds.x,
+                    .y = self.bounds.y,
+                    .width = self.bounds.width,
+                    .height = 25,
+                });
+            }
         }
     }
 
@@ -530,7 +562,7 @@ pub const Menu = struct {
         return self;
     }
 
-    pub fn draw_proc(self: *Component) void {
+    pub fn draw_proc(self: *Component, canvas: draw.Canvas) void {
         const menu = arbor.cast(*Menu, self.sub_type);
         const border = if (menu.is_mouse_over)
             menu.highlight_color
@@ -541,7 +573,7 @@ pub const Menu = struct {
 
         if (menu.open and menu.is_mouse_over) {
             draw.olivec_rect(
-                self.canvas,
+                canvas,
                 @intCast(self.bounds.x),
                 @intCast(self.bounds.y),
                 @intCast(self.bounds.width),
@@ -553,7 +585,7 @@ pub const Menu = struct {
                 if (menu.mouse_choice) |mc| {
                     if (i == mc) {
                         draw.olivec_rect(
-                            self.canvas,
+                            canvas,
                             @intCast(self.bounds.x),
                             @intCast(self.bounds.y + (choice_h * @as(u32, @intCast(i)))),
                             @intCast(self.bounds.width),
@@ -562,7 +594,7 @@ pub const Menu = struct {
                         );
                     }
                 }
-                draw.drawText(self.canvas, .{
+                draw.drawText(canvas, .{
                     .text = choice,
                     .height = choice_h,
                     .color = Color.WHITE,
@@ -577,7 +609,7 @@ pub const Menu = struct {
         }
 
         if (self.label) |label| {
-            draw.drawText(self.canvas, label, .{
+            draw.drawText(canvas, label, .{
                 .x = self.bounds.x,
                 .y = self.bounds.y,
                 .width = self.bounds.width,
@@ -588,7 +620,7 @@ pub const Menu = struct {
         const menu_y = self.bounds.y + label_height;
 
         draw.olivec_rect(
-            self.canvas,
+            canvas,
             @intCast(self.bounds.x),
             @intCast(menu_y),
             @intCast(self.bounds.width),
@@ -596,7 +628,7 @@ pub const Menu = struct {
             self.background_color.toBits(),
         );
         draw.olivec_frame(
-            self.canvas,
+            canvas,
             @intCast(self.bounds.x),
             @intCast(menu_y),
             @intCast(self.bounds.width),
@@ -609,7 +641,7 @@ pub const Menu = struct {
             @intFromFloat(self.value *
                 (@as(f32, @floatFromInt(menu.choices.len)) - 1))
         ];
-        draw.drawText(self.canvas, .{
+        draw.drawText(canvas, .{
             .text = current,
             .height = label_height / 2,
             .color = Color.WHITE,
