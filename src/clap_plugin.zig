@@ -18,7 +18,7 @@ fn plug_cast(ptr: ?*const clap.Plugin) *ClapPlugin {
     if (ptr) |p|
         return @ptrCast(@alignCast(p.plugin_data))
     else
-        log.fatal("Plugin ptr is null\n", .{});
+        log.fatal("Plugin ptr is null\n", .{}, @src());
 }
 
 const ClapPlugin = @This();
@@ -179,15 +179,15 @@ const Params = struct {
 
     fn getInfo(plugin: ?*const clap.Plugin, index: u32, info: ?*clap.params.Info) callconv(.C) bool {
         const plug = plug_cast(plugin).plugin orelse {
-            log.err("Plugin is null\n", .{});
+            log.err("Plugin is null\n", .{}, @src());
             return false;
         };
         if (index >= plug.params.len) return false;
         const param = plug.param_info[index];
         if (info) |ptr| {
             ptr.* = .{
-                .name = .{0} ** 256,
-                .module = .{0} ** 1024,
+                .name = .{0} ** clap.NAME_SIZE,
+                .module = .{0} ** clap.PATH_SIZE,
                 .id = index,
                 .flags = .{
                     .IS_AUTOMATABLE = param.flags.automatable,
@@ -244,13 +244,13 @@ const Params = struct {
                     }
                 } else {
                     _ = std.fmt.bufPrintZ(display[0..size], "{d}", .{ival}) catch |e| {
-                        log.err("{}\n", .{e});
+                        log.err("{}\n", .{e}, @src());
                         return false;
                     };
                 }
             } else {
                 _ = std.fmt.bufPrintZ(display[0..size], "{d:.2}", .{value}) catch |e| {
-                    log.err("{}\n", .{e});
+                    log.err("{}\n", .{e}, @src());
                     return false;
                 };
             }
@@ -404,11 +404,11 @@ const Gui = struct {
     fn setParent(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
             const window = clap_window orelse {
-                log.err("Window is null\n", .{});
+                log.err("Window is null\n", .{}, @src());
                 return false;
             };
             if (!std.mem.orderZ(u8, window.api, GUI_API).compare(.eq)) {
-                log.err("Incompatible API: {s}\n", .{window.api});
+                log.err("Incompatible API: {s}\n", .{window.api}, @src());
                 return false;
             }
             if (plug.gui) |gui| {
@@ -416,7 +416,7 @@ const Gui = struct {
                     .macos => window.window.cocoa,
                     .linux => window.window.x11,
                     .windows => window.window.win32,
-                    else => log.fatal("Unsupported OS\n", .{}),
+                    else => log.fatal("Unsupported OS\n", .{}, @src()),
                 };
                 GuiPlatform.guiSetParent(gui.impl, win_data);
                 return true;
@@ -496,7 +496,7 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
     clap_plug.plugin = arbor.Plugin.init();
 
     const host = clap_plug.host orelse {
-        log.err("Clap host is null\n", .{});
+        log.err("Clap host is null\n", .{}, @src());
         return false;
     };
     const get_ext = host.get_extension;
@@ -572,7 +572,7 @@ pub fn reset(plugin: ?*const clap.Plugin) callconv(.C) void {
 /// parameter, and forward a param change event to the GUI
 pub fn processInEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) void {
     const plug = plugin.plugin orelse {
-        log.err("Plugin is null\n", .{});
+        log.err("Plugin is null\n", .{}, @src());
         return;
     };
     if (event) |e| {
@@ -587,7 +587,7 @@ pub fn processInEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) void
                             .value = plug.param_info[param_event.param_id]
                                 .getNormalizedValue(@floatCast(param_event.value)),
                         } }) catch |err| {
-                            log.err("in_events push failed: {!}\n", .{err});
+                            log.err("in_events push failed: {!}\n", .{err}, @src());
                             return;
                         };
                         gui.wants_repaint.store(true, .release);
@@ -598,7 +598,7 @@ pub fn processInEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) void
             }
         }
     } else {
-        log.err("Event header is null\n", .{});
+        log.err("Event header is null\n", .{}, @src());
         return;
     }
 }
@@ -610,14 +610,14 @@ pub fn processOutEvent(plugin: *ClapPlugin, clap_events: *const clap.OutputEvent
         return;
     };
     const gui = plug.gui orelse {
-        log.err("Gui is null\n", .{});
+        log.err("Gui is null\n", .{}, @src());
         return;
     };
     while (gui.out_events.next_try()) |event| {
         switch (event) {
             .param_change => |change| {
-                const p = plugin.param_info[change.id];
-                plugin.params[change.id] = p.valueFromNormalized(change.value);
+                const p = plug.param_info[change.id];
+                plug.params[change.id] = p.valueFromNormalized(change.value);
 
                 const out_event = clap.EventParamValue{
                     .header = .{
@@ -633,7 +633,7 @@ pub fn processOutEvent(plugin: *ClapPlugin, clap_events: *const clap.OutputEvent
                     .port_index = -1,
                     .channel = -1,
                     .key = -1,
-                    .value = @floatCast(plugin.params[change.id]),
+                    .value = @floatCast(plug.params[change.id]),
                 };
                 _ = clap_events.try_push(clap_events, &out_event.header);
             },
@@ -647,11 +647,11 @@ pub fn process(
 ) callconv(.C) clap.ProcessStatus {
     var clap_plug = plug_cast(plugin);
     const plug = clap_plug.plugin orelse {
-        log.err("User plugin is null\n", .{});
+        log.err("User plugin is null\n", .{}, @src());
         return .PROCESS_ERROR;
     };
     const p_info = process_info orelse {
-        log.err("Process info is null\n", .{});
+        log.err("Process info is null\n", .{}, @src());
         return .PROCESS_ERROR;
     };
     const num_frames = p_info.frames_count;
@@ -689,11 +689,11 @@ pub fn process(
 
         // process audio in frame
         const audio_in = p_info.audio_inputs orelse {
-            log.err("Audio inputs null\n", .{});
+            log.err("Audio inputs null\n", .{}, @src());
             return .PROCESS_ERROR;
         };
         const audio_out = p_info.audio_outputs orelse {
-            log.err("Audio outputs null\n", .{});
+            log.err("Audio outputs null\n", .{}, @src());
             return .PROCESS_ERROR;
         };
         std.debug.assert(audio_in[0].channel_count == audio_out[0].channel_count);
@@ -777,7 +777,7 @@ const Factory = struct {
     ) callconv(.C) ?*const clap.Plugin {
         _ = factory;
         const h = host orelse {
-            log.err("Host is null\n", .{});
+            log.err("Host is null\n", .{}, @src());
             return null;
         };
 
@@ -785,7 +785,7 @@ const Factory = struct {
 
         if (std.mem.orderZ(u8, plugin_id, arbor.plugin_desc.id).compare(.eq)) {
             var clap_plug = allocator.create(ClapPlugin) catch |e| {
-                log.err("Failed to create CLAP plugin: {}\n", .{e});
+                log.err("Failed to create CLAP plugin: {}\n", .{e}, @src());
                 return null;
             };
             clap_plug.* = .{
