@@ -143,7 +143,7 @@ pub const Opcode = enum(i32) {
     SetProgramName,
     GetProgramName,
 
-    GetParamText = 7,
+    ParamValueToText = 7,
     GetParamName,
 
     SetSampleRate = 10,
