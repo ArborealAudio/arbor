@@ -67,10 +67,8 @@ const arena = arena_impl.allocator();
 pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
     _ = allocator;
     const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e}, @src());
-    errdefer arena.free(ptr);
     const bits = arena.alloc(u32, config.width * config.height) catch |e|
         log.fatal("{!}\n", .{e}, @src());
-    errdefer arena.free(bits);
     ptr.* = .{
         .allocator = arena,
         .bits = bits,
@@ -174,7 +172,7 @@ fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) call
         log.err("{!}\n", .{e}, @src());
         return;
     };
-    self.wants_repaint.store(true, .release);
+    self.requestDraw();
 }
 
 pub fn getSize(self: Gui) Vec2 {
