@@ -4,6 +4,7 @@
 #include <winuser.h>
 #include <windowsx.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -13,6 +14,7 @@ typedef struct GuiImpl {
 	uint32_t *bits;
 	uint32_t width, height;
 	void *user;
+	const char *id;
 	UINT_PTR timer_id;
 } GuiImpl_t;
 
@@ -101,6 +103,7 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h, const 
 	gui->width = w;
 	gui->height = h;
 	gui->user = user;
+	gui->id = id;
 	SetWindowLongPtr(gui->window, 0, (LONG_PTR)gui);
 
 	SetTimer(gui->window, 0, 16, NULL);
@@ -111,15 +114,14 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h, const 
 void guiDestroy(GuiImpl_t *gui)
 {
 	DestroyWindow(gui->window);
+	if (--globalOpenGUICount == 0)
+		UnregisterClass(gui->id, NULL);
 	free(gui);
 	gui = NULL;
-
-	if (--globalOpenGUICount == 0)
-		UnregisterClass("ZigVerb", NULL);
 }
 
-void guiSetParent(GuiImpl_t *gui, void *parent) {
-	SetParent(gui->window, (HWND)parent);
+void guiSetParent(GuiImpl_t *gui, HWND parent) {
+	SetParent(gui->window, parent);
 }
 
 void guiSetVisible(GuiImpl_t *gui, bool visible) {

@@ -1,6 +1,7 @@
 //! Zig API over platform-specific implementation
 
-const windows = @import("std").os.windows;
+const std = @import("std");
+const windows = std.os.windows;
 const builtin = @import("builtin");
 const Gui = @import("Gui.zig");
 
@@ -21,6 +22,7 @@ pub const GuiImpl = switch (builtin.os.tag) {
         width: u32,
         height: u32,
         user: ?*anyopaque,
+        id: [*:0]const u8,
         timer_id: c_ulonglong,
     },
     .linux => extern struct {
