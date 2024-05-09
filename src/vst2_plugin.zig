@@ -34,7 +34,7 @@ host_callback: *const fn (
     opt: f32,
 ) callconv(.C) isize,
 plugin: ?*Plugin = null, // our specific plugin data
-rect: ?vst2.Rect = null,
+rect: vst2.Rect,
 
 in_events: *arbor.Queue,
 
@@ -119,37 +119,41 @@ fn dispatch(
                 if (ptr) |p| {
                     const name = plug.getParamName(@intCast(index)) catch |e| {
                         log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
-                        return -1;
+                        return 0;
                     };
                     var buf: [*]u8 = @ptrCast(p);
                     // name length + 1 for null terminator--using :0 doesn't work for some reason
                     _ = std.fmt.bufPrintZ(buf[0 .. name.len + 1], "{s}", .{name}) catch |e| {
                         log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
-                        return -1;
+                        return 0;
                     };
                 }
-                return 1;
+                return 0;
             }
-            return 0;
+            return 1;
         },
         // Param value as text
-        .GetParamText => {
+        .ParamValueToText => {
             if (index >= 0 and index < plug.param_info.len) {
                 const id: usize = @intCast(index);
                 const val = plug.params[id];
                 const param_info = plug.param_info[id];
                 if (ptr) |p| {
                     if (param_info.value_to_text) |func| {
-                        var buf: [8]u8 = undefined;
+                        var buf: [10]u8 = undefined;
                         const len = func(val, &buf);
                         const out: [*]u8 = @ptrCast(p);
-                        @memcpy(out[0..len], buf[0..len]);
-                        return 1;
+                        _ = std.fmt.bufPrintZ(out[0..len], "{s}", .{buf[0..len]}) catch |e| {
+                            log.err("{!}\n", .{e}, @src());
+                            return 1;
+                        };
+                        return 0;
                     } else if (param_info.flags.is_enum) {
                         if (param_info.enum_choices) |choices| {
                             const choice = choices[@intFromFloat(val)];
                             const out: [*]u8 = @ptrCast(p);
                             @memcpy(out[0..choice.len], choice);
+                            return 0;
                         }
                     }
                 }
@@ -162,10 +166,10 @@ fn dispatch(
                 const text: []const u8 = std.mem.span(@as([*:0]u8, @ptrCast(ptr)));
                 const val: f32 = std.fmt.parseFloat(f32, text) catch |e| {
                     log.err("{!}\n", .{e}, @src());
-                    return -1;
+                    return 1;
                 };
                 plug.params[id] = val;
-                return 1;
+                return 0;
             }
         },
         .SetSampleRate => {
@@ -183,12 +187,12 @@ fn dispatch(
         },
         .EditGetRect => {
             // copy to ptr
-            if (ptr) |p| if (plugin.rect) |*rect| {
-                var dest: *vst2.Rect = @alignCast(@ptrCast(p));
-                dest = rect;
-                log.debug("Copied Rect: {}\n", .{dest.*}, @src());
+            if (ptr) |p| {
+                const dest = arbor.cast(**vst2.Rect, p);
+                dest.* = &plugin.rect;
                 return 1;
-            };
+            }
+            return 0;
         },
         .EditOpen => {
             // Init GUI
@@ -197,7 +201,7 @@ fn dispatch(
             Gui.gui_init(plug);
             const gui = plug.gui orelse {
                 log.err("{s}: Gui is null\n", .{@tagName(code)}, @src());
-                return -1;
+                return 0;
             };
 
             const width: i16 = @intCast(gui.getSize().x);
@@ -218,36 +222,35 @@ fn dispatch(
                 0,
             ) != 1) {
                 log.err("SizeWindow not supported by host\n", .{}, @src());
+                return 0;
             }
 
-            if (ptr) |p|
-                PlatformGui.guiSetParent(gui.impl, if (builtin.os.tag == .linux)
-                    @intFromPtr(p)
-                else
-                    p)
-            else
-                return -1;
+            if (ptr) |p| {
+                const window = arbor.cast(PlatformGui.Window, p);
+                PlatformGui.guiSetParent(gui.impl, window);
+            } else {
+                log.err("Passed null parent window\n", .{}, @src());
+                return 0;
+            }
+            PlatformGui.guiSetVisible(gui.impl, true);
             gui.requestDraw();
             return 1;
         },
         .EditRedraw => {
-            // Update & Draw GUI
-            // Probably need to check whether redraw is needed
-            if (plug.gui) |gui|
-                gui.requestDraw();
+            // NOTE: Does this collide with our timer callback?
         },
         .EditClose => {
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();
                 plug.gui = null;
-                plugin.rect = null;
+                // plugin.rect = null;
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
                 return -1;
             }
-            return 1;
+            return 0;
         },
         .GetVstVersion => return 2400,
         .CanDo => {
@@ -275,36 +278,39 @@ fn dispatch(
         .ProcessEvents => {},
         .GetInputProperties => {
             // TODO: Use `index` to support multiple pins
-            const out = allocator.create(vst2.PinProperties) catch |e| {
+            const pin = allocator.create(vst2.PinProperties) catch |e| {
                 log.err("{!}\n", .{e}, @src());
                 return -1;
             };
+            pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Input";
-            @memcpy(out.label[0..name.len], name);
-            out.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
-            @memcpy(out.shortLabel[0..name.len], name);
+            @memcpy(pin.label[0..name.len], name);
+            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
+            @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
                 var dest: *vst2.PinProperties = @alignCast(@ptrCast(p));
-                dest = out;
+                dest = pin;
             }
             return 1;
         },
         .GetOutputProperties => {
             // TODO: Use `index` to support multiple pins
-            const out = allocator.create(vst2.PinProperties) catch |e| {
+            const pin = allocator.create(vst2.PinProperties) catch |e| {
                 log.err("{!}\n", .{e}, @src());
                 return -1;
             };
+            pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Output";
-            @memcpy(out.label[0..name.len], name);
-            out.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
-            @memcpy(out.shortLabel[0..name.len], name);
+            @memcpy(pin.label[0..name.len], name);
+            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
+            @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
                 var dest: *vst2.PinProperties = @alignCast(@ptrCast(p));
-                dest = out;
+                dest = pin;
             }
+            return 1;
         },
         .SetProcessPrecision => {
             plugin.process_precision = @enumFromInt(value);
@@ -385,12 +391,19 @@ fn processReplacing(
 
         processInEvent(vst);
 
+        const uframes: usize = @intCast(frames);
         const buffer: arbor.AudioBuffer(f32) = .{
-            .input = inputs,
-            .output = outputs,
-            .frames = @intCast(frames),
-            .num_ch = plugin.num_channels,
-            .offset = 0,
+            .input = &.{
+                inputs[0][0..uframes],
+                inputs[1][0..uframes],
+            },
+            .output = &.{
+                outputs[0][0..uframes],
+                outputs[1][0..uframes],
+            },
+            .frames = uframes,
+            .num_ch = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs)),
+            // TODO: Handle unequal in/out pairs
         };
         plugin.interface.process(plugin, buffer);
     }
@@ -412,12 +425,17 @@ fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.C) voi
     const vst = plugCast(effect);
     if (vst.plugin) |plugin| {
         if (index >= 0 and index < plugin.param_info.len) {
+            const event = arbor.Event{
+                .param_change = .{ .id = @intCast(index), .value = value },
+            };
             if (main_thread == audio_thread) {
-                processInEvent(plugCast(effect));
+                vst.in_events.push_no_lock(event) catch |e| {
+                    log.err("{!}\n", .{e}, @src());
+                    return;
+                };
+                vst.processInEvent();
             } else {
-                vst.in_events.push_wait(.{
-                    .param_change = .{ .id = @intCast(index), .value = value },
-                }) catch |e| {
+                vst.in_events.push_wait(event) catch |e| {
                     log.err("{!}\n", .{e}, @src());
                     return;
                 };
@@ -446,6 +464,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
             log.err("host_callback is null\n", .{}, @src());
             return error.InitFailed;
         },
+        .rect = .{ .top = 0, .left = 0, .bottom = 600, .right = 500 },
     };
     self.plugin.?.num_channels = 2; // TODO: DOn't hardcode
     self.effect.* = .{
@@ -456,7 +475,9 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .getParameter = getParameter,
         .num_programs = 0,
         .num_params = @intCast(self.plugin.?.param_info.len),
-        .num_inputs = 2, // TODO: Get num channels (and other stuff below) from Config
+        .num_inputs = 2,
+        // ISSUE: In Bitwig, even hard-coding number of channels here doesn't
+        // give you stereo. In Ableton, it is forcing mono.
         .num_outputs = 2,
         .flags = vst2.PluginFlags.toInt(&.{ .HasStateChunk, .HasReplacing, .HasEditor }),
         .latency = 0,
