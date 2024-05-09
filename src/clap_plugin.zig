@@ -701,14 +701,19 @@ pub fn process(
         while (i < next_event_frame) {
             const frames_to_process = next_event_frame - i;
             // // TODO: Determine whether f64 is wanted
-            const num_ch = audio_in[0].channel_count;
+            const num_ch = @min(audio_in[0].channel_count, audio_out[0].channel_count);
             if (frames_to_process == 0) break;
             plug.interface.process(plug, .{
-                .input = audio_in[0].data32,
-                .output = audio_out[0].data32,
+                .input = &.{
+                    audio_in[0].data32[0][i..next_event_frame],
+                    audio_in[0].data32[1][i..next_event_frame],
+                },
+                .output = &.{
+                    audio_out[0].data32[0][i..next_event_frame],
+                    audio_out[0].data32[1][i..next_event_frame],
+                },
                 .num_ch = num_ch,
                 .frames = frames_to_process,
-                .offset = i,
             });
             i += frames_to_process;
         }

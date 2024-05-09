@@ -305,12 +305,10 @@ pub fn parseVst2Features(comptime feat: PluginFeatures) vst2.Category {
 /// Generic audio buffer
 pub fn AudioBuffer(comptime FloatType: type) type {
     return struct {
-        input: [*]const [*]const FloatType,
-        output: [*]const [*]FloatType,
+        input: []const []const FloatType,
+        output: []const []FloatType,
         num_ch: usize,
         frames: usize,
-        /// For now, this is necessary w/ sample-accurate automation
-        offset: usize,
     };
 }
 

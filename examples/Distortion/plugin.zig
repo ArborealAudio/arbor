@@ -39,9 +39,8 @@ fn deinit(plugin: *arbor.Plugin) void {
 }
 
 fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
-    _ = plugin;
-    _ = sample_rate;
-    _ = max_num_frames;
+    plugin.sample_rate = sample_rate;
+    plugin.max_frames = max_num_frames;
 }
 
 fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
@@ -52,12 +51,9 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     const in_gain = std.math.pow(f32, 10, in_gain_db * 0.05);
     const out_gain = std.math.pow(f32, 10, out_gain_db * 0.05);
 
-    const start = buffer.offset;
-    const end = buffer.offset + buffer.frames;
-
-    for (buffer.input[0..buffer.num_ch], 0..) |ch, ch_idx| {
+    for (buffer.input, 0..) |ch, ch_idx| {
         var out = buffer.output[ch_idx];
-        for (ch[start..end], start..) |sample, idx| {
+        for (ch, 0..) |sample, idx| {
             // For performance reasons, you wouldn't want to branch inside
             // this loop, but...example
             switch (mode) {
