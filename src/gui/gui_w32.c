@@ -81,7 +81,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 	return 0;
 }
 
-GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h)
+GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h, const char* id)
 {
 	GuiImpl_t *gui = (GuiImpl_t*)calloc(1, sizeof(GuiImpl_t));
 	
@@ -89,13 +89,13 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h)
 		WNDCLASS windowClass = {};
 		windowClass.lpfnWndProc = windowProc;
 		windowClass.cbWndExtra = sizeof(GuiImpl_t);
-		windowClass.lpszClassName = "com.ArborealAudio.ZigVerb"; // Woops! Forgot this was here...
+		windowClass.lpszClassName = id; // Woops! Forgot this was here...
 		windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 		windowClass.style = CS_DBLCLKS;
 		RegisterClass(&windowClass);
 	}
 
-	gui->window = CreateWindow(NULL, NULL, WS_CHILDWINDOW | WS_CLIPSIBLINGS,
+	gui->window = CreateWindow(id, id, WS_CHILDWINDOW | WS_CLIPSIBLINGS,
 		CW_USEDEFAULT, 0, w, h, GetDesktopWindow(), NULL, NULL, NULL);
 	gui->bits = bits;
 	gui->width = w;

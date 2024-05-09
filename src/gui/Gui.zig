@@ -74,7 +74,7 @@ pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
     ptr.* = .{
         .allocator = arena,
         .bits = bits,
-        .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height),
+        .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, arbor.plugin_name),
         .interface = config.interface,
         .layout = config.layout,
         .components = std.ArrayList(Component).init(arena),
