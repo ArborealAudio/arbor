@@ -138,7 +138,7 @@ pub fn Bool(
 /// Make a slice of all parameter values
 /// Caller owns the returned memory
 pub fn createSlice(allocator: std.mem.Allocator, params: []const Parameter) []f32 {
-    var slice = allocator.alloc(f32, params.len) catch |e| log.fatal("Slice alloc failed: {}\n", .{e});
+    var slice = allocator.alloc(f32, params.len) catch |e| log.fatal("Slice alloc failed: {}\n", .{e}, @src());
     for (params, 0..) |p, i| {
         slice[i] = p.default_value;
     }

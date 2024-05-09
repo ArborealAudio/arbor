@@ -28,13 +28,31 @@ declare, arrange, and style UI widgets at **runtime** or **compile-time**, all
 compiling to native code--not running in some god-forsaken web browser embedded
 in a plugin UI 🤮
 
+## Have:
+
+* A nice abstraction layer over plugin APIs which should lend itself nicely to
+extending support to other APIs
+
+* Easy comptime parameter generation
+
+* Basic CLAP audio plugin supporting different types of parameters, sample-accurate automation
+
+* A janky VST2 implementation that works in Reaper and not really anywhere else
+
+* Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
+text rendering function with a bitmap font
+
 ## TODO:
 
-- [ ] Figure out if we can (legally) write a binding for VST3 API
+- [ ] Figure out if we can write a binding for VST3 API without getting a lawyer
 
 - [ ] AUv2 API
 
+- [ ] Improve VST2 format
+
 - [ ] Actually do stuff with MIDI (I'm a guitar guy not a synth guy)
+
+- [ ] Unit tests
 
 - [ ] Simple cross-platform rendering
 

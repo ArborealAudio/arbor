@@ -24,3 +24,10 @@ test "Plugin features" {
             try std.testing.expectEqualStrings(span(feat.?), "synthesizer");
     }
 }
+
+test "Version int" {
+    const vint = try arbor.Vst2VersionInt("0.1.0");
+    try std.testing.expectEqual(10, vint);
+    const update = try arbor.Vst2VersionInt("2.3.5");
+    try std.testing.expectEqual(235, update);
+}

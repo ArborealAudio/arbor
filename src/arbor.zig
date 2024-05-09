@@ -11,10 +11,18 @@ const format = build_options.format;
 pub const Gui = @import("gui/Gui.zig");
 
 pub const clap = @import("clap_api.zig");
+pub const vst2 = @import("vst2_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub const plugin_desc: DescType = createFormatDescription();
 pub const plugin_name = build_options.plugin_desc.name;
+
+pub fn Vst2VersionInt(comptime version: []const u8) !i32 {
+    var v: [version.len]u8 = undefined;
+    @memcpy(&v, version);
+    std.mem.replaceScalar(u8, &v, '.', '_');
+    return try std.fmt.parseInt(i32, &v, 0);
+}
 
 pub const Plugin = struct {
     pub const Description = struct {
@@ -53,6 +61,8 @@ pub const Plugin = struct {
     interface: Interface,
 
     num_channels: u32 = undefined,
+    sample_rate: f32 = undefined,
+    max_frames: u32 = undefined,
 
     param_info: []const Parameter,
     params: []f32,
@@ -75,11 +85,11 @@ pub const Plugin = struct {
                         BaseType,
                         @enumFromInt(@as(i32, @intFromFloat(val))),
                     ),
-                    else => log.fatal("Invalid param type: {s}\n", .{@typeName(BaseType)}),
+                    else => log.fatal("Invalid param type: {s}\n", .{@typeName(BaseType)}, @src()),
                 }
             }
         }
-        log.fatal("Param not found\n", .{});
+        log.fatal("Param not found\n", .{}, @src());
     }
 
     pub fn getParamWithId(plugin: Plugin, id: u32) !*const Parameter {
@@ -91,41 +101,68 @@ pub const Plugin = struct {
         if (id >= plugin.params.len) return error.ParamNotFound;
         return plugin.param_info[id].name;
     }
+};
 
-    pub fn pollGuiEvents(plugin: *Plugin, out: *const clap.OutputEvents) void {
-        const gui = plugin.gui orelse {
-            log.err("How did this get called if GUI is null?\n", .{});
-            return;
+pub const Event = union(enum) {
+    param_change: struct {
+        id: usize,
+        /// normalized value
+        value: f32,
+    },
+};
+
+pub const queue_size = 512;
+pub const Queue = struct {
+    const QueueArray = std.BoundedArray(Event, queue_size);
+    events: QueueArray,
+    mutex: std.Thread.Mutex = .{},
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator) !*Queue {
+        const self = try allocator.create(Queue);
+        self.* = .{
+            .events = try QueueArray.init(0),
+            .allocator = allocator,
         };
-        while (gui.out_events.next_try()) |event| {
-            switch (event) {
-                // NOTE: We should decide on a convention for whether or not
-                // the param values from the GUI are expected to be normalized
-                // or not.
-                .param_change => |change| {
-                    const p = plugin.param_info[change.id];
-                    plugin.params[change.id] = p.valueFromNormalized(change.value);
+        return self;
+    }
 
-                    const out_event = clap.EventParamValue{
-                        .header = .{
-                            .size = @sizeOf(clap.EventParamValue),
-                            .time = 0,
-                            .space_id = clap.CLAP_CORE_EVENT_SPACE_ID,
-                            .flags = .{},
-                            .type = .PARAM_VALUE,
-                        },
-                        .cookie = null,
-                        .param_id = @intCast(change.id),
-                        .note_id = -1,
-                        .port_index = -1,
-                        .channel = -1,
-                        .key = -1,
-                        .value = @floatCast(plugin.params[change.id]),
-                    };
-                    _ = out.try_push(out, &out_event.header);
-                },
-            }
+    pub fn deinit(self: *Queue) void {
+        self.allocator.destroy(self);
+    }
+
+    pub fn push_try(self: *Queue, event: Event) !void {
+        if (self.mutex.tryLock()) {
+            defer self.mutex.unlock();
+            try self.events.append(event);
         }
+    }
+
+    pub fn push_wait(self: *Queue, event: Event) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        try self.events.append(event);
+    }
+
+    pub fn push_no_lock(self: *Queue, event: Event) !void {
+        try self.events.append(event);
+    }
+
+    pub fn next_try(self: *Queue) ?Event {
+        if (self.mutex.tryLock()) {
+            defer self.mutex.unlock();
+            return self.events.popOrNull();
+        } else return null;
+    }
+
+    pub fn next_wait(self: *Queue) ?Event {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.events.popOrNull();
+    }
+
+    pub fn next_no_lock(self: *Queue) ?Event {
+        return self.events.popOrNull();
     }
 };
 
@@ -136,7 +173,7 @@ pub fn init(
     params: []const Parameter,
     interface: Plugin.Interface,
 ) *Plugin {
-    const plug = allocator.create(Plugin) catch |e| log.fatal("Plugin create failed: {}\n", .{e});
+    const plug = allocator.create(Plugin) catch |e| log.fatal("Plugin create failed: {}\n", .{e}, @src());
     plug.* = .{
         .interface = interface,
         .param_info = params,
@@ -154,6 +191,7 @@ pub fn deinit(plugin: *Plugin) void {
 
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
+    .VST2 => Plugin.Description,
     else => @panic("Unimplemented format\n"),
 };
 
@@ -174,9 +212,20 @@ pub fn createFormatDescription() DescType {
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
                 .features = (parseClapFeatures(build_options.plugin_features) catch |e| {
-                    log.fatal("Parse CLAP features failed: {!}\n", .{e});
+                    log.fatal("Parse CLAP features failed: {!}\n", .{e}, @src());
                 }).constSlice().ptr,
             };
+        },
+        Plugin.Description => return Plugin.Description{
+            .name = desc.name,
+            .id = desc.id,
+            .company = desc.company,
+            .version = desc.version,
+            .url = desc.url,
+            .contact = desc.contact,
+            .manual = desc.manual,
+            .description = desc.description,
+            .copyright = desc.copyright,
         },
         else => @compileError("Unimplemented format"),
     }
@@ -205,24 +254,6 @@ pub const features = struct {
     pub const SAMPLER = 1 << 15;
     pub const DRUM = 1 << 16;
 };
-// MONO,
-// STEREO,
-// SURROUND,
-// AMBISONIC,
-// EFFECT,
-// DISTORTION,
-// DYNAMICS,
-// EQ,
-// REVERB,
-// PITCH_SHIFT,
-// MASTERING,
-// ANALYZER,
-// RESTORATION,
-// INSTRUMENT,
-// SYNTH,
-// SAMPLER,
-// DRUM,
-// END,
 
 // TODO: Improve this. Couldn't think of a better way to compare features.
 // There's gotta be a simple data structure which can aid converting between
@@ -258,6 +289,17 @@ pub fn parseClapFeatures(comptime feat: PluginFeatures) !FeaturesArray {
     try out.append(null);
 
     return out;
+}
+
+pub fn parseVst2Features(comptime feat: PluginFeatures) vst2.Category {
+    if (feat & features.EFFECT > 0) return .kPlugCategEffect;
+    if (feat & features.SYNTH > 0) return .kPlugCategSynth;
+    if (feat & features.ANALYZER > 0) return .kPlugCategAnalysis;
+    if (feat & features.MASTERING > 0) return .kPlugCategMastering;
+    if (feat & features.REVERB > 0) return .kPlugCategRoomFx;
+    if (feat & features.RESTORATION > 0) return .kPlugCategRestoration;
+
+    return .kPlugCategUnknown;
 }
 
 /// Generic audio buffer
@@ -340,26 +382,42 @@ pub fn Slice(comptime T: type) type {
 
 pub const log = struct {
     const format_str = @tagName(format);
+    const pre = plugin_name ++ " " ++ format_str ++ ": " ++
+        "{s}:{s}:{d}: ";
     /// debug logger which gets compiled out in release modes
-    pub fn debug(comptime fmt: []const u8, args: anytype) void {
-        std.debug.print(plugin_name ++ " " ++ format_str ++ ": " ++ fmt, args);
+    pub fn debug(
+        comptime fmt: []const u8,
+        args: anytype,
+        comptime src: std.builtin.SourceLocation,
+    ) void {
+        std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
     }
 
     /// default info
-    pub fn info(comptime fmt: []const u8, args: anytype) void {
-        std.log.info(plugin_name ++ " " ++ format_str ++ ": " ++ fmt, args);
+    pub fn info(
+        comptime fmt: []const u8,
+        args: anytype,
+        comptime src: std.builtin.SourceLocation,
+    ) void {
+        std.log.info(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
     }
 
     /// default nonfatal error
-    pub fn err(comptime fmt: []const u8, args: anytype) void {
-        std.log.err(plugin_name ++ " " ++ format_str ++ ": " ++
-            fmt, args);
+    pub fn err(
+        comptime fmt: []const u8,
+        args: anytype,
+        comptime src: std.builtin.SourceLocation,
+    ) void {
+        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
     }
 
     /// default fatal error
-    pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
-        std.log.err(plugin_name ++ " " ++ format_str ++ ": " ++
-            fmt, args);
+    pub fn fatal(
+        comptime fmt: []const u8,
+        args: anytype,
+        comptime src: std.builtin.SourceLocation,
+    ) noreturn {
+        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
         std.process.exit(1);
     }
 };

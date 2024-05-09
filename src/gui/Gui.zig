@@ -6,6 +6,10 @@ const arbor = @import("../arbor.zig");
 const log = arbor.log;
 
 const Plugin = arbor.Plugin;
+
+const Event = arbor.Event;
+const Queue = arbor.Queue;
+
 pub const draw = @import("draw.zig");
 const Vec2 = draw.Vec2i;
 const Rect = draw.Recti;
@@ -62,10 +66,10 @@ const arena = arena_impl.allocator();
 /// Call this from within your gui_init function to init the GUI backend
 pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
     _ = allocator;
-    const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e});
+    const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e}, @src());
     errdefer arena.free(ptr);
     const bits = arena.alloc(u32, config.width * config.height) catch |e|
-        log.fatal("{!}\n", .{e});
+        log.fatal("{!}\n", .{e}, @src());
     errdefer arena.free(bits);
     ptr.* = .{
         .allocator = arena,
@@ -74,8 +78,8 @@ pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
         .interface = config.interface,
         .layout = config.layout,
         .components = std.ArrayList(Component).init(arena),
-        .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}),
-        .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}),
+        .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
+        .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
         .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
     };
 
@@ -93,9 +97,13 @@ pub fn deinit(self: *Gui) void {
     arena_impl.deinit();
 }
 
-pub fn render(self: *Gui) callconv(.C) void {
+pub fn requestDraw(self: *Gui) void {
+    self.wants_repaint.store(true, .release);
+}
+
+fn render(self: *Gui) callconv(.C) void {
     // unload event queue
-    self.pollInEvents();
+    self.processInEvents();
 
     self.interface.render(self);
 
@@ -135,7 +143,7 @@ pub fn render(self: *Gui) callconv(.C) void {
             self.out_events.push_wait(.{
                 .param_change = .{ .id = i, .value = c.value },
             }) catch |e| {
-                log.err("out_events push failed: {!}\n", .{e});
+                log.err("out_events push failed: {!}\n", .{e}, @src());
                 return;
             };
             c.param_changed = false;
@@ -144,7 +152,7 @@ pub fn render(self: *Gui) callconv(.C) void {
 }
 
 // wraps all event handling under one lock
-fn pollInEvents(self: *Gui) void {
+fn processInEvents(self: *Gui) void {
     self.in_events.mutex.lock();
     defer self.in_events.mutex.unlock();
     while (self.in_events.next_no_lock()) |event| {
@@ -163,7 +171,7 @@ fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) call
     self.processGesture(
         .{ .x = cursor_x, .y = cursor_y },
     ) catch |e| {
-        log.err("{!}\n", .{e});
+        log.err("{!}\n", .{e}, @src());
         return;
     };
     self.wants_repaint.store(true, .release);
@@ -177,7 +185,7 @@ pub fn getSize(self: Gui) Vec2 {
 // allocation but our "inheritance" model kind of forces that.
 pub fn addComponent(self: *Gui, component: Component) void {
     self.components.append(component) catch |e|
-        log.err("Component append failed: {!}\n", .{e});
+        log.err("Component append failed: {!}\n", .{e}, @src());
 }
 
 pub fn getComponent(self: *Gui, id: usize) *Component {
@@ -193,68 +201,6 @@ pub fn getComponentUnderMouse(self: *Gui, mouse: Vec2) ?struct {
     }
     return null;
 }
-
-pub const Event = union(enum) {
-    param_change: struct {
-        id: usize,
-        value: f32,
-    },
-};
-
-pub const queue_size = 512;
-pub const Queue = struct {
-    const QueueArray = std.BoundedArray(Event, queue_size);
-    events: QueueArray,
-    mutex: std.Thread.Mutex = .{},
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) !*Queue {
-        const self = try allocator.create(Queue);
-        self.* = .{
-            .events = try QueueArray.init(0),
-            .allocator = allocator,
-        };
-        return self;
-    }
-
-    pub fn deinit(self: *Queue) void {
-        self.allocator.destroy(self);
-    }
-
-    pub fn push_try(self: *Queue, event: Event) !void {
-        if (self.mutex.tryLock()) {
-            defer self.mutex.unlock();
-            try self.events.append(event);
-        }
-    }
-
-    pub fn push_wait(self: *Queue, event: Event) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        try self.events.append(event);
-    }
-
-    pub fn push_no_lock(self: *Queue, event: Event) !void {
-        try self.events.append(event);
-    }
-
-    pub fn next_try(self: *Queue) ?Event {
-        if (self.mutex.tryLock()) {
-            defer self.mutex.unlock();
-            return self.events.popOrNull();
-        } else return null;
-    }
-
-    pub fn next_wait(self: *Queue) ?Event {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        return self.events.popOrNull();
-    }
-
-    pub fn next_no_lock(self: *Queue) ?Event {
-        return self.events.popOrNull();
-    }
-};
 
 fn processGesture(
     self: *Gui,
@@ -451,7 +397,7 @@ pub const Slider = struct {
 
     pub fn init(allocator: Allocator, param: *const arbor.Parameter, color: Color) *Slider {
         const self = allocator.create(Slider) catch |e|
-            log.fatal("Slider alloc failed: {!}\n", .{e});
+            log.fatal("Slider alloc failed: {!}\n", .{e}, @src());
         self.* = .{ .param = param, .color = color, .flags = .{} };
         return self;
     }
@@ -552,7 +498,7 @@ pub const Menu = struct {
         border_thickness: u32,
         highlight_color: Color,
     ) *Menu {
-        const self = allocator.create(Menu) catch |e| log.fatal("Menu init failed: {!}\n", .{e});
+        const self = allocator.create(Menu) catch |e| log.fatal("Menu init failed: {!}\n", .{e}, @src());
         self.* = .{
             .choices = choices,
             .border_color = border_color,

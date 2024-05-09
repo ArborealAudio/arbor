@@ -91,7 +91,7 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
 
 fn dbValToText(value: f32, buf: []u8) usize {
     const out = std.fmt.bufPrint(buf, "{d:.2} dB", .{value}) catch |e| {
-        log.err("{!}\n", .{e});
+        log.err("{!}\n", .{e}, @src());
         return 0;
     };
     return out.len;
@@ -139,7 +139,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
     // setup unique properties here
     for (0..plugin.param_info.len) |i| {
         const param_info = plugin.getParamWithId(@intCast(i)) catch |e| {
-            log.err("{!}\n", .{e});
+            log.err("{!}\n", .{e}, @src());
             return;
         };
         if (!std.mem.eql(u8, param_info.name, "Mode")) {
@@ -175,7 +175,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
             const bot_pad = 50;
             gui.addComponent(.{
                 .sub_type = arbor.Gui.Menu.init(gui.allocator, param_info.enum_choices orelse {
-                    log.err("No enum choices available\n", .{});
+                    log.err("No enum choices available\n", .{}, @src());
                     return;
                 }, silver, 3, highlight_color),
                 .interface = arbor.Gui.Menu.interface,

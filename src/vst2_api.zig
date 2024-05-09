@@ -48,24 +48,46 @@ pub const StringConstants = struct {
     pub const MaxFileNameLen = 100;
 };
 
-pub const VstEvents = extern struct {
-    const Event = extern struct {
-        type: i32,
-        byte_size: i32,
-        delta_frames: i32,
-        flags: i32,
+const Event = extern struct {
+    /// should always be 1 for MIDI
+    type: i32,
+    byte_size: i32,
+    /// delta from current event block start
+    delta_frames: i32,
+    /// unused garbage
+    flags: i32,
 
-        data: [16]u8,
-    };
-
+    data: [16]u8,
     const Type = enum(i32) {
         MidiType = 1,
         SysExType = 6,
     };
+};
 
+pub const EventsBlock = extern struct {
     num_events: i32,
-    reserved: isize,
+    reserved: isize = 0,
     events: [2]*Event,
+};
+
+pub const MidiEvent = extern struct {
+    type: i32,
+    byte_size: i32,
+    /// delta from event block start
+    delta_frames: i32,
+    flags: packed struct(i32) {
+        is_realtime: bool = false,
+        _: u31,
+    },
+    /// current note length in frames
+    note_length: i32,
+    /// delta from note start
+    note_offset: i32,
+    midi_data: [4]i8,
+    /// -64 to 63 cents
+    detune: i8,
+    note_off_vel: i8,
+    _: u16 = 0,
 };
 
 /// I think what this is for is so we can manually call the host
@@ -112,6 +134,7 @@ pub const GetParameter = ?*const fn (
     index: i32,
 ) callconv(.C) f32;
 
+/// Host-to-plugin instructions
 pub const Opcode = enum(i32) {
     Open = 0,
     Close,
@@ -134,18 +157,47 @@ pub const Opcode = enum(i32) {
     GetChunk = 23,
     SetChunk,
 
+    /// `ptr`: *VstEvents
     ProcessEvents, // MIDI events
 
+    /// `index`: param index -- return true or false
     CanBeAutomated = 26,
+    ParamTextToValue = 27,
+
+    /// `index`: id `ptr`: *PinProperties -- return 1 if supported
+    GetInputProperties = 33,
+    /// `index`: id `ptr`: *PinProperties -- return 1 if supported
+    GetOutputProperties = 34,
 
     GetPlugCategory = 35,
     GetVendorString = 47,
     GetProductString,
     GetVendorVersion,
     CanDo = 51,
+    GetTailSize = 52,
+    /// `index`: param id `ptr`: *ParamProperties -- return 1 if supported
     GetParameterProperties = 56,
     GetVstVersion = 58,
+    /// `value`: process precision (enum)
     SetProcessPrecision = 77,
+};
+
+pub const HostOpcodes = enum(i32) {
+    /// `index`: parameter index `opt`: parameter value
+    AutomateParam = 0,
+    /// Get Host VST version
+    HostVersion,
+    /// Get unique ID of plugin
+    CurrentId,
+    /// why
+    Idle,
+    /// Send `*VstEvents` to host via `ptr`
+    ProcessEvents = 8,
+    /// Tell Host new window size: `index`: width `value`: height -- Returns 1 if supported
+    SizeWindow = 15,
+    /// Tell host which param `index` is about to change
+    BeginParamChange = 43,
+    EndParamChange = 44,
 };
 
 pub const ProcessPrecision = enum(i32) {
@@ -154,11 +206,21 @@ pub const ProcessPrecision = enum(i32) {
 };
 
 pub const ParameterProperties = extern struct {
+    pub const Flags = packed struct(i32) {
+        IsSwitch: bool = false,
+        UsesIntegerMax: bool = false,
+        UseFloatStep: bool = false,
+        UsesIntStep: bool = false,
+        SupportsDisplayIndex: bool = false,
+        SupportsDisplayCategory: bool = false,
+        CanRamp: bool = false,
+        _: u25,
+    };
     stepFloat: f32,
     smallStepFloat: f32,
     largeStepFloat: f32,
     label: [StringConstants.MaxLabelLen]u8,
-    flags: i32,
+    flags: Flags,
     minInteger: i32,
     maxInteger: i32,
     stepInteger: i32,
@@ -172,39 +234,28 @@ pub const ParameterProperties = extern struct {
     reserved: i16,
     categoryLabel: [StringConstants.MaxCategLabelLen]u8,
 
-    future: [16]u8,
-};
-
-pub const ParameterFlags = enum(i32) {
-    IsSwitch = 1 << 0,
-    UsesIntegerMax = 1 << 1,
-    UseFloatStep = 1 << 2,
-    UsesIntStep = 1 << 3,
-    SupportsDisplayIndex = 1 << 4,
-    SupportsDisplayCategory = 1 << 5,
-    CanRamp = 1 << 6,
-};
-
-pub const MAX_NUM_PARAMS = 128;
-pub const PluginState = extern struct {
-    param: [MAX_NUM_PARAMS]f32,
+    future: [16]u8 = [_]u8{0} ** 16,
 };
 
 pub const PinProperties = extern struct {
+    pub const Flags = packed struct(i32) {
+        /// pin active
+        IsActive: bool = false,
+        /// pin is a stereo pair
+        IsStereo: bool = false,
+        /// use `arrangement_type` (unsupported)
+        UseSpeaker: bool = false,
+
+        _: u29 = 0,
+    };
     label: [StringConstants.MaxLabelLen]u8,
-    flags: i32,
-    arrangement_type: i32,
+    flags: Flags,
+    arrangement_type: i32 = -1,
     shortLabel: [StringConstants.MaxShortLabelLen]u8,
-    future: [48]u8,
+    future: [48]u8 = [_]u8{0} ** 48,
 };
 
-pub const PinPropertiesFlags = enum(i32) {
-    IsActive = 1 << 0,
-    IsStereo = 1 << 1,
-    UseSpeaker = 1 << 2,
-};
-
-pub const Flags = enum(i32) {
+pub const PluginFlags = enum(i32) {
     HasEditor = 1 << 0,
     HasReplacing = 1 << 4,
     HasStateChunk = 1 << 5,
@@ -212,7 +263,7 @@ pub const Flags = enum(i32) {
     NoSoundInStop = 1 << 9,
     HasDoubleReplacing = 1 << 12,
 
-    pub fn toInt(flags: []const Flags) i32 {
+    pub fn toInt(flags: []const PluginFlags) i32 {
         var i: i32 = 0;
         for (flags) |f| {
             i |= @intFromEnum(f);

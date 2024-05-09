@@ -358,12 +358,13 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     if (b.option(bool, "examples", "Build example plugins")) |_| {
+        const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
         inline for (examples) |ex| {
             var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
             config = config.withName("Example Distortion");
             config.target = target;
             config.optimize = optimize;
-            try addExample(b, config);
+            try addExample(b, config, format);
         }
     }
 
@@ -382,7 +383,7 @@ const default_config = BuildConfig{
         .name = undefined,
         .id = undefined,
         .company = "Arboreal Audio",
-        .version = "0.1",
+        .version = "0.1.0",
         .copyright = "(c) 2024 Arboreal Audio, LLC",
         .url = "",
         .manual = "",
@@ -405,14 +406,13 @@ const examples = [_]BuildConfig{
 // example plugins) and you can't use build-relative paths when using this as a module,
 // so this is a bad solution that is also the only thing I can think to do.
 
-pub fn addExample(b: *std.Build, config: BuildConfig) !void {
+pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !void {
     const target = config.target;
     const optimize = config.optimize;
 
     const build_options = b.addOptions();
     // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
     // Or -- CLI option overrides build options or vice-versa.
-    const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
     build_options.addOption(Format, "format", format);
     build_options.addOption(Description, "plugin_desc", config.description);
     build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
@@ -494,6 +494,7 @@ fn buildExample(
 
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
+        .VST2 => "src/vst2_plugin.zig",
         else => @panic("TODO: This format"),
     };
     const plug = b.addSharedLibrary(.{

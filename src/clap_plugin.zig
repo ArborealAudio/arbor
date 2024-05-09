@@ -278,7 +278,7 @@ const Params = struct {
         const plug = plug_cast(plugin);
         if (in) |in_events| {
             for (0..in_events.size(in_events)) |i| {
-                plug.processEvent(in_events.get(in_events, @intCast(i)));
+                plug.processInEvent(in_events.get(in_events, @intCast(i)));
             }
         }
     }
@@ -568,9 +568,9 @@ pub fn reset(plugin: ?*const clap.Plugin) callconv(.C) void {
     _ = plugin;
 }
 
-// So we need to create a generic event wrapper over this, which can take a clap
-// event and process it, or whatever a VST3 event looks like, etc.
-pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callconv(.C) void {
+/// Take a CLAP event (just param changes for now), change the corresponding
+/// parameter, and forward a param change event to the GUI
+pub fn processInEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) void {
     const plug = plugin.plugin orelse {
         log.err("Plugin is null\n", .{});
         return;
@@ -594,12 +594,50 @@ pub fn processEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) callco
                     }
                 },
                 // TODO: Separate functions for audio & MIDI events
-                else => log.err("Unhandled event: {s}\n", .{@tagName(e.type)}),
+                else => log.err("Unhandled event: {s}\n", .{@tagName(e.type)}, @src()),
             }
         }
     } else {
         log.err("Event header is null\n", .{});
         return;
+    }
+}
+
+/// Read events from GUI and forward them to CLAP host
+pub fn processOutEvent(plugin: *ClapPlugin, clap_events: *const clap.OutputEvents) void {
+    const plug = plugin.plugin orelse {
+        log.err("User plugin is null\n", .{}, @src());
+        return;
+    };
+    const gui = plug.gui orelse {
+        log.err("Gui is null\n", .{});
+        return;
+    };
+    while (gui.out_events.next_try()) |event| {
+        switch (event) {
+            .param_change => |change| {
+                const p = plugin.param_info[change.id];
+                plugin.params[change.id] = p.valueFromNormalized(change.value);
+
+                const out_event = clap.EventParamValue{
+                    .header = .{
+                        .size = @sizeOf(clap.EventParamValue),
+                        .time = 0,
+                        .space_id = clap.CLAP_CORE_EVENT_SPACE_ID,
+                        .flags = .{},
+                        .type = .PARAM_VALUE,
+                    },
+                    .cookie = null,
+                    .param_id = @intCast(change.id),
+                    .note_id = -1,
+                    .port_index = -1,
+                    .channel = -1,
+                    .key = -1,
+                    .value = @floatCast(plugin.params[change.id]),
+                };
+                _ = clap_events.try_push(clap_events, &out_event.header);
+            },
+        }
     }
 }
 
@@ -624,8 +662,9 @@ pub fn process(
     var event_index: u32 = 0;
     var next_event_frame: u32 = if (num_events > 0) 0 else num_frames;
 
-    if (plug.gui) |_|
-        if (p_info.out_events) |out_ev| plug.pollGuiEvents(out_ev);
+    if (plug.gui) |_| if (p_info.out_events) |out_ev| {
+        clap_plug.processOutEvent(out_ev);
+    };
 
     var i: u32 = 0;
     while (i < num_frames) {
@@ -637,7 +676,7 @@ pub fn process(
                         next_event_frame = header.time;
                         break;
                     }
-                    clap_plug.processEvent(header);
+                    clap_plug.processInEvent(header);
                     event_index += 1;
                     if (event_index == num_events) {
                         // end of event list
