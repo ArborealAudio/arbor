@@ -201,26 +201,36 @@ fn pluginCopyStep(
     );
     const sys_install_path = switch (format) {
         .CLAP => switch (os) {
-            .linux => try std.mem.concat(allocator, u8, &.{ home_dir, "/.clap/" }),
-            .macos => try std.mem.concat(allocator, u8, &.{ home_dir, "/Library/Audio/Plug-Ins/CLAP/" }),
+            .linux => b.pathJoin(&.{ home_dir, "/.clap/" }),
+            .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/CLAP/" }),
             .windows => "/Program Files/Common Files/CLAP/",
             else => @panic("Unsupported OS"),
         },
         .VST3 => switch (os) {
-            .linux => try std.mem.concat(allocator, u8, &.{ home_dir, "/.vst3/" }),
-            .macos => try std.mem.concat(allocator, u8, &.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
+            .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
+            .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
             .windows => "/Program Files/Common Files/VST3/",
             else => @panic("Unsupported OS"),
         },
         .VST2 => switch (os) {
-            .linux => try std.mem.concat(allocator, u8, &.{ home_dir, "/.vst/" }),
-            .macos => try std.mem.concat(allocator, u8, &.{ home_dir, "/Library/Audio/Plug-Ins/VST/" }),
+            .linux => b.pathJoin(&.{ home_dir, "/.vst/" }),
+            .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST/" }),
             .windows => "/Program Files/Steinberg/VstPlugins/",
             else => @panic("Unsupported OS"),
         },
     };
 
-    var plugin_dir = try std.fs.openDirAbsolute(sys_install_path, .{});
+    var plugin_dir = mkdir: {
+        break :mkdir std.fs.openDirAbsolute(sys_install_path, .{}) catch |e| {
+            switch (e) {
+                error.FileNotFound => {
+                    try std.fs.makeDirAbsolute(sys_install_path);
+                    break :mkdir try std.fs.openDirAbsolute(sys_install_path, .{});
+                },
+                else => return e,
+            }
+        };
+    };
     defer plugin_dir.close();
     const gen_file = output.getEmittedBin().generated.getPath();
 
