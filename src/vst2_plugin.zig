@@ -226,7 +226,10 @@ fn dispatch(
             }
 
             if (ptr) |p| {
-                const window = arbor.cast(PlatformGui.Window, p);
+                const window = if (builtin.os.tag != .linux)
+                    arbor.cast(PlatformGui.Window, p)
+                else
+                    @compileError("VST2 Window unimplemented on Linux");
                 PlatformGui.guiSetParent(gui.impl, window);
             } else {
                 log.err("Passed null parent window\n", .{}, @src());
