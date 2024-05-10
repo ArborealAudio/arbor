@@ -37,7 +37,7 @@ extending support to other APIs
 
 * Basic CLAP audio plugin supporting different types of parameters, sample-accurate automation
 
-* A janky VST2 implementation that works in Reaper and not really anywhere else
+* A janky VST2 implementation that works in Reaper and mostly works in other DAWs
 
 * Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
 text rendering function with a bitmap font
