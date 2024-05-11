@@ -12,6 +12,8 @@ const format = config.format;
 
 pub const Gui = @import("gui/Gui.zig");
 
+pub const dsp = @import("dsp/dsp.zig");
+
 pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
 
@@ -44,14 +46,21 @@ pub const Plugin = struct {
         // features: []const PluginFeatures,
     };
 
-    pub extern fn init() *Plugin;
-
     pub const Interface = struct {
         deinit: *const fn (*Plugin) void,
         prepare: *const fn (*Plugin, f32, u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
     };
+
+    /// User-provided initialization function
+    pub extern fn init() *Plugin;
+
+    /// Deinit a Plugin using the allocator passed to it in init().
+    pub fn deinit(plugin: *Plugin) void {
+        plugin.allocator.free(plugin.params);
+        plugin.allocator.destroy(plugin);
+    }
 
     interface: Interface,
 
