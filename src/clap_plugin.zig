@@ -23,8 +23,6 @@ fn plug_cast(ptr: ?*const clap.Plugin) *ClapPlugin {
 
 const ClapPlugin = @This();
 
-const timer_ms = 16;
-
 /// user plugin
 plugin: ?*arbor.Plugin = null,
 
@@ -38,9 +36,6 @@ host_thread_check: ?*const clap.HostThreadCheck = null,
 host_state: ?*const clap.HostState = null,
 host_params: ?*const clap.params.HostParams = null,
 host_fd_support: ?*const clap.posix_fd.HostSupport = null,
-timer_id: clap.Id,
-
-need_repaint: bool = false,
 
 const AudioPorts = struct {
     fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.C) u32 {
@@ -111,7 +106,6 @@ const AudioPorts = struct {
 //     };
 // };
 
-// Latency
 pub const Latency = struct {
     fn getLatency(plugin: ?*const clap.Plugin) callconv(.C) u32 {
         if (plug_cast(plugin).plugin) |plug| {
@@ -127,7 +121,6 @@ pub const Latency = struct {
     };
 };
 
-// state
 const State = struct {
     pub fn save(
         plugin: ?*const clap.Plugin,
@@ -168,7 +161,6 @@ const State = struct {
     };
 };
 
-// Params
 const Params = struct {
     pub fn count(plugin: ?*const clap.Plugin) callconv(.C) u32 {
         if (plug_cast(plugin).plugin) |plug|
@@ -239,7 +231,6 @@ const Params = struct {
                 if (param.flags.is_enum) {
                     if (param.enum_choices) |choices| {
                         const choice = choices[ival];
-                        // ISSUE: This bugs out with certain arrangements of strings
                         @memcpy(display[0..choice.len], choice);
                     }
                 } else {
@@ -293,7 +284,6 @@ const Params = struct {
     };
 };
 
-// GUI //
 const GuiPlatform = arbor.Gui.Platform;
 const GuiImpl = arbor.Gui.GuiImpl;
 const Gui = struct {
@@ -516,6 +506,7 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
     if (get_ext(host, clap.EXT_PARAMS)) |ptr|
         clap_plug.host_params = @ptrCast(@alignCast(ptr));
 
+    // NOTE: Only seems like Reaper & FL support this -- it wasn't working in Bitwig
     // if (get_ext(host, clap.EXT_TIMER_SUPPORT)) |ptr| {
     //     clap_plug.host_timer_support = @ptrCast(@alignCast(ptr));
     //     if (clap_plug.host_timer_support) |timer| {
@@ -533,12 +524,10 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
 
 pub fn destroy(plugin: ?*const clap.Plugin) callconv(.C) void {
     const clap_plug = plug_cast(plugin);
-    // const host = clap_plug.host orelse log.fatal("Clap host is null\n", .{});
-    // if (clap_plug.host_timer_support) |timer| {
-    //     _ = timer.unregister_timer(host, clap_plug.timer_id);
-    // }
-    if (clap_plug.plugin) |plug|
+    if (clap_plug.plugin) |plug| {
         plug.interface.deinit(plug);
+        plug.deinit();
+    }
     allocator.destroy(clap_plug);
 }
 
@@ -803,7 +792,6 @@ const Factory = struct {
                     .on_main_thread = onMainThread,
                 },
                 .host = h,
-                .timer_id = undefined,
             };
             return &clap_plug.clap_plugin;
         } else return null;

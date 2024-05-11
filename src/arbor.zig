@@ -68,6 +68,8 @@ pub const Plugin = struct {
 
     allocator: Allocator = std.heap.c_allocator,
 
+    // functions for dealing with a plugin's parameters
+
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
             if (std.mem.orderZ(u8, p.name, name).compare(.eq)) {
@@ -96,68 +98,12 @@ pub const Plugin = struct {
         if (id >= plugin.params.len) return error.ParamNotFound;
         return plugin.param_info[id].name;
     }
-};
 
-pub const Event = union(enum) {
-    param_change: struct {
-        id: usize,
-        /// normalized value
-        value: f32,
-    },
-};
-
-pub const queue_size = 512;
-pub const Queue = struct {
-    const QueueArray = std.BoundedArray(Event, queue_size);
-    events: QueueArray,
-    mutex: std.Thread.Mutex = .{},
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) !*Queue {
-        const self = try allocator.create(Queue);
-        self.* = .{
-            .events = try QueueArray.init(0),
-            .allocator = allocator,
-        };
-        return self;
-    }
-
-    pub fn deinit(self: *Queue) void {
-        self.allocator.destroy(self);
-    }
-
-    pub fn push_try(self: *Queue, event: Event) !void {
-        if (self.mutex.tryLock()) {
-            defer self.mutex.unlock();
-            try self.events.append(event);
+    /// Get a pointer to the user's data, if they provided one
+    pub fn getUser(plugin: *Plugin, comptime UserType: type) *UserType {
+        if (plugin.user) |ptr| return cast(*UserType, ptr) else {
+            log.fatal("User pointer is null\n", .{}, @src());
         }
-    }
-
-    pub fn push_wait(self: *Queue, event: Event) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        try self.events.append(event);
-    }
-
-    pub fn push_no_lock(self: *Queue, event: Event) !void {
-        try self.events.append(event);
-    }
-
-    pub fn next_try(self: *Queue) ?Event {
-        if (self.mutex.tryLock()) {
-            defer self.mutex.unlock();
-            return self.events.popOrNull();
-        } else return null;
-    }
-
-    pub fn next_wait(self: *Queue) ?Event {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        return self.events.popOrNull();
-    }
-
-    pub fn next_no_lock(self: *Queue) ?Event {
-        return self.events.popOrNull();
     }
 };
 
@@ -176,12 +122,6 @@ pub fn init(
         .allocator = allocator,
     };
     return plug;
-}
-
-/// Deinit a Plugin using the allocator passed to it in init().
-pub fn deinit(plugin: *Plugin) void {
-    plugin.allocator.free(plugin.params);
-    plugin.allocator.destroy(plugin);
 }
 
 const DescType = switch (format) {
@@ -297,6 +237,69 @@ pub fn parseVst2Features(comptime feat: PluginFeatures) vst2.Category {
 
     return .kPlugCategUnknown;
 }
+
+pub const Event = union(enum) {
+    param_change: struct {
+        id: usize,
+        /// normalized value
+        value: f32,
+    },
+};
+
+pub const queue_size = 512;
+pub const Queue = struct {
+    const QueueArray = std.BoundedArray(Event, queue_size);
+    events: QueueArray,
+    mutex: std.Thread.Mutex = .{},
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator) !*Queue {
+        const self = try allocator.create(Queue);
+        self.* = .{
+            .events = try QueueArray.init(0),
+            .allocator = allocator,
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *Queue) void {
+        self.allocator.destroy(self);
+    }
+
+    pub fn push_try(self: *Queue, event: Event) !void {
+        if (self.mutex.tryLock()) {
+            defer self.mutex.unlock();
+            try self.events.append(event);
+        }
+    }
+
+    pub fn push_wait(self: *Queue, event: Event) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        try self.events.append(event);
+    }
+
+    pub fn push_no_lock(self: *Queue, event: Event) !void {
+        try self.events.append(event);
+    }
+
+    pub fn next_try(self: *Queue) ?Event {
+        if (self.mutex.tryLock()) {
+            defer self.mutex.unlock();
+            return self.events.popOrNull();
+        } else return null;
+    }
+
+    pub fn next_wait(self: *Queue) ?Event {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.events.popOrNull();
+    }
+
+    pub fn next_no_lock(self: *Queue) ?Event {
+        return self.events.popOrNull();
+    }
+};
 
 /// Generic audio buffer
 pub fn AudioBuffer(comptime FloatType: type) type {

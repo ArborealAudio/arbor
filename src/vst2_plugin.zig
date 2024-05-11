@@ -60,25 +60,22 @@ fn dispatch(
     var plugin: *VstPlugin = plugCast(effect);
     const plug = plugin.plugin orelse {
         log.err("Plugin is null\n", .{}, @src());
-        return -1;
+        return 0;
     };
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
-            // ISSUE: Hardcoding srate and block size
-            // trying instead to use plugin's own values. Do they get set before Open is called?
-            // Or should we actually allocate teh user plugin here, and then call prepare right
-            // after? That wouldn't solve problem of unset sizes though.
+            // TODO: Implement calling the host for SR, max frames, num ch
             plug.interface.prepare(
                 plug,
                 plug.sample_rate,
                 plug.max_frames,
             );
-            return 1;
+            return 0;
         },
         .Close => {
             plugin.deinit(allocator);
-            return 1;
+            return 0;
         },
         .GetVendorString => {
             if (ptr) |p| {
@@ -89,14 +86,14 @@ fn dispatch(
                 //     return -1;
                 // };
                 @memcpy(buf[0..vendor.len], vendor);
-                return 1;
+                return 0;
             }
         },
         .GetVendorVersion => {
             return arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e|
                 {
                 log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
-                return -1;
+                return 1;
             };
         },
         .GetProductString => {
@@ -119,7 +116,7 @@ fn dispatch(
                 if (ptr) |p| {
                     const name = plug.getParamName(@intCast(index)) catch |e| {
                         log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
-                        return 0;
+                        return 1;
                     };
                     var buf: [*]u8 = @ptrCast(p);
                     // name length + 1 for null terminator--using :0 doesn't work for some reason
@@ -128,10 +125,10 @@ fn dispatch(
                         return 0;
                     };
                 }
-                return 0;
             }
             return 1;
         },
+        .GetParamLabel => {},
         // Param value as text
         .ParamValueToText => {
             if (index >= 0 and index < plug.param_info.len) {
@@ -153,7 +150,7 @@ fn dispatch(
                             const choice = choices[@intFromFloat(val)];
                             const out: [*]u8 = @ptrCast(p);
                             @memcpy(out[0..choice.len], choice);
-                            return 0;
+                            return 1;
                         }
                     }
                 }
@@ -255,7 +252,7 @@ fn dispatch(
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
-                return -1;
+                return 0;
             }
             return 0;
         },
@@ -272,13 +269,18 @@ fn dispatch(
             if (ptr) |p| {
                 var dest = p;
                 dest = @alignCast(@ptrCast(plug.params.ptr));
+                return 0;
             }
+            return 1;
         },
         .SetChunk => {
-            if (ptr) |p| @memcpy(
-                plug.params,
-                @as([*]f32, @alignCast(@ptrCast(p))),
-            );
+            if (ptr) |p| {
+                @memcpy(
+                    plug.params,
+                    @as([*]f32, @alignCast(@ptrCast(p))),
+                );
+                return 0;
+            }
             return 1;
         },
         .SetProgram, .GetProgram, .SetProgramName, .GetProgramName => {},
@@ -287,7 +289,7 @@ fn dispatch(
             // TODO: Use `index` to support multiple pins
             const pin = allocator.create(vst2.PinProperties) catch |e| {
                 log.err("{!}\n", .{e}, @src());
-                return -1;
+                return 1;
             };
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Input";
@@ -298,6 +300,7 @@ fn dispatch(
             if (ptr) |p| {
                 var dest: *vst2.PinProperties = @alignCast(@ptrCast(p));
                 dest = pin;
+                return 0;
             }
             return 1;
         },
@@ -305,7 +308,7 @@ fn dispatch(
             // TODO: Use `index` to support multiple pins
             const pin = allocator.create(vst2.PinProperties) catch |e| {
                 log.err("{!}\n", .{e}, @src());
-                return -1;
+                return 1;
             };
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Output";
@@ -316,17 +319,18 @@ fn dispatch(
             if (ptr) |p| {
                 var dest: *vst2.PinProperties = @alignCast(@ptrCast(p));
                 dest = pin;
+                return 0;
             }
             return 1;
         },
         .SetProcessPrecision => {
             plugin.process_precision = @enumFromInt(value);
-            return 1;
+            return 0;
         },
         .GetParameterProperties => {},
         .GetTailSize => return 0,
     }
-    return 0;
+    return -1;
 }
 
 fn processInEvent(vst: *VstPlugin) void {

@@ -143,7 +143,11 @@ pub const Opcode = enum(i32) {
     SetProgramName,
     GetProgramName,
 
-    ParamValueToText = 7,
+    /// This is a sort of post-value string you might want, like "dB" or "Hz".
+    /// You can also just leave this blank and handle postfix labelling in a
+    /// custom value-to-text function called in `ParamValueToText`
+    GetParamLabel,
+    ParamValueToText,
     GetParamName,
 
     SetSampleRate = 10,
@@ -158,7 +162,7 @@ pub const Opcode = enum(i32) {
     SetChunk,
 
     /// `ptr`: *VstEvents
-    ProcessEvents, // MIDI events
+    ProcessEvents,
 
     /// `index`: param index -- return true or false
     CanBeAutomated = 26,
