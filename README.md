@@ -115,10 +115,11 @@ pub fn build(b: *std.Build) !void {
 			.id = "com.Plug-O.Evil",
 			.name = "My Evil Plugin",
 			.company = "Plug-O Corp, Ltd.",
-			.version = "0.1",
+			.version = "0.1.0",
 			.url = "https://plug-o-corp.biz",
 			.contact = "contact@plug-o-corp.biz",
 			.manual = "https://plug-o-corp.biz/Evil/manual.pdf",
+			.copyright = "(c) 2100 Plug-O-Corp, Ltd.",
 			.description = "Vintage Analog Warmth",
 		},
 		.features = arbor.features.STEREO | arbor.features.EFFECT |
@@ -142,17 +143,14 @@ const Mode = enum {
 };
 
 const params = &[_]arbor.Parameter{
-	arbor.param.create(
+	arbor.param.Float(
 		"Gain", // name
-		.{ 0.0, // min
+		0.0, // min
 		10.0, // max
-		0.666 }, // default
+		0.666, // default
+		.{.flags = .{}}, // can provide additional flags
 	);
-	arbor.param.create("Mode", .{Mode.Vintage, &.{
-		"Vintage", // list of choices as strings
-		"Modern",
-		"Apocalypse",
-	}});
+	arbor.param.Choice("Mode", Mode.Vintage, .{.flags = .{}});
 };
 
 const Plugin = @This();
@@ -168,7 +166,7 @@ export fn init() *arbor.Plugin {
 		.process = process,
 	});
 	const user_plugin = allocator.create(Plugin) catch |err| // catch any allocation errors
-		arbor.log.fatal("Plugin create failed: {!}\n", .{err});
+		arbor.log.fatal("Plugin create failed: {!}\n", .{err}, @src());
 
 	user_plugin.* = .{}; // init our plugin to default
 	plugin.user = user_plugin; // set user context pointer
@@ -177,11 +175,8 @@ export fn init() *arbor.Plugin {
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
-	if (plugin.user) |ptr| {
-		const plugin: *Plugin = arbor.cast(*Plugin, ptr);
-		plugin.allocator.destroy(plugin);
-	}
-	arbor.deinit(plugin);
+	const plugin: plugin.getUser(Plugin);
+	plugin.allocator.destroy(plugin);
 }
 
 fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
@@ -192,15 +187,13 @@ fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
 }
 
 // process audio
-fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer) void {
+fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
 
 	// load an audio parameter value
 	const gain_param = plugin.getParamValue(f32, "Gain");
 
-	const end = buffer.offset + buffer.frames;
-	
-	for (buffer.input[0..buffer.num_ch], 0..) |channel_data, ch_num| {
-	  	for (channel_data[buffer.offset..end], buffer.offset..) |sample, i| {
+	for (buffer.input, 0..) |channel_data, ch_num| {
+	  	for (channel_data, 0..) |sample, i| {
 			buffer.output[ch_num][i] = sample * gain_param;
 		}
 	}
