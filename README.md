@@ -120,11 +120,9 @@ In `build.zig.zon`:
 
 Then run `zig build` and copy the hash it provides you like so:
 ```zig
-.{
-	.arbor = .{
-		.url = "git+https://github.com/ArborealAudio/arbor.git#[commit SHA]",
-		.hash = "[copied hash]",
-	}
+.arbor = .{
+	.url = "git+https://github.com/ArborealAudio/arbor.git#[commit SHA]",
+	.hash = "[copied hash]",
 }
 ```
 
