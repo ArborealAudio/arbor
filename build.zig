@@ -266,6 +266,7 @@ fn pluginCopyStep(
                 out_name, //CFBundleExecutable
                 config.description.id, //CF BundleIdentifier
                 out_name, //CFBundleName
+                out_name, //CFBundleDisplayName
                 config.description.version, //CFBundleShortVersion
                 config.description.version, //CFBundleVersion
                 config.description.copyright, //NSHumanReadableCopyright
@@ -349,6 +350,8 @@ const osx_bundle_plist =
     \\	<key>CFBundleInfoDictionaryVersion</key>
     \\	<string>6.0</string>
     \\	<key>CFBundleName</key>
+    \\	<string>{s}</string>
+    \\	<key>CFBundleDisplayName</key>
     \\	<string>{s}</string>
     \\	<key>CFBundlePackageType</key>
     \\	<string>BNDL</string>
