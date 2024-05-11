@@ -202,7 +202,16 @@ fn pluginCopyStep(
     var arena = std.heap.ArenaAllocator.init(b.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    const os = target.result.os.tag;
+    const os = check: {
+        if (target.query.os_tag) |t_os| {
+            if (t_os == builtin.os.tag)
+                break :check t_os
+            else {
+                std.log.err("Don't run copy step when cross-compiling. Where am I supposed to put the file??\n", .{});
+                return error.CrossCompileCopy;
+            }
+        } else break :check builtin.os.tag;
+    };
     const home_dir = try std.process.getEnvVarOwned(
         allocator,
         if (os != .windows) "HOME" else "USERPROFILE",
