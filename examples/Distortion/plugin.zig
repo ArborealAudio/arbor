@@ -72,6 +72,7 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
                     var x = sample;
                     x *= in_gain;
                     x = @abs(x);
+                    x = @cos(x);
                     x *= out_gain;
                     out[idx] = x;
                 },
