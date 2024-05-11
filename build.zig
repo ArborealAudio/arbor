@@ -378,12 +378,17 @@ pub fn build(b: *std.Build) !void {
 
     if (b.option(bool, "examples", "Build example plugins")) |_| {
         const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
+        const copy_step = b.step("copy", "Copy plugin to user plugins dir");
         inline for (examples) |ex| {
             var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
-            config = config.withName("Example Distortion");
+            config = config.withName("Example " ++ ex.description.name);
+            std.log.info("Building example {s}\n", .{ex.description.name});
             config.target = target;
             config.optimize = optimize;
-            try addExample(b, config, format);
+            const plug = try addExample(b, config, format);
+            const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
+            copy_cmd.step.dependOn(b.getInstallStep());
+            copy_step.dependOn(&copy_cmd.step);
         }
     }
 
@@ -426,7 +431,7 @@ const examples = [_]BuildConfig{
 // example plugins) and you can't use build-relative paths when using this as a module,
 // so this is a bad solution that is also the only thing I can think to do.
 
-pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !void {
+pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !*std.Build.Step.Compile {
     const target = config.target;
     const optimize = config.optimize;
 
@@ -452,9 +457,7 @@ pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !void {
     plug.root_module.addOptions("config", build_options);
 
     b.installArtifact(plug);
-    const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
-    copy_cmd.step.dependOn(b.getInstallStep());
-    _ = b.step("copy", "Copy plugin to user plugins dir").dependOn(&copy_cmd.step);
+    return plug;
 }
 
 fn buildGUIExample(

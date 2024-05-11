@@ -29,13 +29,8 @@ export fn init() *arbor.Plugin {
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
-    // Free your plugin if we set one
-    if (plugin.user) |p| {
-        const self = arbor.cast(*Distortion, p);
-        plugin.allocator.destroy(self);
-    }
-    // Deinit the outer plugin like this
-    arbor.deinit(plugin);
+    _ = plugin;
+    // If we set user data in init(), you would free it here
 }
 
 fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
