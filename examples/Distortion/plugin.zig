@@ -109,6 +109,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
         .layout = .default,
         .width = WIDTH,
         .height = HEIGHT,
+        .timer_ms = 16,
         .interface = .{
             .deinit = gui_deinit,
             .render = gui_render,

@@ -79,8 +79,9 @@ extern void gui_render(void *user);
 
 void guiTimerCallback(CFRunLoopTimerRef timer, void *info);
 
-GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
+GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h, uint32_t timer_ms, const char *id)
 {
+    (void) id;
     NSRect frame;
     frame.origin.x = 0;
     frame.origin.y = 0;
@@ -94,8 +95,8 @@ GuiImpl *guiCreate(void *user, uint32_t *bits, uint32_t w, uint32_t h)
 
     CFRunLoopTimerContext timer = {};
     timer.info = gui.user;
-    gui.timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 0.016,
-                                     0.016, 0, 0, guiTimerCallback, &timer);
+    gui.timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + (double)timer_ms / 1000,
+                                     (double)timer_ms / 1000, 0, 0, guiTimerCallback, &timer);
     CFRunLoopAddTimer(CFRunLoopGetMain(), gui.timer, kCFRunLoopCommonModes);
     
     return gui;

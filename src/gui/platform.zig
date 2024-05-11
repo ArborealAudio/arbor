@@ -54,7 +54,14 @@ pub const GuiState = enum(u8) {
     MouseDrag,
 };
 
-pub extern fn guiCreate(user: ?*Gui, bits: [*]u32, w: u32, h: u32, id: [*:0]const u8) *GuiImpl;
+pub extern fn guiCreate(
+    user: ?*Gui,
+    bits: [*]u32,
+    w: u32,
+    h: u32,
+    timer_ms: u32,
+    id: [*:0]const u8,
+) *GuiImpl;
 pub extern fn guiDestroy(gui: *GuiImpl) void;
 pub extern fn guiOnPosixFd(gui: *GuiImpl) void;
 pub extern fn guiSetParent(gui: *GuiImpl, window: Window) void;

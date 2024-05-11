@@ -31,6 +31,7 @@ pub const GuiConfig = struct {
     width: u32,
     height: u32,
     interface: Interface,
+    timer_ms: u32,
 };
 
 pub const Interface = struct {
@@ -72,7 +73,7 @@ pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
     ptr.* = .{
         .allocator = arena,
         .bits = bits,
-        .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, arbor.plugin_name),
+        .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, config.timer_ms, arbor.plugin_name),
         .interface = config.interface,
         .layout = config.layout,
         .components = std.ArrayList(Component).init(arena),

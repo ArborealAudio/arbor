@@ -83,7 +83,8 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 	return 0;
 }
 
-GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h, const char* id)
+GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h,
+                      uint32_t timer_ms, const char* id)
 {
 	GuiImpl_t *gui = (GuiImpl_t*)calloc(1, sizeof(GuiImpl_t));
 	
@@ -106,7 +107,7 @@ GuiImpl_t *guiCreate (void *user, uint32_t *bits, uint32_t w, uint32_t h, const 
 	gui->id = id;
 	SetWindowLongPtr(gui->window, 0, (LONG_PTR)gui);
 
-	SetTimer(gui->window, 0, 16, NULL);
+	SetTimer(gui->window, 0, timer_ms, NULL);
 
 	return gui;
 }
