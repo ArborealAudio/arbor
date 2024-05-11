@@ -226,6 +226,7 @@ const Params = struct {
         if (plug_cast(plugin).plugin) |plug| {
             if (id >= plug.params.len) return false;
             const param = plug.param_info[id];
+            @memset(display[0..size], 0); // clear display string
             if (param.flags.stepped) {
                 const ival: u32 = @intFromFloat(@round(value));
                 if (param.flags.is_enum) {

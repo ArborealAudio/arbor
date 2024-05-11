@@ -81,10 +81,7 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const vendor = arbor.plugin_desc.company;
-                // _ = std.fmt.bufPrintZ(buf[0..vendor.len :0], "{s}", .{vendor}) catch |e| {
-                //     log.err("{!}\n", .{e}, @src(), code);
-                //     return -1;
-                // };
+                @memset(buf[0..vst2.StringConstants.MaxNameLen], 0);
                 @memcpy(buf[0..vendor.len], vendor);
                 return 0;
             }
@@ -100,11 +97,8 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const name = arbor.plugin_desc.name;
+                @memset(buf[0..vst2.StringConstants.MaxNameLen], 0);
                 @memcpy(buf[0..name.len], name);
-                // _ = std.fmt.bufPrintZ(buf[0..name.len :0], "{s}", .{name}) catch |e| {
-                //     log.err("{!}\n", .{e}, @src(), code);
-                //     return -1;
-                // };
                 return 1;
             }
         },
@@ -119,11 +113,9 @@ fn dispatch(
                         return 1;
                     };
                     var buf: [*]u8 = @ptrCast(p);
-                    // name length + 1 for null terminator--using :0 doesn't work for some reason
-                    _ = std.fmt.bufPrintZ(buf[0 .. name.len + 1], "{s}", .{name}) catch |e| {
-                        log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
-                        return 0;
-                    };
+                    @memset(buf[0..vst2.StringConstants.MaxNameLen], 0);
+                    @memcpy(buf[0..name.len], name);
+                    return 0;
                 }
             }
             return 1;
@@ -136,22 +128,27 @@ fn dispatch(
                 const val = plug.params[id];
                 const param_info = plug.param_info[id];
                 if (ptr) |p| {
+                    const out: [*]u8 = @ptrCast(p);
+                    @memset(out[0..vst2.StringConstants.MaxNameLen], 0);
                     if (param_info.value_to_text) |func| {
                         var buf: [10]u8 = undefined;
                         const len = func(val, &buf);
-                        const out: [*]u8 = @ptrCast(p);
-                        _ = std.fmt.bufPrintZ(out[0..len], "{s}", .{buf[0..len]}) catch |e| {
-                            log.err("{!}\n", .{e}, @src());
-                            return 1;
-                        };
+                        @memcpy(out[0..len], buf[0..len]);
                         return 0;
                     } else if (param_info.flags.is_enum) {
                         if (param_info.enum_choices) |choices| {
                             const choice = choices[@intFromFloat(val)];
-                            const out: [*]u8 = @ptrCast(p);
                             @memcpy(out[0..choice.len], choice);
                             return 1;
                         }
+                    } else { // no value-to-text fn, just format it
+                        var buf: [10]u8 = undefined;
+                        const print = std.fmt.bufPrintZ(&buf, "{d:.2}", .{val}) catch |e| {
+                            log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
+                            return 1;
+                        };
+                        @memcpy(out[0..print.len], print);
+                        return 0;
                     }
                 }
             }
