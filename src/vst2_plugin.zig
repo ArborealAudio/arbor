@@ -186,6 +186,7 @@ fn dispatch(
             return 1;
         },
         .EditGetRect => {
+            if (config.plugin_features & arbor.features.GUI == 0) return 0;
             // copy to ptr
             if (ptr) |p| {
                 const dest = arbor.cast(**vst2.Rect, p);
@@ -195,6 +196,7 @@ fn dispatch(
             return 0;
         },
         .EditOpen => {
+            if (config.plugin_features & arbor.features.GUI == 0) return 0;
             // Init GUI
             // ptr = native parent window (HWND, NSView/NSWindow?, X Window)
             assert(plug.gui == null);
@@ -240,9 +242,11 @@ fn dispatch(
             return 1;
         },
         .EditRedraw => {
+            if (config.plugin_features & arbor.features.GUI == 0) return 0;
             // NOTE: Does this collide with our timer callback?
         },
         .EditClose => {
+            if (config.plugin_features & arbor.features.GUI == 0) return 0;
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();

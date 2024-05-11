@@ -742,10 +742,9 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
         return &State.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_PARAMS).compare(.eq))
         return &Params.Data;
-    if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
-        return &Gui.Data;
-    // if (std.mem.orderZ(u8, id, clap.EXT_TIMER_SUPPORT).compare(.eq))
-    //     return &Timer.Data;
+    if (config.plugin_features & arbor.features.GUI > 0)
+        if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
+            return &Gui.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
         return &PosixFDSupport.Data;
     return null;

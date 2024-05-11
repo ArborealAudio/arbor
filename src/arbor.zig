@@ -253,12 +253,13 @@ pub const features = struct {
     pub const SYNTH = 1 << 14;
     pub const SAMPLER = 1 << 15;
     pub const DRUM = 1 << 16;
+    pub const GUI = 1 << 17;
 };
 
 // TODO: Improve this. Couldn't think of a better way to compare features.
 // There's gotta be a simple data structure which can aid converting between
 // our enum and a format's string representation.
-pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, 17);
+pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, 18); // < Imagine hard-coding the number of flags
 
 pub fn parseClapFeatures(comptime feat: PluginFeatures) !FeaturesArray {
     const F = clap.PluginFeatures;
