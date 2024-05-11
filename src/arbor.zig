@@ -1,13 +1,15 @@
 //! Main source file for framework, collecting everything in one place
 const std = @import("std");
 const assert = std.debug.assert;
-const build_options = @import("build_options");
+const config = @import("config");
 const Allocator = std.mem.Allocator;
 
 pub const param = @import("params.zig");
 pub const Parameter = param.Parameter;
+
 pub const Format = enum { CLAP, VST3, VST2 };
-const format = build_options.format;
+const format = config.format;
+
 pub const Gui = @import("gui/Gui.zig");
 
 pub const clap = @import("clap_api.zig");
@@ -15,14 +17,7 @@ pub const vst2 = @import("vst2_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub const plugin_desc: DescType = createFormatDescription();
-pub const plugin_name = build_options.plugin_desc.name;
-
-pub fn Vst2VersionInt(comptime version: []const u8) !i32 {
-    var v: [version.len]u8 = undefined;
-    @memcpy(&v, version);
-    std.mem.replaceScalar(u8, &v, '.', '_');
-    return try std.fmt.parseInt(i32, &v, 0);
-}
+pub const plugin_name = config.plugin_desc.name;
 
 pub const Plugin = struct {
     pub const Description = struct {
@@ -198,7 +193,7 @@ const DescType = switch (format) {
 /// Create a description that satisfies the requirements of the format being
 /// compiled for.
 pub fn createFormatDescription() DescType {
-    const desc = build_options.plugin_desc;
+    const desc = config.plugin_desc;
     switch (DescType) {
         clap.PluginDescriptor => {
             return .{
@@ -211,7 +206,7 @@ pub fn createFormatDescription() DescType {
                 .support_url = desc.contact.ptr,
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
-                .features = (parseClapFeatures(build_options.plugin_features) catch |e| {
+                .features = (parseClapFeatures(config.plugin_features) catch |e| {
                     log.fatal("Parse CLAP features failed: {!}\n", .{e}, @src());
                 }).constSlice().ptr,
             };
@@ -423,4 +418,12 @@ pub const log = struct {
 
 pub fn cast(comptime DestType: type, ptr: anytype) DestType {
     return @alignCast(@ptrCast(ptr));
+}
+
+pub fn Vst2VersionInt(comptime version: []const u8) !i32 {
+    var v: [version.len]u8 = undefined;
+    @memcpy(&v, version);
+    std.mem.replaceScalar(u8, &v, '.', '_');
+    // gotta multiply by 10 since 4 digits are expected (who uses 4 digits in versioning??)
+    return 10 * try std.fmt.parseInt(i32, &v, 0);
 }

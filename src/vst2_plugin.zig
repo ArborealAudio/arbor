@@ -7,7 +7,7 @@ const log = arbor.log;
 const cast = arbor.cast;
 const builtin = @import("builtin");
 
-const config = @import("build_options");
+const config = @import("config");
 
 const vst2 = @import("vst2_api.zig");
 

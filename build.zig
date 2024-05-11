@@ -440,13 +440,13 @@ pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !void {
         .optimize = optimize,
         .link_libc = true,
     });
-    arbor_mod.addOptions("build_options", build_options);
+    arbor_mod.addOptions("config", build_options);
 
     // build UI library
     buildGUIExample(b, arbor_mod, target);
 
     const plug = try buildExample(b, arbor_mod, format, config);
-    plug.root_module.addOptions("build_options", build_options);
+    plug.root_module.addOptions("config", build_options);
 
     b.installArtifact(plug);
     const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
