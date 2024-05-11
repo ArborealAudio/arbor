@@ -70,9 +70,11 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
                 },
                 .Apocalypse => {
                     var x = sample;
-                    x *= in_gain;
-                    x = @abs(x);
-                    x = @cos(x);
+                    x *= in_gain * 2;
+                    x -= @abs(@sin(x / std.math.two_sqrtpi));
+                    x += @abs(@sin(x / std.math.pi));
+                    x = 2 * @sin(x / std.math.tau);
+                    x = @min(1, @max(-1, x));
                     x *= out_gain;
                     out[idx] = x;
                 },
