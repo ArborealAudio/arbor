@@ -1,3 +1,4 @@
+//! WARNING: STALE FILE -- NEEDS UPDATE
 //! Stereo Delay processor with optional modulation
 
 const std = @import("std");
