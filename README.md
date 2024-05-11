@@ -100,7 +100,35 @@ This is what starting up a project with Arbor *should* look like:
 (NOTE: This is a WIP and won't always reflect how the API actually works.
 I will try to update to be in sync with changes.)
 
-In top-level build.zig:
+In `build.zig.zon`: 
+```zig
+.{
+	.name = "My Evil Plugin",
+	.version = "0.1.0",
+	.dependencies = .{
+		.arbor = .{
+			.url = "git+https://github.com/ArborealAudio/arbor.git#[commit SHA]",
+		}
+	},
+	.paths = .{
+		"build.zig",
+		"build.zig.zon",
+		"src",
+	}
+}
+```
+
+Then run `zig build` and copy the hash it provides you like so:
+```zig
+.{
+	.arbor = .{
+		.url = "git+https://github.com/ArborealAudio/arbor.git#[commit SHA]",
+		.hash = "[copied hash]",
+	}
+}
+```
+
+In top-level `build.zig`:
 
 ```zig
 const std = @import("std");
@@ -131,7 +159,7 @@ pub fn build(b: *std.Build) !void {
 }
 ```
 
-In plugin.zig:
+In `plugin.zig`:
 
 ```zig
 const arbor = @import("arbor");
