@@ -134,6 +134,7 @@ fn buildPlugin(
         .root_source_file = b.path(config.root_source_file),
         .target = config.target,
         .optimize = config.optimize,
+        .pic = true,
     });
     usr_plug.root_module.addImport("arbor", module);
 
@@ -146,6 +147,7 @@ fn buildPlugin(
         .root_source_file = dep.path(plug_src),
         .target = config.target,
         .optimize = config.optimize,
+        .pic = true,
     });
     plug.linkLibrary(usr_plug);
 
@@ -512,6 +514,7 @@ fn buildExample(
         .root_source_file = b.path(config.root_source_file),
         .target = config.target,
         .optimize = config.optimize,
+        .pic = true,
     });
     usr_plug.root_module.addImport("arbor", module);
 
@@ -525,6 +528,7 @@ fn buildExample(
         .root_source_file = b.path(plug_src),
         .target = config.target,
         .optimize = config.optimize,
+        .pic = true,
     });
     plug.linkLibrary(usr_plug);
 
