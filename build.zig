@@ -39,6 +39,12 @@ pub const BuildConfig = struct {
         new.root_source_file = src;
         return new;
     }
+
+    pub fn withFeature(self: BuildConfig, feature: arbor.PluginFeatures) BuildConfig {
+        var new = self;
+        new.features |= feature;
+        return new;
+    }
 };
 
 pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
@@ -407,7 +413,8 @@ const default_config = BuildConfig{
 };
 
 const examples = [_]BuildConfig{
-    default_config.withName("Distortion").withID("com.Arbor.ExDist"),
+    default_config.withName("Distortion").withID("com.Arbor.ExDist").withFeature(features.GUI),
+    default_config.withName("Filter").withID("com.Arbor.ExFilter"), // < testing compile w/out GUI
 };
 
 // NOTE: WOW had to copy all build logic b/c I couldn't figure out how to diverge
