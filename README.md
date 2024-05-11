@@ -241,3 +241,14 @@ zig build
 # Cross compile by adding -Dtarget=[aarch64-macos/x86_64-windows/etc...]
 # Build modes: -Doptimize=[Debug/ReleaseSmall/ReleaseSafe/ReleaseFast]
 ```
+
+## Acknowledgements
+
+These open-source libraries and examples were a huge help in getting started:
+
+* The influential and robust [CLAP tutorial by Nakst](https://nakst.gitlab.io/tutorial/clap-part-1.html)
+
+* [zig-clap-noise-shaker by GreyDodger](https://github.com/GreyDodger/zig-clap-noise-shaker)
+was a great starting point to understand how to write Zig while working with a C library
+
+* [schroffl's implementation of VST2 in Zig](https://github.com/schroffl/zig-vst)
