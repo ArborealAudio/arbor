@@ -484,10 +484,12 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .num_programs = 0,
         .num_params = @intCast(self.plugin.?.param_info.len),
         .num_inputs = 2,
-        // ISSUE: In Bitwig, even hard-coding number of channels here doesn't
-        // give you stereo. In Ableton, it is forcing mono.
         .num_outputs = 2,
-        .flags = vst2.PluginFlags.toInt(&.{ .HasStateChunk, .HasReplacing, .HasEditor }),
+        .flags = .{
+            .HasStateChunk = true,
+            .HasReplacing = true,
+            .HasEditor = (config.plugin_features & arbor.features.GUI > 0),
+        },
         .latency = 0,
         .uniqueID = std.mem.bytesToValue(i32, "TODO"),
         .version = arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e| {

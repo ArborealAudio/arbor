@@ -17,7 +17,7 @@ pub const AEffect = extern struct {
     num_inputs: i32,
     num_outputs: i32,
 
-    flags: i32,
+    flags: PluginFlags,
 
     resvd1: isize = 0,
     resvd2: isize = 0,
@@ -38,6 +38,19 @@ pub const AEffect = extern struct {
     processDoubleReplacing: ProcessDouble,
 
     future: [56]i8 = [_]i8{0} ** 56,
+};
+
+pub const PluginFlags = packed struct(i32) {
+    HasEditor: bool = false,
+    pad1: u3 = 0,
+    HasReplacing: bool = false,
+    HasStateChunk: bool = false,
+    pad2: u2 = 0,
+    IsSynth: bool = false,
+    NoSoundInStop: bool = false,
+    pad3: u2 = 0,
+    HasDoubleReplacing: bool = false,
+    pad4: u19 = 0,
 };
 
 pub const StringConstants = struct {
@@ -257,23 +270,6 @@ pub const PinProperties = extern struct {
     arrangement_type: i32 = -1,
     shortLabel: [StringConstants.MaxShortLabelLen]u8,
     future: [48]u8 = [_]u8{0} ** 48,
-};
-
-pub const PluginFlags = enum(i32) {
-    HasEditor = 1 << 0,
-    HasReplacing = 1 << 4,
-    HasStateChunk = 1 << 5,
-    IsSynth = 1 << 8,
-    NoSoundInStop = 1 << 9,
-    HasDoubleReplacing = 1 << 12,
-
-    pub fn toInt(flags: []const PluginFlags) i32 {
-        var i: i32 = 0;
-        for (flags) |f| {
-            i |= @intFromEnum(f);
-        }
-        return i;
-    }
 };
 
 pub const Category = enum(i32) {
