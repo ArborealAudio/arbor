@@ -64,11 +64,27 @@ fn dispatch(
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
-            // TODO: Implement calling the host for SR, max frames, num ch
+            const sample_rate = plugin.host_callback(
+                plugin.effect,
+                @intFromEnum(vst2.HostOpcodes.GetSampleRate),
+                0,
+                0,
+                null,
+                0,
+            );
+            const max_frames = plugin.host_callback(
+                plugin.effect,
+                @intFromEnum(vst2.HostOpcodes.GetNumFrames),
+                0,
+                0,
+                null,
+                0,
+            );
+            log.debug("Setting SR {d} and {d} frames from host\n", .{ sample_rate, max_frames }, @src());
             plug.interface.prepare(
                 plug,
-                plug.sample_rate,
-                plug.max_frames,
+                @floatFromInt(sample_rate),
+                @intCast(max_frames),
             );
             return 0;
         },

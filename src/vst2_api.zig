@@ -113,8 +113,8 @@ pub const MidiEvent = extern struct {
     _: u16 = 0,
 };
 
-/// I think what this is for is so we can manually call the host
-/// Gets passed in thru VSTPluginMain, hang onto it if you need it
+/// Plugin->host communication
+/// See `HostOpcodes` for options
 pub const HostCallback = ?*const fn (
     effect: ?*AEffect,
     opcode: i32,
@@ -124,10 +124,11 @@ pub const HostCallback = ?*const fn (
     opt: f32,
 ) callconv(.C) isize;
 
-/// Host->plugin communication. How the API wants to handle most things outside of major function ptrs
+/// Host->plugin communication
+/// See `Opcodes` for possible options
 pub const Dispatch = ?*const fn (
     effect: ?*AEffect,
-    opcode: i32,
+    opcode: i32, // keeping this as an int so we can say what we don't support
     index: i32,
     value: isize,
     ptr: ?*anyopaque,
@@ -222,6 +223,8 @@ pub const HostOpcodes = enum(i32) {
     ProcessEvents = 8,
     /// Tell Host new window size: `index`: width `value`: height -- Returns 1 if supported
     SizeWindow = 15,
+    GetSampleRate = 16,
+    GetNumFrames = 17,
     /// Tell host which param `index` is about to change
     BeginParamChange = 43,
     EndParamChange = 44,
