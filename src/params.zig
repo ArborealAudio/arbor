@@ -22,6 +22,8 @@ pub const Parameter = struct {
     pub const Flags = packed struct {
         automatable: bool = true,
         modulatable: bool = false,
+        /// TODO: See Issue #13
+        smoothed: bool = false,
         stepped: bool = false,
         is_enum: bool = false,
         periodic: bool = false,
