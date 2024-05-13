@@ -219,7 +219,6 @@ zig build
 # Eventual compile options:
 # You can add -Dformat=[VST2/VST3/CLAP/AU]
 # Not providing a format will compile all formats available on your platform
-# Add 'copy' to put built plugin in appropriate system dir
 # Cross compile by adding -Dtarget=[aarch64-macos/x86_64-windows/etc...]
 # Build modes: -Doptimize=[Debug/ReleaseSmall/ReleaseSafe/ReleaseFast]
 ```
