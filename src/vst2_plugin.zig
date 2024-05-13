@@ -81,7 +81,7 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const vendor = arbor.plugin_desc.company;
-                @memset(buf[0..vst2.StringConstants.MaxNameLen], 0);
+                @memset(buf[0..vst2.StringConstants.MaxVendorStrLen], 0);
                 @memcpy(buf[0..vendor.len], vendor);
                 return 0;
             }
@@ -97,9 +97,9 @@ fn dispatch(
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
                 const name = arbor.plugin_desc.name;
-                @memset(buf[0..vst2.StringConstants.MaxNameLen], 0);
+                @memset(buf[0..vst2.StringConstants.MaxProductStrLen], 0);
                 @memcpy(buf[0..name.len], name);
-                return 1;
+                return 0;
             }
         },
         .GetPlugCategory => {
@@ -113,8 +113,9 @@ fn dispatch(
                         return 1;
                     };
                     var buf: [*]u8 = @ptrCast(p);
-                    @memset(buf[0..vst2.StringConstants.MaxNameLen], 0);
-                    @memcpy(buf[0..name.len], name);
+                    const len = @min(vst2.StringConstants.MaxParamStrLen, name.len);
+                    @memset(buf[0..vst2.StringConstants.MaxParamStrLen], 0);
+                    @memcpy(buf[0..len], name);
                     return 0;
                 }
             }
@@ -129,20 +130,25 @@ fn dispatch(
                 const param_info = plug.param_info[id];
                 if (ptr) |p| {
                     const out: [*]u8 = @ptrCast(p);
-                    @memset(out[0..vst2.StringConstants.MaxNameLen], 0);
+                    // Doesn't seem to matter that we pass strings longer than the API's
+                    // insane restriction of 8 chars. Either most hosts subvert this limitation
+                    // or it's, like, more of a suggestion.
+                    const max_len = 10;
+                    @memset(out[0..max_len], 0);
                     if (param_info.value_to_text) |func| {
-                        var buf: [10]u8 = undefined;
+                        var buf: [max_len]u8 = .{0} ** max_len;
                         const len = func(val, &buf);
                         @memcpy(out[0..len], buf[0..len]);
                         return 0;
                     } else if (param_info.flags.is_enum) {
                         if (param_info.enum_choices) |choices| {
                             const choice = choices[@intFromFloat(val)];
-                            @memcpy(out[0..choice.len], choice);
-                            return 1;
+                            const clen = @min(max_len, choice.len);
+                            @memcpy(out[0..clen], choice[0..clen]);
+                            return 0;
                         }
                     } else { // no value-to-text fn, just format it
-                        var buf: [10]u8 = undefined;
+                        var buf: [max_len]u8 = .{0} ** max_len;
                         const print = std.fmt.bufPrintZ(&buf, "{d:.2}", .{val}) catch |e| {
                             log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
                             return 1;
@@ -152,7 +158,7 @@ fn dispatch(
                     }
                 }
             }
-            return 0;
+            return 1;
         },
         .ParamTextToValue => {
             if (index >= 0 and index < plug.param_info.len) {

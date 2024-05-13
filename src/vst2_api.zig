@@ -54,9 +54,19 @@ pub const PluginFlags = packed struct(i32) {
 };
 
 pub const StringConstants = struct {
+    pub const MaxProgNameLen = 24;
+    /// Param name & display len
+    pub const MaxParamStrLen = 8;
+    pub const MaxVendorStrLen = 64;
+    pub const MaxProductStrLen = 64;
+    pub const MaxEffectNameLen = 32;
+    /// Used for Midi key names & PinProperties names
     pub const MaxNameLen = 64;
+    /// ParameterProperties label
     pub const MaxLabelLen = 64;
+    /// PinProperties & ParameterProperties short_label
     pub const MaxShortLabelLen = 8;
+    /// ParameterProperties category
     pub const MaxCategLabelLen = 24;
     pub const MaxFileNameLen = 100;
 };
