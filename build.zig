@@ -53,13 +53,9 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
     const target = config.target;
     const optimize = config.optimize;
 
-    const build_options = b.addOptions();
     // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
     // Or -- CLI option overrides build options or vice-versa.
     const format = b.option(Format, "format", "Plugin format");
-    build_options.addOption(Format, "format", format);
-    build_options.addOption(Description, "plugin_desc", config.description);
-    build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
 
     const arbor_mod = b.addModule("arbor", .{
         .root_source_file = root.path("src/arbor.zig"),
@@ -67,7 +63,6 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
         .optimize = optimize,
         .link_libc = true,
     });
-    arbor_mod.addOptions("config", build_options);
 
     // build UI library
     buildGUI(b, arbor_mod, target);
@@ -75,15 +70,13 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
     const copy_step = b.step("copy", "Copy plugin to user plugins dir");
     if (format) |fmt| {
         const plug = try buildPlugin(b, arbor_mod, fmt, config);
-        plug.root_module.addOptions("config", build_options);
         b.installArtifact(plug);
         const copy_cmd = try CopyStep.createStep(b, fmt, config, target, plug);
         copy_cmd.step.dependOn(b.getInstallStep());
         copy_step.dependOn(&copy_cmd.step);
     } else {
-        inline for (format) |fmt| {
+        inline for (formats) |fmt| {
             const plug = try buildPlugin(b, arbor_mod, fmt, config);
-            plug.root_module.addOptions("config", build_options);
             b.installArtifact(plug);
             const copy_cmd = try CopyStep.createStep(b, fmt, config, target, plug);
             copy_cmd.step.dependOn(b.getInstallStep());
@@ -137,6 +130,10 @@ fn buildPlugin(
     config: BuildConfig,
 ) !*std.Build.Step.Compile {
     const dep = b.dependencyFromBuildZig(@This(), .{});
+    const build_options = b.addOptions();
+    build_options.addOption(Format, "format", format);
+    build_options.addOption(Description, "plugin_desc", config.description);
+    build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
     // make sure we have a file name w/ no spaces
     const name = try b.allocator.dupe(u8, config.description.name);
     std.mem.replaceScalar(u8, name, ' ', '_');
@@ -152,7 +149,7 @@ fn buildPlugin(
 
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
-        else => @panic("TODO: This format"),
+        .VST2 => "src/vst2_plugin.zig",
     };
     const plug = b.addSharedLibrary(.{
         .name = name,
@@ -162,6 +159,8 @@ fn buildPlugin(
         .pic = true,
     });
     plug.linkLibrary(usr_plug);
+    plug.root_module.addOptions("config", build_options);
+    module.addOptions("config", build_options);
 
     return plug;
 }
