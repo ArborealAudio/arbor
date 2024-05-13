@@ -27,7 +27,11 @@ const Allocator = std.mem.Allocator;
 pub const param = @import("params.zig");
 pub const Parameter = param.Parameter;
 
-pub const Format = enum { CLAP, VST3, VST2 };
+pub const Format = enum {
+    CLAP,
+    VST2,
+    // Big 'ol TODO: VST3,
+};
 const format = config.format;
 
 pub const Gui = @import("gui/Gui.zig");
@@ -156,7 +160,6 @@ pub fn init(
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
     .VST2 => Plugin.Description,
-    else => @panic("Unimplemented format\n"),
 };
 
 /// Create a description that satisfies the requirements of the format being

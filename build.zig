@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arbor = @import("src/arbor.zig");
 const Format = arbor.Format;
+const formats = std.enums.values(Format);
 const Description = arbor.Plugin.Description;
 pub const features = arbor.features;
 
@@ -55,7 +56,7 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
     const build_options = b.addOptions();
     // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
     // Or -- CLI option overrides build options or vice-versa.
-    const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
+    const format = b.option(Format, "format", "Plugin format");
     build_options.addOption(Format, "format", format);
     build_options.addOption(Description, "plugin_desc", config.description);
     build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
@@ -71,13 +72,24 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
     // build UI library
     buildGUI(b, arbor_mod, target);
 
-    const plug = try buildPlugin(b, arbor_mod, format, config);
-    plug.root_module.addOptions("config", build_options);
-
-    b.installArtifact(plug);
-    const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
-    copy_cmd.step.dependOn(b.getInstallStep());
-    _ = b.step("copy", "Copy plugin to user plugins dir").dependOn(&copy_cmd.step);
+    const copy_step = b.step("copy", "Copy plugin to user plugins dir");
+    if (format) |fmt| {
+        const plug = try buildPlugin(b, arbor_mod, fmt, config);
+        plug.root_module.addOptions("config", build_options);
+        b.installArtifact(plug);
+        const copy_cmd = try CopyStep.createStep(b, fmt, config, target, plug);
+        copy_cmd.step.dependOn(b.getInstallStep());
+        copy_step.dependOn(&copy_cmd.step);
+    } else {
+        inline for (format) |fmt| {
+            const plug = try buildPlugin(b, arbor_mod, fmt, config);
+            plug.root_module.addOptions("config", build_options);
+            b.installArtifact(plug);
+            const copy_cmd = try CopyStep.createStep(b, fmt, config, target, plug);
+            copy_cmd.step.dependOn(b.getInstallStep());
+            copy_step.dependOn(&copy_cmd.step);
+        }
+    }
 }
 
 fn buildGUI(
@@ -223,12 +235,12 @@ fn pluginCopyStep(
             .windows => "/Program Files/Common Files/CLAP/",
             else => @panic("Unsupported OS"),
         },
-        .VST3 => switch (os) {
-            .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
-            .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
-            .windows => "/Program Files/Common Files/VST3/",
-            else => @panic("Unsupported OS"),
-        },
+        // .VST3 => switch (os) {
+        //     .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
+        //     .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
+        //     .windows => "/Program Files/Common Files/VST3/",
+        //     else => @panic("Unsupported OS"),
+        // },
         .VST2 => switch (os) {
             .linux => b.pathJoin(&.{ home_dir, "/.vst/" }),
             .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST/" }),
@@ -259,7 +271,7 @@ fn pluginCopyStep(
         .macos => {
             const extension = switch (format) {
                 .CLAP => ".clap/Contents",
-                .VST3 => ".vst3/Contents",
+                // .VST3 => ".vst3/Contents",
                 .VST2 => ".vst/Contents",
             };
             const contents_path = try std.mem.concat(allocator, u8, &.{ out_name, extension });
@@ -289,55 +301,55 @@ fn pluginCopyStep(
         .linux => {
             const extension = switch (format) {
                 .CLAP => ".clap",
-                .VST3 => ".vst3/Contents",
+                // .VST3 => ".vst3/Contents",
                 .VST2 => ".so",
             };
             const contents_path = try std.mem.concat(allocator, u8, &.{ out_name, extension });
-            if (format != .VST3) {
-                _ = try std.fs.cwd().updateFile(
-                    gen_file,
-                    plugin_dir,
-                    contents_path,
-                    .{},
-                );
-            } else {
-                var dest_dir = try plugin_dir.makeOpenPath(contents_path, .{});
-                defer dest_dir.close();
-                _ = try std.fs.cwd().updateFile(
-                    gen_file,
-                    dest_dir,
-                    try std.mem.concat(allocator, u8, &.{ "x86_64-linux/", out_name, ".so" }),
-                    .{},
-                );
-            }
+            // if (format != .VST3) {
+            //     _ = try std.fs.cwd().updateFile(
+            //         gen_file,
+            //         plugin_dir,
+            //         contents_path,
+            //         .{},
+            //     );
+            // } else {
+            var dest_dir = try plugin_dir.makeOpenPath(contents_path, .{});
+            defer dest_dir.close();
+            _ = try std.fs.cwd().updateFile(
+                gen_file,
+                dest_dir,
+                try std.mem.concat(allocator, u8, &.{ "x86_64-linux/", out_name, ".so" }),
+                .{},
+            );
+            // }
         },
         .windows => {
             const extension = switch (format) {
                 .CLAP => ".clap",
-                .VST3 => ".vst3/Contents",
+                // .VST3 => ".vst3/Contents",
                 .VST2 => ".dll",
             };
             const contents_path = try std.mem.concat(allocator, u8, &.{ out_name, extension });
-            if (format != .VST3) {
-                if (plugin_dir.access(contents_path, .{})) {} else |err| {
-                    if (err == error.FileNotFound) {
-                        var dest_file = try plugin_dir.createFile(contents_path, .{});
-                        defer dest_file.close();
-                    } else return err;
-                }
-                _ = try std.fs.cwd().updateFile(gen_file, plugin_dir, contents_path, .{});
-                if (output.root_module.optimize) |opt| {
-                    if (opt == .Debug) {
-                        const gen_pdb = output.getEmittedPdb().generated.getPath();
-                        _ = try std.fs.cwd().updateFile(
-                            gen_pdb,
-                            plugin_dir,
-                            try std.mem.concat(allocator, u8, &.{ out_name, ".pdb" }),
-                            .{},
-                        );
-                    }
+            // if (format != .VST3) {
+            if (plugin_dir.access(contents_path, .{})) {} else |err| {
+                if (err == error.FileNotFound) {
+                    var dest_file = try plugin_dir.createFile(contents_path, .{});
+                    defer dest_file.close();
+                } else return err;
+            }
+            _ = try std.fs.cwd().updateFile(gen_file, plugin_dir, contents_path, .{});
+            if (output.root_module.optimize) |opt| {
+                if (opt == .Debug) {
+                    const gen_pdb = output.getEmittedPdb().generated.getPath();
+                    _ = try std.fs.cwd().updateFile(
+                        gen_pdb,
+                        plugin_dir,
+                        try std.mem.concat(allocator, u8, &.{ out_name, ".pdb" }),
+                        .{},
+                    );
                 }
             }
+            // }
         },
         else => @panic("Unsupported OS"),
     }
@@ -388,18 +400,28 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     if (b.option(bool, "examples", "Build example plugins")) |_| {
-        const format = b.option(Format, "format", "Plugin format") orelse .CLAP;
+        const format = b.option(Format, "format", "Plugin format");
         const copy_step = b.step("copy", "Copy plugin to user plugins dir");
         inline for (examples) |ex| {
             var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
             config = config.withName("Example " ++ ex.description.name);
-            std.log.info("Building example {s}\n", .{ex.description.name});
             config.target = target;
             config.optimize = optimize;
-            const plug = try addExample(b, config, format);
-            const copy_cmd = try CopyStep.createStep(b, format, config, target, plug);
-            copy_cmd.step.dependOn(b.getInstallStep());
-            copy_step.dependOn(&copy_cmd.step);
+            if (format) |fmt| {
+                std.log.info("Building example {s} plugin: {s}\n", .{ @tagName(fmt), ex.description.name });
+                const plug = try addExample(b, config, fmt);
+                const copy_cmd = try CopyStep.createStep(b, fmt, config, target, plug);
+                copy_cmd.step.dependOn(b.getInstallStep());
+                copy_step.dependOn(&copy_cmd.step);
+            } else {
+                inline for (formats) |fmt| {
+                    std.log.info("Building example {s} plugin: {s}\n", .{ @tagName(fmt), ex.description.name });
+                    const plug = try addExample(b, config, fmt);
+                    const copy_cmd = try CopyStep.createStep(b, fmt, config, target, plug);
+                    copy_cmd.step.dependOn(b.getInstallStep());
+                    copy_step.dependOn(&copy_cmd.step);
+                }
+            }
         }
     }
 
@@ -530,7 +552,6 @@ fn buildExample(
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
-        else => @panic("TODO: This format"),
     };
     const plug = b.addSharedLibrary(.{
         .name = name,
