@@ -261,8 +261,7 @@ fn dispatch(
             return 1;
         },
         .EditRedraw => {
-            if (config.plugin_features & arbor.features.GUI == 0) return 0;
-            // NOTE: Does this collide with our timer callback?
+            return 1;
         },
         .EditClose => {
             if (config.plugin_features & arbor.features.GUI == 0) return 0;
@@ -270,18 +269,18 @@ fn dispatch(
             if (plug.gui) |gui| {
                 gui.deinit();
                 plug.gui = null;
-                // plugin.rect = null;
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
                 return 0;
             }
-            return 0;
+            return 1;
         },
         .GetVstVersion => return 2400,
         .CanDo => {
             if (ptr) |p| {
                 const req: []const u8 = std.mem.span(@as([*:0]u8, (@ptrCast(p))));
+                // TODO: Check if plugin is MIDI
                 if (std.mem.eql(u8, req, "receiveVstMidiEvent")) return -1;
                 log.debug("Requesting can do: {s}\n", .{req}, @src());
                 return 0;
@@ -349,7 +348,10 @@ fn dispatch(
             plugin.process_precision = @enumFromInt(value);
             return 0;
         },
-        .GetParameterProperties => {},
+        .GetParameterProperties => {
+            // TODO
+            return -1;
+        },
         .GetTailSize => return 0,
     }
     return -1;
@@ -515,7 +517,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
             .HasEditor = (config.plugin_features & arbor.features.GUI > 0),
         },
         .latency = 0,
-        .uniqueID = std.mem.bytesToValue(i32, "TODO"),
+        .uniqueID = std.mem.bytesToValue(i32, arbor.plugin_desc.id),
         .version = arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e| {
             log.fatal("{!}\n", .{e}, @src());
             return error.ParseVersionFailed;
