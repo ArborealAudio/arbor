@@ -34,7 +34,6 @@ host_callback: *const fn (
     opt: f32,
 ) callconv(.C) isize,
 plugin: ?*Plugin = null, // our specific plugin data
-rect: vst2.Rect,
 
 in_events: *arbor.Queue,
 
@@ -190,8 +189,18 @@ fn dispatch(
             // copy to ptr
             if (ptr) |p| {
                 const dest = arbor.cast(**vst2.Rect, p);
-                dest.* = &plugin.rect;
-                return 1;
+                if (plug.gui) |gui| {
+                    const width: i16 = @intCast(gui.getSize().x);
+                    const height: i16 = @intCast(gui.getSize().y);
+                    var rect = vst2.Rect{
+                        .top = 0,
+                        .left = 0,
+                        .right = width,
+                        .bottom = height,
+                    };
+                    dest.* = &rect;
+                    return 1;
+                } else return 0;
             }
             return 0;
         },
@@ -208,12 +217,6 @@ fn dispatch(
 
             const width: i16 = @intCast(gui.getSize().x);
             const height: i16 = @intCast(gui.getSize().y);
-            plugin.rect = vst2.Rect{
-                .top = 0,
-                .left = 0,
-                .right = width,
-                .bottom = height,
-            };
 
             if (plugin.host_callback(
                 effect,
@@ -478,7 +481,6 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
             log.err("host_callback is null\n", .{}, @src());
             return error.InitFailed;
         },
-        .rect = .{ .top = 0, .left = 0, .bottom = 600, .right = 500 },
     };
     self.plugin.?.num_channels = 2; // TODO: DOn't hardcode
     self.effect.* = .{
