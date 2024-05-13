@@ -100,31 +100,13 @@ This is what starting up a project with Arbor *should* look like:
 (NOTE: This is a WIP and won't always reflect how the API actually works.
 I will try to update to be in sync with changes.)
 
-In `build.zig.zon`: 
-```zig
-.{
-	.name = "My Evil Plugin",
-	.version = "0.1.0",
-	.dependencies = .{
-		.arbor = .{
-			.url = "git+https://github.com/ArborealAudio/arbor.git#[commit SHA]",
-		}
-	},
-	.paths = .{
-		"build.zig",
-		"build.zig.zon",
-		"src",
-	}
-}
-```
+Run `zig init` to create some boilerplate for a Zig project. Or, create a
+`build.zig` and a `build.zig.zon` file at the root of your project, then run:
 
-Then run `zig build` and copy the hash it provides you like so:
-```zig
-.arbor = .{
-	.url = "git+https://github.com/ArborealAudio/arbor.git#[commit SHA]",
-	.hash = "[copied hash]",
-}
-```
+`zig fetch --save https://github.com/ArborealAudio/arbor#[commit SHA]`
+
+The commit SHA is the SHA of the commit you wish to checkout. You can supply
+`master` instead (not recommended) if you want to pull from the repo's head each time, which is less predictable.
 
 In top-level `build.zig`:
 
