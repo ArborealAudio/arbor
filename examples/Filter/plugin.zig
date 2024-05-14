@@ -7,7 +7,7 @@ const dsp = arbor.dsp;
 const Filter = @This();
 
 const params = &[_]arbor.Parameter{
-    param.Float("Freq", 20, 20e3, 1500, .{ .flags = .{} }),
+    param.Float("Freq", 20, 18e3, 1500, .{ .flags = .{} }),
 };
 
 const allocator = std.heap.c_allocator;
@@ -23,7 +23,7 @@ export fn init() *arbor.Plugin {
         .filter = dsp.Filter.init(
             allocator,
             2,
-            .Lowpass,
+            .FirstOrderLowpass,
             params[0].default_value,
             std.math.sqrt1_2,
         ) catch |e| log.fatal("{!}\n", .{e}, @src()),

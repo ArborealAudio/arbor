@@ -39,6 +39,10 @@ extending support to other APIs
 
 * A janky VST2 implementation that works in Reaper and mostly works in other DAWs
 
+* A basic delay module
+
+* 2nd-order "Vicanek" IIRs which **don't cramp at Nyquist** [^1][^2][^3]
+
 * Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
 text rendering function with a bitmap font
 
@@ -233,3 +237,9 @@ These open-source libraries and examples were a huge help in getting started:
 was a great starting point to understand how to write Zig while working with a C library
 
 * [schroffl's implementation of VST2 in Zig](https://github.com/schroffl/zig-vst)
+
+[^1]: ["Matched Second Order Filters" by Martin Vicanek (2016)](https://vicanek.de/articles/BiquadFits.pdf)
+
+[^2]: ["Matched One-Pole Digital Shelving Filters" by Martin Vicanek (2019)](https://vicanek.de/articles/ShelvingFits.pdf)
+
+[^3]: ["Matched Two-Pole Digital Shelving Filters" by Martin Vicanek (2024)](https://vicanek.de/articles/2poleShelvingFits.pdf)
