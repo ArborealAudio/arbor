@@ -288,23 +288,24 @@ fn dispatch(
         },
         .GetChunk => {
             if (ptr) |p| {
-                var dest = p;
-                dest = @alignCast(@ptrCast(plug.params.ptr));
-                return 0;
+                var dest: [*]f32 = @ptrCast(@alignCast(p));
+                dest = plug.params.ptr;
+                return @intCast(@sizeOf(f32) * plug.params.len);
             }
             return 1;
         },
         .SetChunk => {
             if (ptr) |p| {
-                @memcpy(
-                    plug.params,
-                    @as([*]f32, @alignCast(@ptrCast(p))),
-                );
+                const src: [*]f32 = @ptrCast(@alignCast(p));
+                @memcpy(plug.params, src[0..plug.params.len]);
                 return 0;
             }
             return 1;
         },
-        .SetProgram, .GetProgram, .SetProgramName, .GetProgramName => {},
+        .SetProgram, .GetProgram, .SetProgramName, .GetProgramName => {
+            // Does anyone use this stuff?
+            return -1;
+        },
         .ProcessEvents => {},
         .GetInputProperties => {
             // TODO: Use `index` to support multiple pins
@@ -357,15 +358,13 @@ fn dispatch(
     return -1;
 }
 
-fn processInEvent(vst: *VstPlugin) void {
+fn processInEvents(vst: *VstPlugin) void {
     const plug = vst.plugin orelse {
         log.err("Plugin is null\n", .{}, @src());
         assert(false);
         return;
     };
-    // locking here makes sure we drain it before releasing
-    vst.in_events.mutex.lock();
-    defer vst.in_events.mutex.unlock();
+    // Don't want to lock on the audio thread
     while (vst.in_events.next_no_lock()) |event| {
         switch (event) {
             .param_change => |change| {
@@ -383,7 +382,7 @@ fn processInEvent(vst: *VstPlugin) void {
     }
 }
 
-fn processOutEvent(vst: *VstPlugin) void {
+fn processOutEvents(vst: *VstPlugin) void {
     const plugin = vst.plugin orelse {
         log.err("Plugin is null\n", .{}, @src());
         assert(false);
@@ -422,9 +421,9 @@ fn processReplacing(
     audio_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
     if (vst.plugin) |plugin| {
-        if (plugin.gui) |_| processOutEvent(vst);
+        if (plugin.gui) |_| processOutEvents(vst);
 
-        processInEvent(vst);
+        processInEvents(vst);
 
         const uframes: usize = @intCast(frames);
         const buffer: arbor.AudioBuffer(f32) = .{
@@ -464,16 +463,12 @@ fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.C) voi
                 .param_change = .{ .id = @intCast(index), .value = value },
             };
             if (main_thread == audio_thread) {
-                vst.in_events.push_no_lock(event) catch |e| {
-                    log.err("{!}\n", .{e}, @src());
-                    return;
-                };
-                vst.processInEvent();
+                // ISSUE: This just feels no good...
+                // but, we don't know which thread this will be called from
+                vst.in_events.push_no_lock(event) catch return; // Well, let's just not care if we overflow
+                vst.processInEvents();
             } else {
-                vst.in_events.push_wait(event) catch |e| {
-                    log.err("{!}\n", .{e}, @src());
-                    return;
-                };
+                vst.in_events.push_wait(event) catch return;
             }
         }
     }
