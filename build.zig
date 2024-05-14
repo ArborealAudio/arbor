@@ -212,7 +212,8 @@ pub const BundleStep = struct {
             arr.set(Format.CLAP, ".clap");
             arr.set(Format.VST2, switch (target_os) {
                 .windows => ".dll",
-                .macos, .linux => ".vst",
+                .macos => ".vst",
+                .linux => ".so",
                 else => @panic("Unsupported OS"),
             });
             break :make arr;
@@ -344,17 +345,7 @@ pub const CopyStep = struct {
             bundle_name,
         }) else sys_install_path;
 
-        var plugin_dir = mkdir: {
-            break :mkdir std.fs.openDirAbsolute(plugin_dest_path, .{}) catch |e| {
-                switch (e) {
-                    error.FileNotFound => {
-                        try std.fs.makeDirAbsolute(plugin_dest_path);
-                        break :mkdir try std.fs.openDirAbsolute(plugin_dest_path, .{});
-                    },
-                    else => return e,
-                }
-            };
-        };
+        var plugin_dir = try std.fs.cwd().makeOpenPath(plugin_dest_path, .{});
         defer plugin_dir.close();
 
         if (os == .macos) {
@@ -597,12 +588,7 @@ fn copyRecursive(allocator: std.mem.Allocator, src: Dir, dest: Dir) !void {
                 file.path,
                 .{},
             ),
-            .directory => {
-                dest.access(file.path, .{}) catch |e| switch (e) {
-                    error.FileNotFound => try dest.makeDir(file.path),
-                    else => return e,
-                };
-            },
+            .directory => try dest.makePath(file.path),
             else => {},
         }
     }
