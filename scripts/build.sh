@@ -16,11 +16,11 @@ echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
 
 [ $OS != 'windows' ] && curl "https://ziglang.org/builds/zig-${TRIPLE}.tar.xz" | tar xJ
 if [[ $OS == 'windows' ]]; then
-  wget "https://ziglang.org/builds/zig-${TRIPLE}.zip"
-  unzip -q zig-${TRIPLE}.zip
+	powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://ziglang.org/builds/zig-${TRIPLE}.zip -OutFile zig-${TRIPLE}.zip"
+	powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
 fi
 
-ZIG="zig-${TRIPLE}/zig"
+[ $OS != 'windows'] && ZIG="zig-${TRIPLE}/zig" || ZIG="zig-${TRIPLE}/zig.exe"
 
 echo "Zig path = ${ZIG}"
 
