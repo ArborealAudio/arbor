@@ -2,7 +2,7 @@
 
 set -e
 
-source ./scripts/get_zig.sh
+source $PWD/scripts/get_zig.sh
 
 echo "Zig path = ${ZIG}"
 
