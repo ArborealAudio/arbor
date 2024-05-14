@@ -254,19 +254,10 @@ pub const BundleStep = struct {
                 defer bndl.close();
                 try bndl.writeAll("BNDL????");
             },
-            .windows => {
+            .windows, .linux => {
                 var out_dir = try std.fs.cwd().makeOpenPath(dest, .{});
                 defer out_dir.close();
                 _ = try std.fs.cwd().updateFile(gen_file, out_dir, out_file, .{});
-            },
-            .linux => {
-                var out_dir = try std.fs.cwd().makeOpenPath(dest, .{});
-                defer out_dir.close();
-                _ = try std.fs.cwd().updateFile(gen_file, out_dir, b.pathJoin(&.{
-                    "Contents",
-                    "x86_64-linux",
-                    self.build_dep.out_filename,
-                }), .{});
             },
             else => @panic("Unsupported OS"),
         }
@@ -348,10 +339,10 @@ pub const CopyStep = struct {
                 else => @panic("Unsupported OS"),
             },
         };
-        const plugin_dest_path = b.pathJoin(&.{
+        const plugin_dest_path = if (os == .macos) b.pathJoin(&.{
             sys_install_path,
             bundle_name,
-        });
+        }) else sys_install_path;
 
         var plugin_dir = mkdir: {
             break :mkdir std.fs.openDirAbsolute(plugin_dest_path, .{}) catch |e| {
@@ -366,9 +357,13 @@ pub const CopyStep = struct {
         };
         defer plugin_dir.close();
 
-        var bundle_dir = try std.fs.cwd().makeOpenPath(bundle_path, .{ .iterate = true });
-        defer bundle_dir.close();
-        try copyRecursive(b.allocator, bundle_dir, plugin_dir);
+        if (os == .macos) {
+            var bundle_dir = try std.fs.cwd().makeOpenPath(bundle_path, .{ .iterate = true });
+            defer bundle_dir.close();
+            try copyRecursive(b.allocator, bundle_dir, plugin_dir);
+        } else {
+            _ = try std.fs.cwd().updateFile(bundle_path, plugin_dir, bundle_name, .{});
+        }
     }
 };
 
