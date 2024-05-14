@@ -19,23 +19,15 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-12]
+        os: [windows-2019, ubuntu-latest, macos-12]
 
     steps:
     - uses: actions/checkout@v3
 
-    - name: Build Unix
-      if: runner.os != 'Windows'
-      run: ./scripts/build-unix.sh
-
-    - name: Validate Unix
-      if: runner.os != 'Windows'
+    - name: Build
+      run: bash ./scripts/build-unix.sh
+      
+    - name: Validate
       run: |
-        ./scripts/validate-clap.sh
-        ./scripts/validate-vst.sh
-
-    - name: Validate Windows
-      if: runner.os == 'Windows'
-      run: |
-        bash ./scripts/validate-clap.h
-        bash ./scripts/validate-vst.h
+        bash ./scripts/validate-clap.sh
+        bash ./scripts/validate-vst.sh
