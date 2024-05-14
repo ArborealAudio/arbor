@@ -212,7 +212,8 @@ pub const BundleStep = struct {
             arr.set(Format.CLAP, ".clap");
             arr.set(Format.VST2, switch (target_os) {
                 .windows => ".dll",
-                .macos, .linux => ".vst",
+                .macos => ".vst",
+                .linux => ".so",
                 else => @panic("Unsupported OS"),
             });
             break :make arr;
