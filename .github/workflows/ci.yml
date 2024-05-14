@@ -27,3 +27,15 @@ jobs:
     - name: Build Unix
       if: runner.os != 'Windows'
       run: ./scripts/build-unix.sh
+
+    - name: Validate Unix
+      if: runner.os != 'Windows'
+      run: |
+        ./scripts/validate-clap.sh
+        ./scripts/validate-vst.sh
+
+    - name: Validate Windows
+      if: runner.os == 'Windows'
+      run: |
+        bash ./scripts/validate-clap.h
+        bash ./scripts/validate-vst.h

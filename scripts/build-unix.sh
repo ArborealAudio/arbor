@@ -4,17 +4,10 @@ set -e
 
 ZIG_VERSION="0.12.0"
 
-if [[ $(uname -s) == 'Darwin' ]]; then
-  OS="macos"
-elif [[ $(uname -s) == 'Linux' ]]; then
-  OS="linux"
-fi
+[ $(uname -s) == 'Darwin' ] && OS="macos"
+[ $(uname -s) == 'Linux' ] && OS="linux"
 
-if [[ $(uname -m) == 'arm64' ]]; then
-  ARCH="aarch64"
-else
-  ARCH=$(uname -m)
-fi
+[ $(uname -m) == 'arm64' ] && ARCH="aarch64" || ARCH=$(uname -m)
 
 TRIPLE="${OS}-${ARCH}-${ZIG_VERSION}"
 
