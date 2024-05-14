@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - ci
+      - vst2
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: contains(toJson(github.event.commits), '[ci skip]') == false
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-12]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build Unix
+      if: runner.os != 'Windows'
+      run: ./scripts/build-unix.sh
