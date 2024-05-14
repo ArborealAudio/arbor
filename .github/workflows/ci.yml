@@ -25,7 +25,7 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Build
-      run: bash ./scripts/build-unix.sh
+      run: bash ./scripts/build.sh
       
     - name: Validate
       run: |
