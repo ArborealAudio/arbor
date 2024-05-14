@@ -24,4 +24,4 @@ fi
 
 echo "Zig path = ${ZIG}"
 
-$ZIG build -Dexamples copy
+$ZIG build -Dexamples
