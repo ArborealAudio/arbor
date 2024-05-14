@@ -21,11 +21,14 @@ else
 fi
 
 EXAMPLES=(Distortion Filter)
-[ $OS == 'windows' ] && EXT="dll" || [ $(uname -s) == 'Darwin' ] && EXT="vst" || EXT="so"
+[ $OS == 'windows' ] && EXT="dll"
+[ $(uname -s) == 'Darwin' ] && EXT="vst"
+[ $(uname -s) == 'Linux' ] && EXT="so"
 
 for ex in ${EXAMPLES[@]}; do
-	echo "Validating $ex"
-	if $pluginval --strictness-level 10 --validate-in-process --skip-gui-tests --timeout-ms 300000 zig-out/Example_${ex}.${EXT};
+	VST_PATH=zig-out/Example_${ex}.${EXT}
+	echo "Validating $VST_PATH"
+	if $pluginval --strictness-level 10 --validate-in-process --skip-gui-tests --timeout-ms 300000 $VST_PATH;
 	then
 		echo "Pluginval successful"
 	else
