@@ -41,7 +41,7 @@ extending support to other APIs
 
 * A basic delay module
 
-* 2nd-order "Vicanek" IIRs which **don't cramp at Nyquist** [^1][^2][^3]
+* "Vicanek" IIR Filters which **don't cramp at Nyquist** [^1][^2][^3]
 
 * Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
 text rendering function with a bitmap font
