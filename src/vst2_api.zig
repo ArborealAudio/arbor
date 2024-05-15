@@ -56,7 +56,8 @@ pub const PluginFlags = packed struct(i32) {
 pub const StringConstants = struct {
     pub const MaxProgNameLen = 24;
     /// Param name & display len
-    pub const MaxParamStrLen = 8;
+    // pub const MaxParamStrLen = 8;
+    pub const MaxParamStrLen = 10; // cheating
     pub const MaxVendorStrLen = 64;
     pub const MaxProductStrLen = 64;
     pub const MaxEffectNameLen = 32;

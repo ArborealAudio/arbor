@@ -148,7 +148,7 @@ fn dispatch(
                     // Doesn't seem to matter that we pass strings longer than the API's
                     // insane restriction of 8 chars. Either most hosts subvert this limitation
                     // or it's, like, more of a suggestion.
-                    const max_len = 10;
+                    const max_len = vst2.StringConstants.MaxParamStrLen;
                     @memset(out[0..max_len], 0);
                     if (param_info.value_to_text) |func| {
                         var buf: [max_len]u8 = .{0} ** max_len;
