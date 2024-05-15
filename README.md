@@ -58,6 +58,11 @@ text rendering function with a bitmap font
 
 - [ ] Unit tests
 
+	- [x] Validating CLAP & VST2 w/ [clap-validator](https://github.com/free-audio/clap-validator)
+	& [pluginval](https://github.com/Tracktion/pluginval), respectively
+
+	- [ ] Write tests for other parts of the library, handling bad data from hosts, etc
+
 - [ ] Simple cross-platform rendering
 
 	- [x] Got basic shapes using Olivec software renderer
