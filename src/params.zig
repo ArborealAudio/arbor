@@ -128,9 +128,9 @@ pub fn Bool(
     f.stepped = true;
     return Parameter{
         .name = name,
-        .min_value = false,
-        .max_value = true,
-        .default_value = default,
+        .min_value = 0,
+        .max_value = 1,
+        .default_value = @floatFromInt(@intFromBool(default)),
         .flags = f,
         .text_to_value = options.text_to_value,
         .value_to_text = options.value_to_text,
