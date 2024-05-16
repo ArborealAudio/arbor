@@ -365,7 +365,7 @@ fn processInEvents(vst: *VstPlugin) void {
         return;
     };
     // Don't want to lock on the audio thread
-    while (vst.in_events.next_no_lock()) |event| {
+    while (vst.in_events.next_try()) |event| {
         switch (event) {
             .param_change => |change| {
                 plug.params[change.id] = plug.param_info[change.id]
