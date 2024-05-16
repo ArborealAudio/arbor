@@ -130,7 +130,7 @@ fn dispatch(
                     var buf: [*]u8 = @ptrCast(p);
                     const len = @min(vst2.StringConstants.MaxParamStrLen, name.len);
                     @memset(buf[0..vst2.StringConstants.MaxParamStrLen], 0);
-                    @memcpy(buf[0..len], name);
+                    @memcpy(buf[0..len], name[0..len]);
                     return 0;
                 }
             }
