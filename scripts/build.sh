@@ -21,7 +21,7 @@ if [[ $OS == 'windows' ]]; then
 	# powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
 fi
 
-[ $OS != 'windows' ] && ZIG=zig.exe || ZIG="zig-${TRIPLE}/zig.exe"
+[ $OS != 'windows' ] && ZIG="zig-${TRIPLE}/zig" || ZIG="zig.exe"
 
 echo "Zig path = ${ZIG}"
 
