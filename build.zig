@@ -407,11 +407,14 @@ pub fn build(b: *std.Build) !void {
         const copy_step = b.step("copy", "Copy plugin to user plugins dir");
         inline for (examples) |ex| {
             var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
-            config = config.withName("Example " ++ ex.description.name);
+            config.description.name = "Example " ++ ex.description.name;
             config.target = target;
             config.optimize = optimize;
             if (format) |fmt| {
-                std.log.info("Building example {s} plugin: {s}\n", .{ @tagName(fmt), ex.description.name });
+                std.log.info("Building example {s} plugin: {s}\n", .{
+                    @tagName(fmt),
+                    ex.description.name,
+                });
                 const plug = try addExample(b, config, fmt);
                 const bundle_step = try BundleStep.create(b, fmt, config, plug);
                 bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
@@ -421,7 +424,10 @@ pub fn build(b: *std.Build) !void {
                 copy_step.dependOn(&copy_cmd.step);
             } else {
                 inline for (formats) |fmt| {
-                    std.log.info("Building example {s} plugin: {s}\n", .{ @tagName(fmt), ex.description.name });
+                    std.log.info("Building example {s} plugin: {s}\n", .{
+                        @tagName(fmt),
+                        ex.description.name,
+                    });
                     const plug = try addExample(b, config, fmt);
                     const bundle_step = try BundleStep.create(b, fmt, config, plug);
                     bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
@@ -433,15 +439,6 @@ pub fn build(b: *std.Build) !void {
             }
         }
     }
-
-    // Creates a step for unit testing.
-    const tests = b.addTest(.{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&tests.step);
 }
 
 const default_config = BuildConfig{
@@ -498,7 +495,18 @@ pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !*std.Buil
     const plug = try buildExample(b, arbor_mod, format, config);
     plug.root_module.addOptions("config", build_options);
 
+    const tests = b.addTest(.{
+        .name = "tests",
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tests.linkLibrary(plug);
+    tests.root_module.addOptions("config", build_options);
+    const run_test = b.addRunArtifact(tests);
+
     b.installArtifact(plug);
+    b.getInstallStep().dependOn(&run_test.step);
     return plug;
 }
 

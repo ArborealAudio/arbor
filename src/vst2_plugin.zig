@@ -33,13 +33,13 @@ host_callback: *const fn (
     ptr: ?*anyopaque,
     opt: f32,
 ) callconv(.C) isize,
-plugin: ?*Plugin = null, // our specific plugin data
+plugin: *Plugin, // our specific plugin data
 
 in_events: *arbor.Queue,
 
 process_precision: vst2.ProcessPrecision = .ProcessPrecision32,
 
-fn plugCast(effect: ?*const vst2.AEffect) *VstPlugin {
+pub fn plugCast(effect: ?*const vst2.AEffect) *VstPlugin {
     if (effect) |ptr|
         return @ptrCast(@alignCast(ptr.object))
     else {
@@ -47,7 +47,6 @@ fn plugCast(effect: ?*const vst2.AEffect) *VstPlugin {
     }
 }
 
-// TODO: Handle extende set of opcodes
 fn dispatch(
     effect: ?*vst2.AEffect,
     opcode: i32,
@@ -57,10 +56,7 @@ fn dispatch(
     opt: f32,
 ) callconv(.C) isize {
     var plugin: *VstPlugin = plugCast(effect);
-    const plug = plugin.plugin orelse {
-        log.err("Plugin is null\n", .{}, @src());
-        return 0;
-    };
+    const plug = plugin.plugin;
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
@@ -88,6 +84,7 @@ fn dispatch(
             );
             return 0;
         },
+        // ISSUE: This is kinda bunk right? Since the outer AEffect will end up destroying itself?
         .Close => {
             plugin.deinit(allocator);
             return 0;
@@ -102,8 +99,7 @@ fn dispatch(
             }
         },
         .GetVendorVersion => {
-            return arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e|
-                {
+            return arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e| {
                 log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
                 return 1;
             };
@@ -191,14 +187,14 @@ fn dispatch(
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
             log.debug("Setting sample rate: {d}\n", .{opt}, @src());
             plug.interface.prepare(plug, opt, plug.max_frames);
-            return 1;
+            return 0;
         },
         .CanBeAutomated => return 1,
         .SetBlockSize => {
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
             log.debug("Setting block size: {d}\n", .{value}, @src());
             plug.interface.prepare(plug, plug.sample_rate, @intCast(value));
-            return 1;
+            return 0;
         },
         .EditGetRect => {
             if (config.plugin_features & arbor.features.GUI == 0) return 0;
@@ -216,7 +212,10 @@ fn dispatch(
                     };
                     dest.* = &rect;
                     return 1;
-                } else return 0;
+                } else {
+                    log.err("{s}: Gui is null", .{@tagName(code)}, @src());
+                    return 0;
+                }
             }
             return 0;
         },
@@ -359,11 +358,7 @@ fn dispatch(
 }
 
 fn processInEvents(vst: *VstPlugin) void {
-    const plug = vst.plugin orelse {
-        log.err("Plugin is null\n", .{}, @src());
-        assert(false);
-        return;
-    };
+    const plug = vst.plugin;
     // Don't want to lock on the audio thread
     while (vst.in_events.next_try()) |event| {
         switch (event) {
@@ -383,11 +378,7 @@ fn processInEvents(vst: *VstPlugin) void {
 }
 
 fn processOutEvents(vst: *VstPlugin) void {
-    const plugin = vst.plugin orelse {
-        log.err("Plugin is null\n", .{}, @src());
-        assert(false);
-        return;
-    };
+    const plugin = vst.plugin;
     const gui = plugin.gui orelse {
         log.err("Gui is null\n", .{}, @src());
         assert(false);
@@ -420,27 +411,26 @@ fn processReplacing(
 ) callconv(.C) void {
     audio_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
-    if (vst.plugin) |plugin| {
-        if (plugin.gui) |_| processOutEvents(vst);
+    const plugin = vst.plugin;
+    if (plugin.gui) |_| processOutEvents(vst);
 
-        processInEvents(vst);
+    processInEvents(vst);
 
-        const uframes: usize = @intCast(frames);
-        const buffer: arbor.AudioBuffer(f32) = .{
-            .input = &.{
-                inputs[0][0..uframes],
-                inputs[1][0..uframes],
-            },
-            .output = &.{
-                outputs[0][0..uframes],
-                outputs[1][0..uframes],
-            },
-            .frames = uframes,
-            .num_ch = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs)),
-            // TODO: Handle unequal in/out pairs
-        };
-        plugin.interface.process(plugin, buffer);
-    }
+    const uframes: usize = @intCast(frames);
+    const buffer: arbor.AudioBuffer(f32) = .{
+        .input = &.{
+            inputs[0][0..uframes],
+            inputs[1][0..uframes],
+        },
+        .output = &.{
+            outputs[0][0..uframes],
+            outputs[1][0..uframes],
+        },
+        .frames = uframes,
+        .num_ch = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs)),
+        // TODO: Handle unequal in/out pairs
+    };
+    plugin.interface.process(plugin, buffer);
 }
 fn processDoubleReplacing(
     effect: ?*vst2.AEffect,
@@ -457,34 +447,32 @@ fn processDoubleReplacing(
 fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.C) void {
     main_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
-    if (vst.plugin) |plugin| {
-        if (index >= 0 and index < plugin.param_info.len) {
-            const event = arbor.Event{
-                .param_change = .{ .id = @intCast(index), .value = value },
-            };
-            if (main_thread == audio_thread) {
-                // ISSUE: This just feels no good...
-                // but, we don't know which thread this will be called from
-                vst.in_events.push_no_lock(event) catch return; // Well, let's just not care if we overflow
-                vst.processInEvents();
-            } else {
-                vst.in_events.push_wait(event) catch return;
-            }
+    const plugin = vst.plugin;
+    if (index >= 0 and index < plugin.param_info.len) {
+        const event = arbor.Event{
+            .param_change = .{ .id = @intCast(index), .value = value },
+        };
+        // ISSUE: This just feels no good...
+        // but, we don't know which thread this will be called from
+        if (main_thread == audio_thread) {
+            vst.in_events.push_no_lock(event) catch return; // Well, let's just not care if we overflow
+            vst.processInEvents();
+        } else {
+            vst.in_events.push_wait(event) catch return;
         }
     }
 }
 
 fn getParameter(effect: ?*vst2.AEffect, index: i32) callconv(.C) f32 {
-    if (plugCast(effect).plugin) |plugin| {
-        if (index >= 0 and index < plugin.param_info.len) {
-            const id: usize = @intCast(index);
-            return plugin.param_info[id].getNormalizedValue(plugin.params[id]);
-        }
+    const plugin = plugCast(effect).plugin;
+    if (index >= 0 and index < plugin.param_info.len) {
+        const id: usize = @intCast(index);
+        return plugin.param_info[id].getNormalizedValue(plugin.params[id]);
     }
     return 0;
 }
 
-fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffect {
+pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffect {
     const self = try alloc.create(VstPlugin);
     self.* = .{
         .effect = try alloc.create(vst2.AEffect),
@@ -495,7 +483,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
             return error.InitFailed;
         },
     };
-    self.plugin.?.num_channels = 2; // TODO: DOn't hardcode
+    self.plugin.num_channels = 2; // TODO: DOn't hardcode
     self.effect.* = .{
         .dispatcher = dispatch,
         .processReplacing = processReplacing,
@@ -503,7 +491,7 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .setParameter = setParameter,
         .getParameter = getParameter,
         .num_programs = 0,
-        .num_params = @intCast(self.plugin.?.param_info.len),
+        .num_params = @intCast(self.plugin.param_info.len),
         .num_inputs = 2,
         .num_outputs = 2,
         .flags = .{
@@ -522,8 +510,11 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
     return self.effect;
 }
 
-fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
-    if (self.plugin) |plug| plug.interface.deinit(plug);
+pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
+    const plug = self.plugin;
+    plug.interface.deinit(plug);
+    plug.deinit();
+    self.in_events.deinit();
     alloc.destroy(self.effect);
     alloc.destroy(self);
 }
