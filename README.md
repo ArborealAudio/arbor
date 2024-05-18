@@ -30,26 +30,36 @@ in a plugin UI 🤮
 
 ## Have:
 
+### Framework
+
 * A nice abstraction layer over plugin APIs which should lend itself nicely to
 extending support to other APIs
 
 * Easy comptime parameter generation
 
+### Plugin APIs
+
 * Basic CLAP audio plugin supporting different types of parameters, sample-accurate automation
 
+* WIP ANV (A.N.V. == **A**NV's **N**ot **V**ST3)
+
 * A janky VST2 implementation that works in Reaper and mostly works in other DAWs
+
+### DSP
 
 * A basic delay module
 
 * "Vicanek" IIR Filters which **don't cramp at Nyquist** [^1][^2][^3]
+
+### UI
 
 * Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
 text rendering function with a bitmap font
 
 ## TODO:
 
-- [ ] Figure out if we can write a binding for VST3 API without getting a lawyer
-
+- [ ] Make a basic VST3-compatible plugin with audio parameters & UI
+ 
 - [ ] AUv2 API
 
 - [ ] Improve VST2 format

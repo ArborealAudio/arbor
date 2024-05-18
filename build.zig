@@ -154,6 +154,7 @@ fn buildPlugin(
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
+        .VST3 => "src/vst3_plugin.zig",
     };
     const plug = b.addSharedLibrary(.{
         .name = name,
@@ -178,6 +179,8 @@ pub const BundleStep = struct {
     bundle_name: ?[]const u8 = null,
     /// path to the generated bundle (which may be just a file)
     bundle_path: ?[]const u8 = null,
+    /// path to pdb debug info on windows
+    pdb: ?[]const u8 = null,
 
     pub fn create(
         b: *std.Build,
@@ -216,10 +219,12 @@ pub const BundleStep = struct {
                 .linux => ".so",
                 else => @panic("Unsupported OS"),
             });
+            arr.set(Format.VST3, ".vst3");
             break :make arr;
         };
 
         const gen_file = self.build_dep.getEmittedBin().generated.getPath();
+        if (target_os == .windows) self.pdb = self.build_dep.getEmittedPdb().generated.getPath();
         const ext = format_extensions.get(self.format);
         // make double sure we have a file name w/ no spaces
         const out_name = try b.allocator.dupe(u8, self.build_dep.name);
@@ -302,6 +307,8 @@ pub const CopyStep = struct {
     pub fn make(step: *Step, _: *std.Progress.Node) !void {
         const self: *CopyStep = @fieldParentPtr("step", step);
         const b = step.owner;
+        const plugin_name = b.dupe(self.config.description.name);
+        std.mem.replaceScalar(u8, plugin_name, ' ', '_');
         const target = self.config.target;
         const format = self.format;
         const bundle_name = self.bundle.bundle_name orelse return error.NoBundleName;
@@ -327,12 +334,12 @@ pub const CopyStep = struct {
                 .windows => "/Program Files/Common Files/CLAP/",
                 else => @panic("Unsupported OS"),
             },
-            // .VST3 => switch (os) {
-            //     .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
-            //     .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
-            //     .windows => "/Program Files/Common Files/VST3/",
-            //     else => @panic("Unsupported OS"),
-            // },
+            .VST3 => switch (os) {
+                .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
+                .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
+                .windows => "/Program Files/Common Files/VST3/",
+                else => @panic("Unsupported OS"),
+            },
             .VST2 => switch (os) {
                 .linux => b.pathJoin(&.{ home_dir, "/.vst/" }),
                 .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST/" }),
@@ -354,6 +361,13 @@ pub const CopyStep = struct {
             try copyRecursive(b.allocator, bundle_dir, plugin_dir);
         } else {
             _ = try std.fs.cwd().updateFile(bundle_path, plugin_dir, bundle_name, .{});
+            if (os == .windows) if (self.bundle.pdb) |pdb| {
+                const pdb_name = try std.mem.concat(b.allocator, u8, &.{
+                    plugin_name,
+                    ".pdb",
+                });
+                _ = try std.fs.cwd().updateFile(pdb, plugin_dir, pdb_name, .{});
+            };
         }
     }
 };
@@ -561,6 +575,7 @@ fn buildExample(
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
+        .VST3 => "src/vst3_plugin.zig",
     };
     const plug = b.addSharedLibrary(.{
         .name = name,

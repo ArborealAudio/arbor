@@ -21,7 +21,7 @@
 //! Main source file for framework, collecting everything in one place
 const std = @import("std");
 const assert = std.debug.assert;
-const config = @import("config");
+pub const config = @import("config");
 const Allocator = std.mem.Allocator;
 
 pub const param = @import("params.zig");
@@ -30,7 +30,7 @@ pub const Parameter = param.Parameter;
 pub const Format = enum {
     CLAP,
     VST2,
-    // Big 'ol TODO: VST3,
+    VST3,
 };
 const format = config.format;
 
@@ -40,6 +40,7 @@ pub const dsp = @import("dsp/dsp.zig");
 
 pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
+pub const vst3 = @import("vst3_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub const plugin_desc: DescType = createFormatDescription();
