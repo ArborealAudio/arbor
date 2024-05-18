@@ -143,6 +143,7 @@ fn buildPlugin(
     const plug_src = switch (current_format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
+        .VST3 => "src/vst3_plugin.zig",
     };
     const plug = b.addLibrary(.{
         .linkage = .dynamic,
@@ -171,6 +172,8 @@ pub const BundleStep = struct {
     bundle_name: ?[]const u8 = null,
     /// path to the generated bundle (which may be just a file)
     bundle_path: ?[]const u8 = null,
+    /// path to pdb debug info on windows
+    pdb: ?[]const u8 = null,
 
     pub fn create(
         b: *std.Build,
@@ -211,10 +214,16 @@ pub const BundleStep = struct {
                 .linux => ".so",
                 else => @panic("Unsupported OS"),
             });
+            arr.set(Format.VST3, ".vst3");
             break :make arr;
         };
 
+<<<<<<< HEAD
         const gen_file = self.build_dep.getEmittedBin().getPath(b);
+=======
+        const gen_file = self.build_dep.getEmittedBin().generated.getPath();
+        if (target_os == .windows) self.pdb = self.build_dep.getEmittedPdb().generated.getPath();
+>>>>>>> 31c0287 (ANV: Start working on ANV plugin)
         const ext = format_extensions.get(self.format);
         // make double sure we have a file name w/ no spaces
         const out_name = try b.allocator.dupe(u8, self.build_dep.name);
@@ -299,6 +308,8 @@ pub const CopyStep = struct {
     pub fn make(step: *Step, _: std.Build.Step.MakeOptions) !void {
         const self: *CopyStep = @fieldParentPtr("step", step);
         const b = step.owner;
+        const plugin_name = b.dupe(self.config.description.name);
+        std.mem.replaceScalar(u8, plugin_name, ' ', '_');
         const target = self.config.target;
         const format = self.format;
         const bundle_name = self.bundle.bundle_name orelse return error.NoBundleName;
@@ -324,12 +335,12 @@ pub const CopyStep = struct {
                 .windows => "/Program Files/Common Files/CLAP/",
                 else => @panic("Unsupported OS"),
             },
-            // .VST3 => switch (os) {
-            //     .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
-            //     .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
-            //     .windows => "/Program Files/Common Files/VST3/",
-            //     else => @panic("Unsupported OS"),
-            // },
+            .VST3 => switch (os) {
+                .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
+                .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
+                .windows => "/Program Files/Common Files/VST3/",
+                else => @panic("Unsupported OS"),
+            },
             .VST2 => switch (os) {
                 .linux => b.pathJoin(&.{ home_dir, "/.vst/" }),
                 .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST/" }),
@@ -351,6 +362,13 @@ pub const CopyStep = struct {
             try copyRecursive(b.allocator, bundle_dir, plugin_dir);
         } else {
             _ = try std.fs.cwd().updateFile(bundle_path, plugin_dir, bundle_name, .{});
+            if (os == .windows) if (self.bundle.pdb) |pdb| {
+                const pdb_name = try std.mem.concat(b.allocator, u8, &.{
+                    plugin_name,
+                    ".pdb",
+                });
+                _ = try std.fs.cwd().updateFile(pdb, plugin_dir, pdb_name, .{});
+            };
         }
     }
 };
@@ -395,7 +413,186 @@ const osx_bundle_plist =
     \\
 ;
 
+<<<<<<< HEAD
 pub fn build(_: *std.Build) void {}
+=======
+pub fn build(b: *std.Build) !void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    if (b.option(bool, "examples", "Build example plugins")) |_| {
+        const format = b.option(Format, "format", "Plugin format");
+        const copy_step = b.step("copy", "Copy plugin to user plugins dir");
+        inline for (examples) |ex| {
+            var config = ex.withSource(b.pathJoin(&.{ "examples", ex.description.name, "plugin.zig" }));
+            config = config.withName("Example " ++ ex.description.name);
+            config.target = target;
+            config.optimize = optimize;
+            if (format) |fmt| {
+                std.log.info("Building example {s} plugin: {s}\n", .{ @tagName(fmt), ex.description.name });
+                const plug = try addExample(b, config, fmt);
+                const bundle_step = try BundleStep.create(b, fmt, config, plug);
+                bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
+                b.getInstallStep().dependOn(&bundle_step.step);
+                const copy_cmd = try CopyStep.create(b, fmt, config, bundle_step);
+                copy_cmd.step.dependOn(b.getInstallStep());
+                copy_step.dependOn(&copy_cmd.step);
+            } else {
+                inline for (formats) |fmt| {
+                    std.log.info("Building example {s} plugin: {s}\n", .{ @tagName(fmt), ex.description.name });
+                    const plug = try addExample(b, config, fmt);
+                    const bundle_step = try BundleStep.create(b, fmt, config, plug);
+                    bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
+                    b.getInstallStep().dependOn(&bundle_step.step);
+                    const copy_cmd = try CopyStep.create(b, fmt, config, bundle_step);
+                    copy_cmd.step.dependOn(b.getInstallStep());
+                    copy_step.dependOn(&copy_cmd.step);
+                }
+            }
+        }
+    }
+
+    // Creates a step for unit testing.
+    const tests = b.addTest(.{
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&tests.step);
+}
+
+const default_config = BuildConfig{
+    .description = .{
+        .name = undefined,
+        .id = undefined,
+        .company = "Arboreal Audio",
+        .version = "0.1.0",
+        .copyright = "(c) 2024 Arboreal Audio, LLC",
+        .url = "",
+        .manual = "",
+        .contact = "",
+        .description = "Vintage analog warmth",
+    },
+    .features = features.STEREO | features.EFFECT,
+    .root_source_file = undefined,
+    .target = undefined,
+    .optimize = undefined,
+};
+
+const examples = [_]BuildConfig{
+    default_config.withName("Distortion").withID("com.Arbor.ExDist").withFeature(features.GUI),
+    default_config.withName("Filter").withID("com.Arbor.ExFilter"), // < testing compile w/out GUI
+};
+
+// NOTE: WOW had to copy all build logic b/c I couldn't figure out how to diverge
+// it based on relative build root. That is to say, you can't use dependency-relative
+// paths while using this repo on its own (as you probably would when testing w/
+// example plugins) and you can't use build-relative paths when using this as a module,
+// so this is a bad solution that is also the only thing I can think to do.
+
+pub fn addExample(b: *std.Build, config: BuildConfig, format: Format) !*std.Build.Step.Compile {
+    const target = config.target;
+    const optimize = config.optimize;
+
+    const build_options = b.addOptions();
+    // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
+    // Or -- CLI option overrides build options or vice-versa.
+    build_options.addOption(Format, "format", format);
+    build_options.addOption(Description, "plugin_desc", config.description);
+    build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
+
+    const arbor_mod = b.addModule("arbor", .{
+        .root_source_file = b.path("src/arbor.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    arbor_mod.addOptions("config", build_options);
+
+    // build UI library
+    buildGUIExample(b, arbor_mod, target);
+
+    const plug = try buildExample(b, arbor_mod, format, config);
+    plug.root_module.addOptions("config", build_options);
+
+    b.installArtifact(plug);
+    return plug;
+}
+
+fn buildGUIExample(
+    b: *std.Build,
+    arbor_mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+) void {
+    switch (target.result.os.tag) {
+        .linux => {
+            arbor_mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/" });
+            arbor_mod.linkSystemLibrary("X11", .{});
+            arbor_mod.addCSourceFile(.{
+                .file = b.path("src/gui/gui_x11.c"),
+                .flags = &.{"-std=c99"},
+            });
+        },
+        .windows => {
+            arbor_mod.linkSystemLibrary("gdi32", .{});
+            arbor_mod.linkSystemLibrary("user32", .{});
+            arbor_mod.addCSourceFile(.{
+                .file = b.path("src/gui/gui_w32.c"),
+                .flags = &.{"-std=c99"},
+            });
+        },
+        .macos => {
+            arbor_mod.linkFramework("Cocoa", .{});
+            arbor_mod.addCSourceFile(.{
+                .file = b.path("src/gui/gui_mac.m"),
+                .flags = &.{"-ObjC"},
+            });
+        },
+        else => @panic("Unimplemented OS\n"),
+    }
+    arbor_mod.addCSourceFile(.{
+        .file = b.path("src/gui/olive.c"),
+        .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
+    });
+}
+
+fn buildExample(
+    b: *std.Build,
+    module: *std.Build.Module,
+    format: Format,
+    config: BuildConfig,
+) !*std.Build.Step.Compile {
+    // make sure we have a file name w/ no spaces
+    const name = try b.allocator.dupe(u8, config.description.name);
+    std.mem.replaceScalar(u8, name, ' ', '_');
+
+    const usr_plug = b.addStaticLibrary(.{
+        .name = name,
+        .root_source_file = b.path(config.root_source_file),
+        .target = config.target,
+        .optimize = config.optimize,
+        .pic = true,
+    });
+    usr_plug.root_module.addImport("arbor", module);
+
+    const plug_src = switch (format) {
+        .CLAP => "src/clap_plugin.zig",
+        .VST2 => "src/vst2_plugin.zig",
+        .VST3 => "src/vst3_plugin.zig",
+    };
+    const plug = b.addSharedLibrary(.{
+        .name = name,
+        .root_source_file = b.path(plug_src),
+        .target = config.target,
+        .optimize = config.optimize,
+        .pic = true,
+    });
+    plug.linkLibrary(usr_plug);
+
+    return plug;
+}
+>>>>>>> 31c0287 (ANV: Start working on ANV plugin)
 
 const Dir = std.fs.Dir;
 
