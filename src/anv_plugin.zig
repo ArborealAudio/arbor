@@ -9,41 +9,41 @@ const allocator = std.heap.c_allocator;
 
 const utf8To16 = std.unicode.utf8ToUtf16Le;
 
-const vst3 = @import("vst3_api.zig");
+const anv = @import("anv_api.zig");
 
 const cc: std.builtin.CallingConvention = if (builtin.os.tag == .windows and
     builtin.cpu.arch == .x86) .Stdcall else .C;
 
-const Result = vst3.Result;
+const Result = anv.Result;
 
 const RefCounter = std.atomic.Value(u32);
 
-pub const class_id: vst3.Uid = vst3.uidCreate('A', 'N', 'V', '3');
-pub const comp_id: vst3.Uid = vst3.uidCreate('C', 'o', 'm', 'p');
-pub const controller_id: vst3.Uid = vst3.uidCreate('C', 't', 'r', 'l');
-const uidCmp = vst3.uidCmp;
+pub const class_id: anv.Uid = anv.uidCreate('A', 'N', 'V', '3');
+pub const comp_id: anv.Uid = anv.uidCreate('C', 'o', 'm', 'p');
+pub const controller_id: anv.Uid = anv.uidCreate('C', 't', 'r', 'l');
+const uidCmp = anv.uidCmp;
 
 const Vst3Plugin = extern struct {
-    const AudioProcessor = vst3.Interface.AudioProcessor;
-    const Component = vst3.Interface.Component;
+    const AudioProcessor = anv.Interface.AudioProcessor;
+    const Component = anv.Interface.Component;
     component: *const Component,
     // processor: *const AudioProcessor,
     ref_counter: RefCounter,
 
-    fn queryInterface(this: ?*anyopaque, iid: *const vst3.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
-        if (uidCmp(iid, &vst3.Interface.Base.UID) or
-            uidCmp(iid, &vst3.Interface.PluginBase.UID) or
-            uidCmp(iid, &vst3.Interface.Component.UID))
+    fn queryInterface(this: ?*anyopaque, iid: *const anv.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
+        if (uidCmp(iid, &anv.Interface.Base.UID) or
+            uidCmp(iid, &anv.Interface.PluginBase.UID) or
+            uidCmp(iid, &anv.Interface.Component.UID))
         {
             if (obj) |o| {
                 const self = arbor.cast(*Vst3Plugin, this);
-                log.debug("Query: {s}\n", .{vst3.uidToStr(iid)}, @src());
+                log.debug("Query: {s}\n", .{anv.uidToStr(iid)}, @src());
                 _ = self.ref_counter.fetchAdd(1, .release);
                 o.* = this;
                 return .Ok;
             }
         }
-        log.debug("Unsupported: {s}\n", .{vst3.uidToStr(iid)}, @src());
+        log.debug("Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
         return .NoInterface;
     }
 
@@ -63,7 +63,7 @@ const Vst3Plugin = extern struct {
         return 0;
     }
 
-    fn initialize(this: ?*anyopaque, context: ?*vst3.Interface.Base) callconv(cc) Result {
+    fn initialize(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
         _ = this;
         _ = context;
         // this is where we'd get a pointer to the host
@@ -77,18 +77,18 @@ const Vst3Plugin = extern struct {
         return .Ok;
     }
 
-    fn getControllerClass(_: ?*anyopaque, cid: *vst3.Uid) callconv(cc) Result {
+    fn getControllerClass(_: ?*anyopaque, cid: *anv.Uid) callconv(cc) Result {
         @memcpy(cid, &comp_id);
         return .Ok;
     }
 
-    fn setIoMode(this: ?*anyopaque, mode: vst3.IoMode) callconv(cc) Result {
+    fn setIoMode(this: ?*anyopaque, mode: anv.IoMode) callconv(cc) Result {
         _ = this;
         _ = mode;
         return .Ok;
     }
 
-    fn getBusCount(this: ?*anyopaque, media_type: vst3.MediaType, dir: vst3.BusDirection) callconv(cc) i32 {
+    fn getBusCount(this: ?*anyopaque, media_type: anv.MediaType, dir: anv.BusDirection) callconv(cc) i32 {
         _ = this;
         _ = dir;
         if (media_type == .Audio)
@@ -99,10 +99,10 @@ const Vst3Plugin = extern struct {
 
     fn getBusInfo(
         this: ?*anyopaque,
-        media_type: vst3.MediaType,
-        dir: vst3.BusDirection,
+        media_type: anv.MediaType,
+        dir: anv.BusDirection,
         index: i32,
-        bus_ptr: ?*vst3.BusInfo,
+        bus_ptr: ?*anv.BusInfo,
     ) callconv(cc) Result {
         _ = this;
         _ = index;
@@ -130,7 +130,7 @@ const Vst3Plugin = extern struct {
         }
     }
 
-    fn getRoutingInfo(this: ?*anyopaque, in_info: ?*vst3.RoutingInfo, out_info: ?*vst3.RoutingInfo) callconv(cc) Result {
+    fn getRoutingInfo(this: ?*anyopaque, in_info: ?*anv.RoutingInfo, out_info: ?*anv.RoutingInfo) callconv(cc) Result {
         _ = this;
         _ = in_info;
         _ = out_info;
@@ -139,8 +139,8 @@ const Vst3Plugin = extern struct {
 
     fn activateBus(
         this: ?*anyopaque,
-        media_type: vst3.MediaType,
-        dir: vst3.BusDirection,
+        media_type: anv.MediaType,
+        dir: anv.BusDirection,
         index: i32,
         state: bool,
     ) callconv(cc) Result {
@@ -156,9 +156,9 @@ const Vst3Plugin = extern struct {
 
     fn setBusArrangements(
         this: ?*anyopaque,
-        inputs: ?*vst3.SpeakerArrangement,
+        inputs: ?*anv.SpeakerArrangement,
         num_in: i32,
-        outputs: ?*vst3.SpeakerArrangement,
+        outputs: ?*anv.SpeakerArrangement,
         num_out: i32,
     ) callconv(cc) Result {
         _ = this;
@@ -171,9 +171,9 @@ const Vst3Plugin = extern struct {
 
     fn getBusArrangement(
         this: ?*anyopaque,
-        dir: vst3.BusDirection,
+        dir: anv.BusDirection,
         index: i32,
-        arr_ptr: ?*vst3.SpeakerArrangement,
+        arr_ptr: ?*anv.SpeakerArrangement,
     ) callconv(cc) Result {
         _ = this;
         _ = dir;
@@ -194,7 +194,7 @@ const Vst3Plugin = extern struct {
         return .Ok;
     }
 
-    fn canProcessSampleSize(this: ?*anyopaque, size: vst3.SampleSize) callconv(cc) Result {
+    fn canProcessSampleSize(this: ?*anyopaque, size: anv.SampleSize) callconv(cc) Result {
         _ = this;
         // TODO: Check if double precision supported
         if (size == .Sample32) return .Ok else return .NotOk;
@@ -205,7 +205,7 @@ const Vst3Plugin = extern struct {
         return 0;
     }
 
-    fn setupProcessing(this: ?*anyopaque, setup_ptr: ?*vst3.ProcessSetup) callconv(cc) Result {
+    fn setupProcessing(this: ?*anyopaque, setup_ptr: ?*anv.ProcessSetup) callconv(cc) Result {
         _ = this;
         if (setup_ptr) |_| {
             return .Ok;
@@ -218,7 +218,7 @@ const Vst3Plugin = extern struct {
         return .Ok;
     }
 
-    fn process(this: ?*anyopaque, data: ?*vst3.ProcessData) callconv(cc) Result {
+    fn process(this: ?*anyopaque, data: ?*anv.ProcessData) callconv(cc) Result {
         _ = this;
         _ = data;
         return .Ok;
@@ -229,13 +229,13 @@ const Vst3Plugin = extern struct {
         return 0;
     }
 
-    fn setState(this: ?*anyopaque, state: ?*vst3.Interface.Stream) callconv(cc) Result {
+    fn setState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
         // TODO
         _ = this;
         _ = state;
         return .Ok;
     }
-    fn getState(this: ?*anyopaque, state: ?*vst3.Interface.Stream) callconv(cc) Result {
+    fn getState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
         _ = this;
         _ = state;
         return .Ok;
@@ -280,26 +280,26 @@ const Vst3Plugin = extern struct {
 };
 
 const Factory = extern struct {
-    vtable: *vst3.Interface.Factory,
+    vtable: *anv.Interface.Factory,
     ref_counter: RefCounter,
 
-    host_ctx: ?*vst3.Interface.Base = null,
+    host_ctx: ?*anv.Interface.Base = null,
 
-    fn queryInterface(this: ?*anyopaque, iid: *const vst3.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
-        if (uidCmp(iid, &vst3.Interface.Factory.UID3) or
-            uidCmp(iid, &vst3.Interface.Factory.UID2) or
-            uidCmp(iid, &vst3.Interface.Factory.UID) or
-            uidCmp(iid, &vst3.Interface.Base.UID))
+    fn queryInterface(this: ?*anyopaque, iid: *const anv.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
+        if (uidCmp(iid, &anv.Interface.Factory.UID3) or
+            uidCmp(iid, &anv.Interface.Factory.UID2) or
+            uidCmp(iid, &anv.Interface.Factory.UID) or
+            uidCmp(iid, &anv.Interface.Base.UID))
         {
             if (obj) |o| {
                 const self = arbor.cast(*Factory, this);
-                log.debug("Query OK: {s}\n", .{vst3.uidToStr(iid)}, @src());
+                log.debug("Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
                 _ = self.ref_counter.fetchAdd(1, .release);
                 o.* = this;
                 return .Ok;
             }
         }
-        log.debug("Unsupported: {s}\n", .{vst3.uidToStr(iid)}, @src());
+        log.debug("Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
         if (obj) |o| o.* = null;
         return .NoInterface;
     }
@@ -323,10 +323,10 @@ const Factory = extern struct {
         return 0;
     }
 
-    fn getFactoryInfo(this: ?*anyopaque, info: ?*vst3.Interface.Factory.Info) callconv(cc) Result {
+    fn getFactoryInfo(this: ?*anyopaque, info: ?*anv.Interface.Factory.Info) callconv(cc) Result {
         _ = this;
         if (info) |i| {
-            i.* = std.mem.zeroes(vst3.Interface.Factory.Info);
+            i.* = std.mem.zeroes(anv.Interface.Factory.Info);
 
             i.flags = .{ .unicode = true };
 
@@ -350,13 +350,13 @@ const Factory = extern struct {
         return 1;
     }
 
-    fn getClassInfo(this: ?*anyopaque, index: i32, info: ?*vst3.ClassInfo) callconv(cc) Result {
+    fn getClassInfo(this: ?*anyopaque, index: i32, info: ?*anv.ClassInfo) callconv(cc) Result {
         _ = this;
         _ = index;
         if (info) |i| {
-            i.* = std.mem.zeroes(vst3.ClassInfo);
+            i.* = std.mem.zeroes(anv.ClassInfo);
             @memcpy(&i.cid, &class_id);
-            i.cardinality = vst3.CardinalityManyInstances;
+            i.cardinality = anv.CardinalityManyInstances;
             const category = "Audio Module Class";
             @memcpy(i.category[0..category.len], category);
             const name = arbor.config.plugin_desc.name;
@@ -369,12 +369,12 @@ const Factory = extern struct {
     fn createInstance(this: ?*anyopaque, cid: [*:0]const u8, iid: [*:0]const u8, obj: ?*?*anyopaque) callconv(cc) Result {
         _ = this;
 
-        if (vst3.uidCmp(cid[0..vst3.uid_len], &class_id) and
-            (vst3.uidCmp(iid[0..vst3.uid_len], &vst3.Interface.PluginBase.UID) or
-            vst3.uidCmp(iid[0..vst3.uid_len], &vst3.Interface.Component.UID)))
+        if (anv.uidCmp(cid[0..anv.uid_len], &class_id) and
+            (anv.uidCmp(iid[0..anv.uid_len], &anv.Interface.PluginBase.UID) or
+            anv.uidCmp(iid[0..anv.uid_len], &anv.Interface.Component.UID)))
         {
             if (obj) |o| {
-                log.debug("Create: {s}\n", .{vst3.uidToStr(iid[0..vst3.uid_len])}, @src());
+                log.debug("Create: {s}\n", .{anv.uidToStr(iid[0..anv.uid_len])}, @src());
                 const plugin = allocator.create(Vst3Plugin) catch |e|
                     log.fatal("{!}\n", .{e}, @src());
                 plugin.* = Vst3Plugin{
@@ -386,17 +386,17 @@ const Factory = extern struct {
                 return .Ok;
             } else return .InvalidArgument;
         }
-        log.debug("Unsupported: {s}\n", .{vst3.uidToStr(iid[0..vst3.uid_len])}, @src());
+        log.debug("Unsupported: {s}\n", .{anv.uidToStr(iid[0..anv.uid_len])}, @src());
         return .InvalidArgument;
     }
 
-    fn getClassInfo2(this: ?*anyopaque, index: i32, info: ?*vst3.ClassInfo2) callconv(cc) Result {
+    fn getClassInfo2(this: ?*anyopaque, index: i32, info: ?*anv.ClassInfo2) callconv(cc) Result {
         _ = this;
         _ = index;
         if (info) |i| {
-            i.* = std.mem.zeroes(vst3.ClassInfo2);
+            i.* = std.mem.zeroes(anv.ClassInfo2);
             @memcpy(&i.base.cid, &class_id);
-            i.base.cardinality = vst3.CardinalityManyInstances;
+            i.base.cardinality = anv.CardinalityManyInstances;
             const category = "Audio Module Class";
             @memcpy(i.base.category[0..category.len], category);
 
@@ -414,15 +414,15 @@ const Factory = extern struct {
         return .NotOk;
     }
 
-    fn getClassInfoW(this: ?*anyopaque, index: i32, info: ?*vst3.ClassInfoW) callconv(cc) Result {
+    fn getClassInfoW(this: ?*anyopaque, index: i32, info: ?*anv.ClassInfoW) callconv(cc) Result {
         _ = this;
         _ = index;
         if (info) |i| {
-            i.* = std.mem.zeroes(vst3.ClassInfoW);
+            i.* = std.mem.zeroes(anv.ClassInfoW);
 
             @memcpy(&i.cid, &class_id);
 
-            i.cardinality = vst3.CardinalityManyInstances;
+            i.cardinality = anv.CardinalityManyInstances;
 
             const category = "Audio Module Class";
             @memcpy(i.category[0..category.len], category);
@@ -455,7 +455,7 @@ const Factory = extern struct {
         return .NotOk;
     }
 
-    fn setHostContext(this: ?*anyopaque, context: ?*vst3.Interface.Base) callconv(cc) Result {
+    fn setHostContext(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
         const self = arbor.cast(*Factory, this);
         _ = if (self.host_ctx) |old_ctx| if (old_ctx.release) |rel| rel(old_ctx);
         if (context) |ctx| {
@@ -466,7 +466,7 @@ const Factory = extern struct {
         return .InvalidArgument;
     }
 
-    var vtable = vst3.Interface.Factory{
+    var vtable = anv.Interface.Factory{
         .base = .{
             .queryInterface = queryInterface,
             .addRef = addRef,

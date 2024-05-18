@@ -154,7 +154,7 @@ fn buildPlugin(
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
-        .VST3 => "src/vst3_plugin.zig",
+        .VST3 => "src/anv_plugin.zig",
     };
     const plug = b.addSharedLibrary(.{
         .name = name,
@@ -575,7 +575,7 @@ fn buildExample(
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
-        .VST3 => "src/vst3_plugin.zig",
+        .VST3 => "src/anv_plugin.zig",
     };
     const plug = b.addSharedLibrary(.{
         .name = name,

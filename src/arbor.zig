@@ -40,7 +40,7 @@ pub const dsp = @import("dsp/dsp.zig");
 
 pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
-pub const vst3 = @import("vst3_api.zig");
+pub const anv = @import("anv_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub const plugin_desc: DescType = createFormatDescription();
