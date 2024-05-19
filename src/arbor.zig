@@ -98,8 +98,6 @@ pub const Plugin = struct {
     user: ?*anyopaque = null,
     gui: ?*Gui = null,
 
-    mutex: std.Thread.Mutex = .{},
-
     allocator: Allocator = std.heap.c_allocator,
 
     // functions for dealing with a plugin's parameters
@@ -413,14 +411,14 @@ pub fn Slice(comptime T: type) type {
 pub const log = struct {
     const format_str = @tagName(format);
     const pre = plugin_name ++ " " ++ format_str ++ ": " ++
-        "{s}:{s}:{d}: ";
+        "{s}:{d}:{s}: ";
     /// debug logger which gets compiled out in release modes
     pub fn debug(
         comptime fmt: []const u8,
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.debug.print(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default info
@@ -429,7 +427,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.log.info(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.info(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default nonfatal error
@@ -438,7 +436,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.err(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default fatal error
@@ -447,7 +445,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) noreturn {
-        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.err(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
         std.process.exit(1);
     }
 };
