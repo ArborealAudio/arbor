@@ -19,15 +19,145 @@ const Result = anv.Result;
 const RefCounter = std.atomic.Value(u32);
 
 pub const class_id: anv.Uid = anv.uidCreate('A', 'N', 'V', '3');
-pub const comp_id: anv.Uid = anv.uidCreate('C', 'o', 'm', 'p');
 pub const controller_id: anv.Uid = anv.uidCreate('C', 't', 'r', 'l');
 const uidCmp = anv.uidCmp;
 
-const Vst3Plugin = extern struct {
-    const AudioProcessor = anv.Interface.AudioProcessor;
-    const Component = anv.Interface.Component;
-    component: *const Component,
-    // processor: *const AudioProcessor,
+/// Despite being sufficiently related to `Component`, this is a separate struct
+/// which handles some audio-specific tasks, like getting info about audio busses
+/// and processing audio.
+const Processor = extern struct {
+    vtable: *const anv.Interface.AudioProcessor,
+    ref_counter: RefCounter,
+
+    fn queryInterface(this: ?*anyopaque, iid: *const anv.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
+        if (uidCmp(iid, &anv.Interface.Base.UID) or
+            uidCmp(iid, &anv.Interface.AudioProcessor.UID))
+        {
+            if (obj) |o| {
+                log.debug("Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
+                const self = arbor.cast(*Processor, this);
+                _ = self.ref_counter.fetchAdd(1, .release);
+                o.* = this;
+                return .Ok;
+            }
+        }
+        log.debug("Processor: Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
+        return .NoInterface;
+    }
+
+    fn addRef(this: ?*anyopaque) callconv(cc) u32 {
+        const self = arbor.cast(*Processor, this);
+        const ref_count = self.ref_counter.fetchAdd(1, .release) + 1;
+        log.debug("Processor: Adding ref | Count: {d}\n", .{ref_count}, @src());
+        return ref_count;
+    }
+
+    fn release(this: ?*anyopaque) callconv(cc) u32 {
+        const self = arbor.cast(*Processor, this);
+        const ref_count = self.ref_counter.fetchSub(1, .release) - 1;
+        log.debug("Processor: Releasing ref | Count: {d}\n", .{ref_count}, @src());
+        if (ref_count > 0) {
+            return ref_count;
+        } else {
+            log.debug("Processor: All refs released, destroying\n", .{}, @src());
+            const plugin: *Vst3Plugin = @fieldParentPtr("processor", self);
+            plugin.deinit();
+        }
+        return 0;
+    }
+
+    fn setBusArrangements(
+        this: ?*anyopaque,
+        inputs: ?*anv.SpeakerArrangement,
+        num_in: i32,
+        outputs: ?*anv.SpeakerArrangement,
+        num_out: i32,
+    ) callconv(cc) Result {
+        log.debug("setBusArrangements\n", .{}, @src());
+        _ = this;
+        _ = inputs;
+        _ = num_in;
+        _ = outputs;
+        _ = num_out;
+        return .Ok;
+    }
+
+    fn getBusArrangement(
+        this: ?*anyopaque,
+        dir: anv.BusDirection,
+        index: i32,
+        arr_ptr: ?*anv.SpeakerArrangement,
+    ) callconv(cc) Result {
+        _ = this;
+        _ = dir;
+        _ = index;
+        if (arr_ptr) |arr| {
+            arr.* = .{
+                .L = true,
+                .R = true,
+            };
+            return .Ok;
+        }
+        return .InvalidArgument;
+    }
+
+    fn canProcessSampleSize(this: ?*anyopaque, size: anv.SampleSize) callconv(cc) Result {
+        _ = this;
+        // TODO: Check if double precision supported
+        if (size == .Sample32) return .Ok else return .NotOk;
+    }
+
+    fn getLatencySamples(this: ?*anyopaque) callconv(cc) u32 {
+        _ = this;
+        return 0;
+    }
+
+    fn setupProcessing(this: ?*anyopaque, setup_ptr: ?*anv.ProcessSetup) callconv(cc) Result {
+        _ = this;
+        if (setup_ptr) |_| {
+            return .Ok;
+        } else return .InvalidArgument;
+    }
+
+    fn setProcessing(this: ?*anyopaque, state: bool) callconv(cc) Result {
+        _ = this;
+        _ = state;
+        return .Ok;
+    }
+
+    fn process(this: ?*anyopaque, data: ?*anv.ProcessData) callconv(cc) Result {
+        _ = this;
+        _ = data;
+        return .Ok;
+    }
+
+    fn getTailSamples(this: ?*anyopaque) callconv(cc) u32 {
+        _ = this;
+        return 0;
+    }
+
+    const vtable = anv.Interface.AudioProcessor{
+        .base = .{
+            .queryInterface = queryInterface,
+            .addRef = addRef,
+            .release = release,
+        },
+        .setBusArrangements = setBusArrangements,
+        .getBusArrangement = getBusArrangement,
+        .canProcessSampleSize = canProcessSampleSize,
+        .getLatencySamples = getLatencySamples,
+        .setupProcessing = setupProcessing,
+        .setProcessing = setProcessing,
+        .process = process,
+        .getTailSamples = getTailSamples,
+    };
+};
+
+/// The basic struct comprising an audio plugin. Despite handling tasks related
+/// to audio busses and the state of the plugin, this class is not responsible
+/// for processing audio or handling parameters, for no particular reason.
+const Component = extern struct {
+    vtable: *const anv.Interface.Component,
     ref_counter: RefCounter,
 
     fn queryInterface(this: ?*anyopaque, iid: *const anv.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
@@ -37,28 +167,49 @@ const Vst3Plugin = extern struct {
         {
             if (obj) |o| {
                 const self = arbor.cast(*Vst3Plugin, this);
-                log.debug("Query: {s}\n", .{anv.uidToStr(iid)}, @src());
-                _ = self.ref_counter.fetchAdd(1, .release);
+                log.debug("Component: Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
+                _ = self.component.ref_counter.fetchAdd(1, .release);
                 o.* = this;
                 return .Ok;
             }
+        } else if (uidCmp(iid, &anv.Interface.AudioProcessor.UID)) {
+            if (obj) |o| {
+                const self = arbor.cast(*Vst3Plugin, this);
+                log.debug("Component: Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
+                _ = self.processor.ref_counter.fetchAdd(1, .release);
+                o.* = &self.processor;
+                return .Ok;
+            }
+        } else if (uidCmp(iid, &anv.Interface.EditController.UID)) {
+            if (obj) |o| {
+                const self = arbor.cast(*Vst3Plugin, this);
+                log.debug("Component: Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
+                _ = self.controller.ref_counter.fetchAdd(1, .release);
+                o.* = &self.controller;
+                return .Ok;
+            }
         }
-        log.debug("Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
+        log.debug("Component: Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
         return .NoInterface;
     }
 
     fn addRef(this: ?*anyopaque) callconv(cc) u32 {
-        const self = arbor.cast(*Vst3Plugin, this);
-        return self.ref_counter.fetchAdd(1, .release) + 1;
+        const self = arbor.cast(*Component, this);
+        const ref_count = self.ref_counter.fetchAdd(1, .release) + 1;
+        log.debug("Component: Adding ref | Count: {d}\n", .{ref_count}, @src());
+        return ref_count;
     }
 
     fn release(this: ?*anyopaque) callconv(cc) u32 {
-        const self = arbor.cast(*Vst3Plugin, this);
+        const self = arbor.cast(*Component, this);
         const ref_count = self.ref_counter.fetchSub(1, .release) - 1;
+        log.debug("Component: Releasing ref | Count: {d}\n", .{ref_count}, @src());
         if (ref_count > 0) {
             return ref_count;
         } else {
-            allocator.destroy(self);
+            log.debug("Component: All refs released, destroying\n", .{}, @src());
+            const plugin: *Vst3Plugin = @fieldParentPtr("component", self);
+            plugin.deinit();
         }
         return 0;
     }
@@ -66,6 +217,7 @@ const Vst3Plugin = extern struct {
     fn initialize(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
         _ = this;
         _ = context;
+        log.debug("Component: Initialize\n", .{}, @src());
         // this is where we'd get a pointer to the host
         // query its interface for host context and save a pointer to it in our plugin
         return .Ok;
@@ -73,12 +225,13 @@ const Vst3Plugin = extern struct {
 
     fn terminate(this: ?*anyopaque) callconv(cc) Result {
         _ = this;
+        log.debug("Component: Terminate\n", .{}, @src());
         // kill
         return .Ok;
     }
 
     fn getControllerClass(_: ?*anyopaque, cid: *anv.Uid) callconv(cc) Result {
-        @memcpy(cid, &comp_id);
+        @memcpy(cid, &controller_id);
         return .Ok;
     }
 
@@ -106,6 +259,7 @@ const Vst3Plugin = extern struct {
     ) callconv(cc) Result {
         _ = this;
         _ = index;
+        log.debug("activateBus\n", .{}, @src());
         const bus = bus_ptr orelse {
             log.err("Bus is null\n", .{}, @src());
             return .InvalidArgument;
@@ -144,6 +298,7 @@ const Vst3Plugin = extern struct {
         index: i32,
         state: bool,
     ) callconv(cc) Result {
+        log.debug("activateBus\n", .{}, @src());
         _ = this;
         _ = dir;
         _ = index;
@@ -154,79 +309,10 @@ const Vst3Plugin = extern struct {
         } else return .NotImplemented;
     }
 
-    fn setBusArrangements(
-        this: ?*anyopaque,
-        inputs: ?*anv.SpeakerArrangement,
-        num_in: i32,
-        outputs: ?*anv.SpeakerArrangement,
-        num_out: i32,
-    ) callconv(cc) Result {
-        _ = this;
-        _ = inputs;
-        _ = num_in;
-        _ = outputs;
-        _ = num_out;
-        return .Ok;
-    }
-
-    fn getBusArrangement(
-        this: ?*anyopaque,
-        dir: anv.BusDirection,
-        index: i32,
-        arr_ptr: ?*anv.SpeakerArrangement,
-    ) callconv(cc) Result {
-        _ = this;
-        _ = dir;
-        _ = index;
-        if (arr_ptr) |arr| {
-            arr.* = .{
-                .L = true,
-                .R = true,
-            };
-            return .Ok;
-        }
-        return .InvalidArgument;
-    }
-
     fn setActive(this: ?*anyopaque, state: bool) callconv(cc) Result {
         _ = this;
         _ = state;
         return .Ok;
-    }
-
-    fn canProcessSampleSize(this: ?*anyopaque, size: anv.SampleSize) callconv(cc) Result {
-        _ = this;
-        // TODO: Check if double precision supported
-        if (size == .Sample32) return .Ok else return .NotOk;
-    }
-
-    fn getLatencySamples(this: ?*anyopaque) callconv(cc) u32 {
-        _ = this;
-        return 0;
-    }
-
-    fn setupProcessing(this: ?*anyopaque, setup_ptr: ?*anv.ProcessSetup) callconv(cc) Result {
-        _ = this;
-        if (setup_ptr) |_| {
-            return .Ok;
-        } else return .InvalidArgument;
-    }
-
-    fn setProcessing(this: ?*anyopaque, state: bool) callconv(cc) Result {
-        _ = this;
-        _ = state;
-        return .Ok;
-    }
-
-    fn process(this: ?*anyopaque, data: ?*anv.ProcessData) callconv(cc) Result {
-        _ = this;
-        _ = data;
-        return .Ok;
-    }
-
-    fn getTailSamples(this: ?*anyopaque) callconv(cc) u32 {
-        _ = this;
-        return 0;
     }
 
     fn setState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
@@ -241,7 +327,7 @@ const Vst3Plugin = extern struct {
         return .Ok;
     }
 
-    const component_vtable = Component{
+    const vtable = anv.Interface.Component{
         .base = .{
             .base = .{
                 .queryInterface = queryInterface,
@@ -261,26 +347,266 @@ const Vst3Plugin = extern struct {
         .setState = setState,
         .getState = getState,
     };
+};
 
-    const processor_vtable = AudioProcessor{
+/// A very special struct which manages plugin state (upstream from `Component`?) and contains
+/// helper functions for converting parameter values. Also spawns UI for some reason.
+/// This contains a reference to a `ComponentHandler` interface which manages the
+/// apparently sufficiently-unique task of *performing* edits to the plugin's state.
+const Controller = extern struct {
+    vtable: *const anv.Interface.EditController,
+    ref_counter: RefCounter,
+    handler: ?*anv.Interface.ComponentHandler,
+
+    fn queryInterface(this: ?*anyopaque, iid: *const anv.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
+        if (uidCmp(iid, &anv.Interface.Base.UID) or
+            uidCmp(iid, &anv.Interface.EditController.UID))
+        {
+            if (obj) |o| {
+                const self = arbor.cast(*Controller, this);
+                _ = self.ref_counter.fetchAdd(1, .release);
+                o.* = this;
+                return .Ok;
+            }
+        }
+        log.debug("Controller: Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
+        return .NoInterface;
+    }
+
+    fn addRef(this: ?*anyopaque) callconv(cc) u32 {
+        const self = arbor.cast(*Controller, this);
+        const ref_count = self.ref_counter.fetchAdd(1, .release) + 1;
+        log.debug("Controller: Adding ref: {d}\n", .{ref_count}, @src());
+        return ref_count;
+    }
+
+    fn release(this: ?*anyopaque) callconv(cc) u32 {
+        const self = arbor.cast(*Controller, this);
+        const ref_count = self.ref_counter.fetchSub(1, .release) - 1;
+        log.debug("Controller: Releasing ref | Count: {d}\n", .{ref_count}, @src());
+
+        if (ref_count > 0) return ref_count;
+
+        log.debug("Controller: All refs released, destroying\n", .{}, @src());
+        _ = if (self.handler) |handler| if (handler.base.release) |rel| rel(handler);
+
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
+        plugin.deinit();
+
+        return 0;
+    }
+
+    fn initialize(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
+        _ = this;
+        _ = context;
+        // whats the point of this
+        return .Ok;
+    }
+
+    fn terminate(this: ?*anyopaque) callconv(cc) Result {
+        _ = this;
+        // Again...why
+        return .Ok;
+    }
+
+    /// Propagate the Controller's state to its corresponding `Component`
+    fn setComponentState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+        _ = this;
+        _ = state;
+        return .NotImplemented;
+    }
+
+    /// Assuming this is getting state from the host which we will send to the `Component`
+    fn setState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+        // TODO
+        _ = this;
+        _ = state;
+        return .NotImplemented;
+    }
+
+    /// Assuming this is sending state to the host
+    fn getState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+        // TODO
+        _ = this;
+        _ = state;
+        return .NotImplemented;
+    }
+
+    fn getParameterCount(this: ?*anyopaque) callconv(cc) i32 {
+        const self = arbor.cast(*Controller, this);
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
+        if (plugin.user) |plug|
+            return @intCast(plug.param_info.len);
+
+        return 0;
+    }
+
+    fn getParameterInfo(this: ?*anyopaque, index: i32, info_cptr: ?*anv.ParameterInfo) callconv(cc) Result {
+        const dest_info = info_cptr orelse {
+            log.err("Info is null\n", .{}, @src());
+            return .InvalidArgument;
+        };
+        dest_info.* = std.mem.zeroes(anv.ParameterInfo);
+
+        const self = arbor.cast(*Controller, this);
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
+        const param_info = if (plugin.user) |plug|
+            plug.param_info[@intCast(index)]
+        else {
+            log.err("User data null\n", .{}, @src());
+            return .InternalError;
+        };
+
+        _ = utf8To16(&dest_info.title, param_info.name) catch |e| {
+            log.err("{!}\n", .{e}, @src());
+            return .InternalError;
+        };
+        _ = utf8To16(&dest_info.short_title, param_info.name) catch |e| {
+            log.err("{!}\n", .{e}, @src());
+            return .InternalError;
+        };
+
+        dest_info.default_normalized = @floatCast(param_info.getNormalizedValue(param_info.default_value));
+
+        dest_info.flags = .{ .CanAutomate = true };
+
+        return .Ok;
+    }
+
+    fn getParamStringByValue(this: ?*anyopaque, index: u32, value_normalized: f64, string: *anv.wstr) callconv(cc) Result {
+        const self = arbor.cast(*Controller, this);
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
+        const param_info = if (plugin.user) |plug|
+            plug.param_info[@intCast(index)]
+        else {
+            log.err("User data null\n", .{}, @src());
+            return .InternalError;
+        };
+
+        @memset(string, 0);
+
+        const val_denorm = param_info.valueFromNormalized(@floatCast(value_normalized));
+        var buf: [10]u8 = undefined;
+        if (param_info.value_to_text) |func| {
+            const len = func(val_denorm, &buf);
+            _ = utf8To16(string[0..len], &buf) catch |e| {
+                log.err("{!}\n", .{e}, @src());
+                return .InternalError;
+            };
+        } else {
+            // no user conversion, print raw
+            const out = std.fmt.bufPrint(&buf, "{d:.2}", .{val_denorm}) catch |e| {
+                log.err("{!}\n", .{e}, @src());
+                return .InternalError;
+            };
+            _ = utf8To16(string[0..out.len], out) catch |e| {
+                log.err("{!}\n", .{e}, @src());
+                return .InternalError;
+            };
+        }
+        return .Ok;
+    }
+
+    fn getParamValueByString(this: ?*anyopaque, id: u32, string: [*:0]u16, value_normalized: ?*f64) callconv(cc) Result {
+        _ = this;
+        _ = id;
+        _ = string;
+        _ = value_normalized;
+        return .NotImplemented;
+    }
+
+    fn normalizedParamToPlain(this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) f64 {
+        _ = this;
+        _ = id;
+        _ = value_normalized;
+        return 0;
+    }
+
+    fn plainParamToNormalized(this: ?*anyopaque, id: u32, plain_value: f64) callconv(cc) f64 {
+        _ = this;
+        _ = id;
+        _ = plain_value;
+        return 0;
+    }
+
+    fn getParamNormalized(this: ?*anyopaque, id: u32) callconv(cc) f64 {
+        _ = this;
+        _ = id;
+        return 0;
+    }
+
+    fn setParamNormalized(this: ?*anyopaque, id: u32, value: f64) callconv(cc) Result {
+        _ = this;
+        _ = id;
+        _ = value;
+        return .Ok;
+    }
+
+    fn setComponentHandler(this: ?*anyopaque, handler_cptr: ?*?*anv.Interface.ComponentHandler) callconv(cc) Result {
+        const self = arbor.cast(*Controller, this);
+        if (handler_cptr) |_| {
+            log.debug("TODO, maybe\n", .{}, @src());
+            _ = if (self.handler) |old| if (old.base.release) |rel| rel(old);
+            return .Ok;
+        }
+        log.err("Handler is null\n", .{}, @src());
+        return .InvalidArgument;
+    }
+
+    fn createView(this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?*anv.Interface.View {
+        _ = this;
+        _ = name;
+        return null;
+    }
+
+    pub const vtable = anv.Interface.EditController{
         .base = .{
-            .queryInterface = queryInterface,
-            .addRef = addRef,
-            .release = release,
+            .base = .{
+                .queryInterface = queryInterface,
+                .addRef = addRef,
+                .release = release,
+            },
+            .initialize = initialize,
+            .terminate = terminate,
         },
-        .setBusArrangements = setBusArrangements,
-        .getBusArrangement = getBusArrangement,
-        .canProcessSampleSize = canProcessSampleSize,
-        .getLatencySamples = getLatencySamples,
-        .setupProcessing = setupProcessing,
-        .setProcessing = setProcessing,
-        .process = process,
-        .getTailSamples = getTailSamples,
+        .setComponentState = setComponentState,
+        .setState = setState,
+        .getState = getState,
+        .getParameterCount = getParameterCount,
+        .getParameterInfo = getParameterInfo,
+        .getParamStringByValue = getParamStringByValue,
+        .getParamValueByString = getParamValueByString,
+        .normalizedParamToPlain = normalizedParamToPlain,
+        .plainParamToNormalized = plainParamToNormalized,
+        .getParamNormalized = getParamNormalized,
+        .setParamNormalized = setParamNormalized,
+        .setComponentHandler = setComponentHandler,
+        .createView = createView,
     };
 };
 
+const Vst3Plugin = extern struct {
+    component: Component,
+    processor: Processor,
+    controller: Controller,
+
+    user: ?*arbor.Plugin = null,
+
+    pub fn deinit(self: *Vst3Plugin) void {
+        var total_refs: u32 = 0;
+        total_refs += self.component.ref_counter.load(.acquire);
+        total_refs += self.processor.ref_counter.load(.acquire);
+        total_refs += self.controller.ref_counter.load(.acquire);
+        if (total_refs == 0)
+            allocator.destroy(self)
+        else {
+            log.err("Tried to deallocate with non-zero refcount | Count: {d}\n", .{total_refs}, @src());
+        }
+    }
+};
+
 const Factory = extern struct {
-    vtable: *anv.Interface.Factory,
+    vtable: *const anv.Interface.Factory,
     ref_counter: RefCounter,
 
     host_ctx: ?*anv.Interface.Base = null,
@@ -293,13 +619,15 @@ const Factory = extern struct {
         {
             if (obj) |o| {
                 const self = arbor.cast(*Factory, this);
-                log.debug("Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
+                log.debug("Factory: Query OK: {s}\n", .{anv.uidToStr(iid)}, @src());
                 _ = self.ref_counter.fetchAdd(1, .release);
                 o.* = this;
                 return .Ok;
             }
+            log.err("obj is null\n", .{}, @src());
+            return .InvalidArgument;
         }
-        log.debug("Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
+        log.debug("Factory: Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
         if (obj) |o| o.* = null;
         return .NoInterface;
     }
@@ -307,17 +635,19 @@ const Factory = extern struct {
     fn addRef(this: ?*anyopaque) callconv(cc) u32 {
         const self = arbor.cast(*Factory, this);
         const ref_count = self.ref_counter.fetchAdd(1, .release) + 1;
+        log.debug("Factory: Adding ref: {d}\n", .{ref_count}, @src());
         return ref_count;
     }
 
     fn release(this: ?*anyopaque) callconv(cc) u32 {
         const self = arbor.cast(*Factory, this);
         const ref_count = self.ref_counter.fetchSub(1, .release) - 1;
+        log.debug("Factory: releasing | Count {d}\n", .{ref_count}, @src());
 
         if (ref_count > 0) {
             return ref_count;
         } else {
-            log.debug("All refs released, destroying\n", .{}, @src());
+            log.debug("Factory: all refs released, destroying\n", .{}, @src());
             allocator.destroy(self);
         }
         return 0;
@@ -370,24 +700,33 @@ const Factory = extern struct {
         _ = this;
 
         if (anv.uidCmp(cid[0..anv.uid_len], &class_id) and
-            (anv.uidCmp(iid[0..anv.uid_len], &anv.Interface.PluginBase.UID) or
+            (anv.uidCmp(iid[0..anv.uid_len], &anv.Interface.Base.UID) or
+            anv.uidCmp(iid[0..anv.uid_len], &anv.Interface.PluginBase.UID) or
             anv.uidCmp(iid[0..anv.uid_len], &anv.Interface.Component.UID)))
         {
             if (obj) |o| {
-                log.debug("Create: {s}\n", .{anv.uidToStr(iid[0..anv.uid_len])}, @src());
+                log.debug("Creating: {s}\n", .{anv.uidToStr(iid[0..anv.uid_len])}, @src());
                 const plugin = allocator.create(Vst3Plugin) catch |e|
                     log.fatal("{!}\n", .{e}, @src());
-                plugin.* = Vst3Plugin{
-                    .component = &Vst3Plugin.component_vtable,
-                    // .processor = &Plugin.processor_vtable,
+                plugin.* = Vst3Plugin{ .component = .{
+                    .vtable = &Component.vtable,
                     .ref_counter = RefCounter.init(1),
-                };
-                o.* = plugin;
+                }, .processor = .{
+                    .vtable = &Processor.vtable,
+                    .ref_counter = RefCounter.init(1),
+                }, .controller = .{
+                    .vtable = &Controller.vtable,
+                    .ref_counter = RefCounter.init(1),
+                    .handler = null,
+                } };
+                o.* = &plugin.component;
                 return .Ok;
-            } else return .InvalidArgument;
+            }
+            log.err("obj is null\n", .{}, @src());
+            return .InvalidArgument;
         }
         log.debug("Unsupported: {s}\n", .{anv.uidToStr(iid[0..anv.uid_len])}, @src());
-        return .InvalidArgument;
+        return .NoInterface;
     }
 
     fn getClassInfo2(this: ?*anyopaque, index: i32, info: ?*anv.ClassInfo2) callconv(cc) Result {
@@ -457,16 +796,18 @@ const Factory = extern struct {
 
     fn setHostContext(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
         const self = arbor.cast(*Factory, this);
-        _ = if (self.host_ctx) |old_ctx| if (old_ctx.release) |rel| rel(old_ctx);
-        if (context) |ctx| {
-            self.host_ctx = ctx;
-            if (ctx.addRef) |add| _ = add(ctx);
+        if (context) |_| {
+            log.debug("\n", .{}, @src());
+            _ = if (self.host_ctx) |old_ctx| if (old_ctx.release) |rel| rel(old_ctx);
+            // if (ctx.addRef) |add| _ = add(ctx);
+            // self.host_ctx = ctx;
             return .Ok;
         }
+        log.err("Host context is null\n", .{}, @src());
         return .InvalidArgument;
     }
 
-    var vtable = anv.Interface.Factory{
+    const vtable = anv.Interface.Factory{
         .base = .{
             .queryInterface = queryInterface,
             .addRef = addRef,
@@ -491,4 +832,14 @@ export fn GetPluginFactory() ?*anyopaque {
     };
 
     return factory;
+}
+
+export fn bundleEntry(_: ?*anyopaque) bool {
+    log.debug("Bundle entry\n", .{}, @src());
+    return true;
+}
+
+export fn bundleExit(_: ?*anyopaque) bool {
+    log.debug("Bundle exit\n", .{}, @src());
+    return true;
 }

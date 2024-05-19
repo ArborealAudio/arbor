@@ -13,43 +13,45 @@ pub const Uid = [uid_len]u8;
 pub fn uidCreate(l1: u32, l2: u32, l3: u32, l4: u32) Uid {
     if (builtin.os.tag == .windows) {
         return .{
-            @as(u8, @truncate(l1 & 0x000000FF)),       @as(u8, @truncate(l1 & 0x0000FF00 >> 8)),
-            @as(u8, @truncate(l1 & 0x00FF0000 >> 16)), @as(u8, @truncate(l1 & 0xFF000000 >> 24)),
-            @as(u8, @truncate(l2 & 0x00FF0000 >> 16)), @as(u8, @truncate(l2 & 0xFF000000 >> 24)),
-            @as(u8, @truncate(l2 & 0x000000FF)),       @as(u8, @truncate(l2 & 0x0000FF00 >> 8)),
-            @as(u8, @truncate(l3 & 0xFF000000 >> 24)), @as(u8, @truncate(l3 & 0x00FF0000 >> 16)),
-            @as(u8, @truncate(l3 & 0x0000FF00 >> 8)),  @as(u8, @truncate(l3 & 0x000000FF)),
-            @as(u8, @truncate(l4 & 0xFF000000 >> 24)), @as(u8, @truncate(l4 & 0x00FF0000 >> 16)),
-            @as(u8, @truncate(l4 & 0x0000FF00 >> 8)),  @as(u8, @truncate(l4 & 0x000000FF)),
+            @as(u8, @truncate(l1 & 0x000000FF)),         @as(u8, @truncate((l1 & 0x0000FF00) >> 8)),
+            @as(u8, @truncate((l1 & 0x00FF0000) >> 16)), @as(u8, @truncate((l1 & 0xFF000000) >> 24)),
+            @as(u8, @truncate((l2 & 0x00FF0000) >> 16)), @as(u8, @truncate((l2 & 0xFF000000) >> 24)),
+            @as(u8, @truncate(l2 & 0x000000FF)),         @as(u8, @truncate((l2 & 0x0000FF00) >> 8)),
+            @as(u8, @truncate((l3 & 0xFF000000) >> 24)), @as(u8, @truncate((l3 & 0x00FF0000) >> 16)),
+            @as(u8, @truncate((l3 & 0x0000FF00) >> 8)),  @as(u8, @truncate(l3 & 0x000000FF)),
+            @as(u8, @truncate((l4 & 0xFF000000) >> 24)), @as(u8, @truncate((l4 & 0x00FF0000) >> 16)),
+            @as(u8, @truncate((l4 & 0x0000FF00) >> 8)),  @as(u8, @truncate(l4 & 0x000000FF)),
         };
     } else {
         return .{
-            @as(u8, @truncate(l1 & 0xFF000000 >> 24)), @as(u8, @truncate(l1 & 0x00FF0000 >> 16)),
-            @as(u8, @truncate(l1 & 0x0000FF00 >> 8)),  @as(u8, @truncate(l1 & 0x000000FF)),
-            @as(u8, @truncate(l2 & 0xFF000000 >> 24)), @as(u8, @truncate(l2 & 0x00FF0000 >> 16)),
-            @as(u8, @truncate(l2 & 0x0000FF00 >> 8)),  @as(u8, @truncate(l2 & 0x000000FF)),
-            @as(u8, @truncate(l3 & 0xFF000000 >> 24)), @as(u8, @truncate(l3 & 0x00FF0000 >> 16)),
-            @as(u8, @truncate(l3 & 0x0000FF00 >> 8)),  @as(u8, @truncate(l3 & 0x000000FF)),
-            @as(u8, @truncate(l4 & 0xFF000000 >> 24)), @as(u8, @truncate(l4 & 0x00FF0000 >> 16)),
-            @as(u8, @truncate(l4 & 0x0000FF00 >> 8)),  @as(u8, @truncate(l4 & 0x000000FF)),
+            @as(u8, @truncate((l1 & 0xFF000000) >> 24)), @as(u8, @truncate((l1 & 0x00FF0000) >> 16)),
+            @as(u8, @truncate((l1 & 0x0000FF00) >> 8)),  @as(u8, @truncate(l1 & 0x000000FF)),
+            @as(u8, @truncate((l2 & 0xFF000000) >> 24)), @as(u8, @truncate((l2 & 0x00FF0000) >> 16)),
+            @as(u8, @truncate((l2 & 0x0000FF00) >> 8)),  @as(u8, @truncate(l2 & 0x000000FF)),
+            @as(u8, @truncate((l3 & 0xFF000000) >> 24)), @as(u8, @truncate((l3 & 0x00FF0000) >> 16)),
+            @as(u8, @truncate((l3 & 0x0000FF00) >> 8)),  @as(u8, @truncate(l3 & 0x000000FF)),
+            @as(u8, @truncate((l4 & 0xFF000000) >> 24)), @as(u8, @truncate((l4 & 0x00FF0000) >> 16)),
+            @as(u8, @truncate((l4 & 0x0000FF00) >> 8)),  @as(u8, @truncate(l4 & 0x000000FF)),
         };
     }
 }
 
 pub fn uidCmp(a: *const Uid, b: *const Uid) bool {
     assert(a.len == uid_len and b.len == uid_len and a.len == b.len);
-    return std.mem.order(u8, a, b).compare(.eq);
-    // return std.mem.eql(u8, a, b);
+    return std.mem.eql(u8, a, b);
 }
 
 const uid_table = std.ComptimeStringMap(Uid, genInterfaceMap());
 
 fn genInterfaceMap() []struct { []const u8, Uid } {
     const decls = @typeInfo(Interface).Struct.decls;
-    var table: [decls.len]struct { []const u8, Uid } = undefined;
-    for (decls, &table) |iface, *t| {
+    // len + 2 for extra factory UIDs
+    var table: [decls.len + 2]struct { []const u8, Uid } = undefined;
+    for (decls, table[0..decls.len]) |iface, *t| {
         t.* = .{ iface.name, @field(Interface, iface.name).UID };
     }
+    table[table.len - 2] = .{ "Factory2", Interface.Factory.UID2 };
+    table[table.len - 1] = .{ "Factory3", Interface.Factory.UID3 };
     return &table;
 }
 
@@ -85,6 +87,8 @@ pub const Result = if (builtin.os.tag != .windows) enum(i32) {
 };
 
 pub const CardinalityManyInstances = 0x7fffffff;
+
+pub const wstr = [128]u16;
 
 // structs
 
@@ -181,6 +185,21 @@ pub const ProcessContext = extern struct {
         ClockValid: bool = false,
         _pad: u18 = 0,
     };
+
+    pub const Requirements = packed struct(u32) {
+        NeedSystemTime: bool = false,
+        NeedContinousTimeSamples: bool = false,
+        NeedProjectTimeMusic: bool = false,
+        NeedBarPositionMusic: bool = false,
+        NeedCycleMusic: bool = false,
+        NeedSamplesToNextClock: bool = false,
+        NeedTempo: bool = false,
+        NeedTimeSignature: bool = false,
+        NeedChord: bool = false,
+        NeedFrameRate: bool = false,
+        NeedTransportState: bool = false,
+        _: u21 = 0,
+    };
 };
 
 pub const ProcessData = extern struct {
@@ -224,9 +243,10 @@ pub const ParameterInfo = extern struct {
         IsWrapAround: bool = false,
         IsList: bool = false,
         IsHidden: bool = false,
-        _: u10 = 0,
+        _pad1: u10 = 0,
         IsProgramChange: bool = false,
         IsBypass: bool = false,
+        _pad2: u15 = 0,
     };
 };
 
@@ -340,6 +360,13 @@ pub const FrameRate = extern struct {
     };
 };
 
+pub const Rect = extern struct {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+};
+
 // enums
 
 pub const MediaType = enum(i32) {
@@ -396,6 +423,21 @@ pub const ProcessMode = enum(i32) {
 pub const SampleSize = enum(i32) {
     Sample32,
     Sample64,
+};
+
+pub const ComponentRestartFlags = packed struct(i32) {
+    ReloadComponent: bool = false,
+    IoChanged: bool = false,
+    ParamValuesChanged: bool = false,
+    LatencyChanged: bool = false,
+    ParamTitlesChanged: bool = false,
+    MidiCCAssignmentChanged: bool = false,
+    NoteExpressionChanged: bool = false,
+    IoTitlesChanged: bool = false,
+    PrefetchableSupportChanged: bool = false,
+    RoutingInfoChanged: bool = false,
+    KeyswitchChanged: bool = false,
+    _: u21 = 0,
 };
 
 pub const Interface = struct {
@@ -470,6 +512,67 @@ pub const Interface = struct {
         getTailSamples: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
 
         pub const UID = uidCreate(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
+    };
+
+    pub const ProcessContextRequirements = extern struct {
+        base: Base,
+        getProcessContextRequirements: ?*const fn (this: ?*anyopaque) ProcessContext.Requirements,
+
+        pub const UID = uidCreate(0x2A654303, 0xEF764E3D, 0x95B5FE83, 0x730EF6D0);
+    };
+
+    pub const EditController = extern struct {
+        base: PluginBase,
+        setComponentState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
+        setState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
+        getState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
+        getParameterCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
+        getParameterInfo: ?*const fn (this: ?*anyopaque, param_index: i32, info: ?*ParameterInfo) callconv(cc) Result,
+        getParamStringByValue: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64, string: *wstr) callconv(cc) Result,
+        getParamValueByString: ?*const fn (this: ?*anyopaque, id: u32, string: [*:0]u16, value_normalized: ?*f64) callconv(cc) Result,
+        normalizedParamToPlain: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) f64,
+        plainParamToNormalized: ?*const fn (this: ?*anyopaque, id: u32, plain_value: f64) callconv(cc) f64,
+        getParamNormalized: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) f64,
+        setParamNormalized: ?*const fn (this: ?*anyopaque, id: u32, value: f64) callconv(cc) Result,
+        setComponentHandler: ?*const fn (this: ?*anyopaque, handler: ?*?*ComponentHandler) callconv(cc) Result,
+        createView: ?*const fn (this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?*View,
+
+        pub const UID = uidCreate(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);
+    };
+
+    pub const ComponentHandler = extern struct {
+        base: Base,
+        beginEdit: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) Result,
+        performEdit: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) Result,
+        endEdit: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) Result,
+        restartComponent: ?*const fn (this: ?*anyopaque, flags: ComponentRestartFlags) callconv(cc) Result,
+
+        pub const UID = uidCreate(0x93A0BEA3, 0x0BD045DB, 0x8E890B0C, 0xC1E46AC6);
+    };
+
+    pub const View = extern struct {
+        base: Base,
+        isPlatformTypeSupported: ?*const fn (this: ?*anyopaque, type: [*:0]const u8) callconv(cc) Result,
+        attached: ?*const fn (this: ?*anyopaque, parent: ?*anyopaque, type: [*:0]const u8) callconv(cc) Result,
+        removed: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
+        onWheel: ?*const fn (this: ?*anyopaque, distance: f32) callconv(cc) Result,
+        onKeyDown: ?*const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
+        onKeyUp: ?*const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
+        getSize: ?*const fn (this: ?*anyopaque, size: ?*Rect) callconv(cc) Result,
+        onSize: ?*const fn (this: ?*anyopaque, new_size: ?*Rect) callconv(cc) Result,
+        onFocus: ?*const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
+        setFrame: ?*const fn (this: ?*anyopaque, frame: ?*Frame) callconv(cc) Result,
+        canResize: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
+        checkSizeConstraint: ?*const fn (this: ?*anyopaque, rect: ?*Rect) callconv(cc) Result,
+
+        pub const UID = uidCreate(0x5BC32507, 0xD06049EA, 0xA6151B52, 0x2B755B29);
+    };
+
+    pub const Frame = extern struct {
+        base: Base,
+        resizeView: ?*const fn (this: ?*anyopaque, view: ?*View, new_size: ?*Rect) callconv(cc) Result,
+
+        pub const UID = uidCreate(0x367FAF01, 0xAFA94693, 0x8D4DA2A0, 0xED0882A3);
     };
 
     pub const Factory = extern struct {
