@@ -111,7 +111,7 @@ pub const Plugin = struct {
                 switch (@typeInfo(BaseType)) {
                     .Float => return val,
                     .Int => return @intFromFloat(val),
-                    .Bool => return @as(bool, @intFromFloat(val)),
+                    .Bool => return @as(BaseType, @as(u1, @intFromFloat(val)) != 0),
                     .Enum => return @as(
                         BaseType,
                         @enumFromInt(@as(i32, @intFromFloat(val))),
