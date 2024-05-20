@@ -21,7 +21,7 @@
 //! Main source file for framework, collecting everything in one place
 const std = @import("std");
 const assert = std.debug.assert;
-const config = @import("config");
+pub const config = @import("config");
 const Allocator = std.mem.Allocator;
 
 pub const param = @import("params.zig");
