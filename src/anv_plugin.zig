@@ -546,14 +546,16 @@ const Controller = extern struct {
             };
         } else {
             // no user conversion, print raw
-            if (param_info.flags.is_enum) if (param_info.enum_choices) |choices| {
-                const choice_id: usize = @intFromFloat(value_normalized *
-                    @as(f32, @floatFromInt(choices.len - 1)));
-                const choice = choices[choice_id];
-                _ = utf8To16(string[0..choice.len], choice) catch |e| {
-                    log.err("{!}\n", .{e}, @src());
-                    return .InternalError;
-                };
+            if (param_info.flags.is_enum) {
+                if (param_info.enum_choices) |choices| {
+                    const choice_id: usize = @intFromFloat(value_normalized *
+                        @as(f32, @floatFromInt(choices.len - 1)));
+                    const choice = choices[choice_id];
+                    _ = utf8To16(string[0..choice.len], choice) catch |e| {
+                        log.err("{!}\n", .{e}, @src());
+                        return .InternalError;
+                    };
+                }
             } else {
                 const out = std.fmt.bufPrint(&buf, "{d:.2}", .{val_denorm}) catch |e| {
                     log.err("{!}\n", .{e}, @src());
@@ -563,7 +565,7 @@ const Controller = extern struct {
                     log.err("{!}\n", .{e}, @src());
                     return .InternalError;
                 };
-            };
+            }
         }
         return .Ok;
     }
