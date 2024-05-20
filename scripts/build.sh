@@ -16,8 +16,7 @@ echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
 
 [ $OS != 'windows' ] && curl "https://ziglang.org/builds/zig-${TRIPLE}.tar.xz" | tar xJ
 if [[ $OS == 'windows' ]]; then
-	echo "turd"
-	# choco install zig --version $ZIG_VERSION
+	choco install zig --version $ZIG_VERSION
 	# powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://ziglang.org/builds/zig-${TRIPLE}.zip -OutFile zig-${TRIPLE}.zip"
 	# powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
 fi
