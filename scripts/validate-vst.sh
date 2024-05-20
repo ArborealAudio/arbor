@@ -21,12 +21,14 @@ else
 fi
 
 EXAMPLES=(Distortion Filter)
+echo "Validating VST2 plugins"
+
 [ $OS == 'windows' ] && EXT="dll"
 [ $(uname -s) == 'Darwin' ] && EXT="vst"
 [ $(uname -s) == 'Linux' ] && EXT="so"
 
 for ex in ${EXAMPLES[@]}; do
-	VST_PATH=zig-out/Example_${ex}.${EXT}
+	VST_PATH=examples/$ex/zig-out/Example_${ex}.${EXT}
 	echo "Validating $VST_PATH"
 	if $pluginval --strictness-level 10 --validate-in-process --skip-gui-tests --timeout-ms 300000 $VST_PATH;
 	then
@@ -37,5 +39,20 @@ for ex in ${EXAMPLES[@]}; do
 		exit 1
 	fi
 done
+
+# TODO
+# echo "Validating VST3 plugins"
+# for ex in ${EXAMPLES[@]}; do
+# 	VST_PATH=examples/$ex/zig-out/Example_${ex}.vst3
+# 	echo "Validating $VST_PATH"
+# 	if $pluginval --strictness-level 10 --validate-in-process --skip-gui-tests --timeout-ms 300000 $VST_PATH;
+# 	then
+# 		echo "Pluginval successful"
+# 	else
+# 		echo "Pluginval failed"
+# 		rm -rf pluginval*
+# 		exit 1
+# 	fi
+# done
 
 rm -rf pluginval*

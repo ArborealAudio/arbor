@@ -13,7 +13,27 @@ const span = std.mem.span;
 
 const allocator = testing.allocator;
 
-test "Plugin features" {
+const test_params = &[_]arbor.Parameter{
+    arbor.param.Float("gain", 0, 10, 0, .{ .flags = .{} }),
+};
+
+export fn init() *arbor.Plugin {
+    return arbor.init(allocator, test_params, .{
+        .deinit = deinit,
+        .prepare = prepare,
+        .process = process,
+    });
+}
+
+fn deinit(_: *arbor.Plugin) void {}
+
+fn prepare(_: *arbor.Plugin, _: f32, _: u32) void {}
+
+fn process(_: *arbor.Plugin, _: arbor.AudioBuffer(f32)) void {}
+
+export fn gui_init(_: *arbor.Plugin) void {}
+
+test "CLAP features" {
     const features: arbor.PluginFeatures = arbor.features.STEREO | arbor.features.SYNTH |
         arbor.features.EQ | arbor.features.EFFECT;
 
@@ -36,14 +56,12 @@ test "Plugin features" {
     }
 }
 
-test "Version int" {
+test "VST2" {
     const vint = try arbor.Vst2VersionInt("0.1.0");
     try expectEqual(100, vint);
     const update = try arbor.Vst2VersionInt("2.3.5");
     try expectEqual(2350, update);
-}
 
-test "VST2" {
     const config = arbor.config;
     if (config.format != .VST2) return;
     const api = arbor.vst2;

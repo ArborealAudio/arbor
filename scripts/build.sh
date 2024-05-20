@@ -16,7 +16,8 @@ echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
 
 [ $OS != 'windows' ] && curl "https://ziglang.org/builds/zig-${TRIPLE}.tar.xz" | tar xJ
 if [[ $OS == 'windows' ]]; then
-	choco install zig --version $ZIG_VERSION
+	echo "turd"
+	# choco install zig --version $ZIG_VERSION
 	# powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://ziglang.org/builds/zig-${TRIPLE}.zip -OutFile zig-${TRIPLE}.zip"
 	# powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
 fi
@@ -25,5 +26,13 @@ fi
 
 echo "Zig path = ${ZIG}"
 
+echo "Running library tests"
+$ZIG build test
+
 # Build examples & unit test (all one step)
-$ZIG build -Dexamples
+EXAMPLES=(Distortion Filter)
+
+for ex in ${EXAMPLES[@]}; do
+	echo "Building example plugin: $ex"
+	$ZIG build --build-file examples/$ex/build.zig
+done
