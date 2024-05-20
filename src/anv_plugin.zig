@@ -140,16 +140,26 @@ const Processor = extern struct {
                     return .InvalidArgument;
                 };
                 const uframes: usize = @intCast(data.num_samples);
+                const num_ch: usize = @intCast(@min(input.num_channels, output.num_channels));
+                assert(uframes <= plug.max_frames);
+                assert(num_ch <= arbor.Plugin.num_channels);
+
                 const buffer = arbor.AudioBuffer(f32){
-                    .input = &.{
-                        input.data.buffer32[0][0..uframes],
-                        input.data.buffer32[1][0..uframes],
+                    .input = make: {
+                        var buf: [arbor.Plugin.num_channels][]f32 = undefined;
+                        for (0..@intCast(input.num_channels)) |ch| {
+                            buf[ch] = input.data.buffer32[ch][0..uframes];
+                        }
+                        break :make buf[0..num_ch];
                     },
-                    .output = &.{
-                        output.data.buffer32[0][0..uframes],
-                        output.data.buffer32[1][0..uframes],
+                    .output = make: {
+                        var buf: [arbor.Plugin.num_channels][]f32 = undefined;
+                        for (0..@intCast(output.num_channels)) |ch| {
+                            buf[ch] = output.data.buffer32[ch][0..uframes];
+                        }
+                        break :make buf[0..num_ch];
                     },
-                    .num_ch = @intCast(@min(data.num_inputs, data.num_outputs)),
+                    .num_ch = num_ch,
                     .frames = @intCast(data.num_samples),
                 };
 

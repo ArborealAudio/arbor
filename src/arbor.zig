@@ -87,9 +87,11 @@ pub const Plugin = struct {
         plugin.allocator.destroy(plugin);
     }
 
+    pub const num_channels: u32 =
+        if (config.plugin_features & features.STEREO > 0) 2 else 1;
+
     interface: Interface,
 
-    num_channels: u32 = undefined,
     sample_rate: f32 = undefined,
     max_frames: u32 = undefined,
 
@@ -160,6 +162,7 @@ pub fn init(
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
     .VST2 => Plugin.Description,
+    .VST3 => {},
 };
 
 /// Create a description that satisfies the requirements of the format being

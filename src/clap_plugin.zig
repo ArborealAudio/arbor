@@ -3,11 +3,11 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+
 const arbor = @import("arbor.zig");
 const config = @import("config");
 const log = arbor.log;
 const cast = arbor.cast;
-const Slice = arbor.Slice;
 const clap = arbor.clap;
 
 // TODO: Can we inherit the allocator decalred in user plugin somehow?
@@ -50,20 +50,20 @@ const AudioPorts = struct {
         is_input: bool,
         info: ?*clap.AudioPorts.Info,
     ) callconv(.C) bool {
+        _ = plugin;
         _ = is_input;
         if (index > 1)
             return false;
         if (info) |ptr| {
+            const stereo: bool = arbor.Plugin.num_channels > 1;
             ptr.* = .{
                 .id = 0,
                 .name = undefined,
-                .channel_count = 2,
+                .channel_count = if (stereo) 2 else 1,
                 .flags = clap.AudioPorts.Flags{ .IS_MAIN = true },
-                .port_type = clap.AudioPorts.STEREO,
+                .port_type = if (stereo) clap.AudioPorts.STEREO else clap.AudioPorts.MONO,
                 .in_place_pair = clap.INVALID_ID,
             };
-            if (plug_cast(plugin).plugin) |plug|
-                plug.num_channels = ptr.channel_count;
             return true;
         } else return false;
     }
@@ -694,13 +694,19 @@ pub fn process(
             const num_ch = @min(audio_in[0].channel_count, audio_out[0].channel_count);
             if (frames_to_process == 0) break;
             plug.interface.process(plug, .{
-                .input = &.{
-                    audio_in[0].data32[0][i..next_event_frame],
-                    audio_in[0].data32[1][i..next_event_frame],
+                .input = make: {
+                    var buf: [arbor.Plugin.num_channels][]f32 = undefined;
+                    for (0..num_ch) |ch| {
+                        buf[ch] = audio_in[0].data32[ch][i..next_event_frame];
+                    }
+                    break :make buf[0..num_ch];
                 },
-                .output = &.{
-                    audio_out[0].data32[0][i..next_event_frame],
-                    audio_out[0].data32[1][i..next_event_frame],
+                .output = make: {
+                    var buf: [arbor.Plugin.num_channels][]f32 = undefined;
+                    for (0..num_ch) |ch| {
+                        buf[ch] = audio_out[0].data32[ch][i..next_event_frame];
+                    }
+                    break :make buf[0..num_ch];
                 },
                 .num_ch = num_ch,
                 .frames = frames_to_process,
@@ -709,14 +715,6 @@ pub fn process(
         }
     }
     return .PROCESS_CONTINUE;
-}
-
-// TODO: Figure out how to do this properly and pass proper slices to the user's process()
-fn slicePtr(in: [*][*]f32, num_ch: usize, offset: usize, end: usize) [*]Slice(f32) {
-    var out = Slice([*]f32){ .ptr = in, .len = num_ch };
-    for (out.slice(), 0..) |_, ch_idx| {
-        out.slice()[ch_idx] = in[ch_idx][offset..end];
-    }
 }
 
 pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C) ?*const anyopaque {
