@@ -1,4 +1,6 @@
 //! ANV = ANV's Not VST3
+//! Special thanks to Tremus' CPLUG (https://github.com/Tremus/CPLUG) for
+//! providing a no-nonsense VST3 implementation
 
 const std = @import("std");
 const builtin = @import("builtin");
