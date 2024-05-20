@@ -258,3 +258,6 @@ was a great starting point to understand how to write Zig while working with a C
 [^2]: ["Matched One-Pole Digital Shelving Filters" by Martin Vicanek (2019)](https://vicanek.de/articles/ShelvingFits.pdf)
 
 [^3]: ["Matched Two-Pole Digital Shelving Filters" by Martin Vicanek (2024)](https://vicanek.de/articles/2poleShelvingFits.pdf)
+
+Additionally, [CPLUG by Tremus](https://github.com/Tremus/CPLUG) was a great help
+in figuring out the VST3 format and its...mysteries
