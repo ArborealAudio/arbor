@@ -73,7 +73,6 @@ const Processor = extern struct {
         outputs: ?*anv.SpeakerArrangement,
         num_out: i32,
     ) callconv(cc) Result {
-        log.debug("setBusArrangements\n", .{}, @src());
         _ = this;
         _ = inputs;
         _ = num_in;
@@ -113,8 +112,11 @@ const Processor = extern struct {
     }
 
     fn setupProcessing(this: ?*anyopaque, setup_ptr: ?*anv.ProcessSetup) callconv(cc) Result {
-        _ = this;
-        if (setup_ptr) |_| {
+        if (setup_ptr) |setup| {
+            const plugin: *Vst3Plugin = @fieldParentPtr("processor", arbor.cast(*Processor, this));
+            if (plugin.user) |plug| {
+                plug.interface.prepare(plug, @floatCast(setup.sample_rate), @intCast(setup.max_samples));
+            }
             return .Ok;
         } else return .InvalidArgument;
     }
@@ -125,9 +127,35 @@ const Processor = extern struct {
         return .Ok;
     }
 
-    fn process(this: ?*anyopaque, data: ?*anv.ProcessData) callconv(cc) Result {
-        _ = this;
-        _ = data;
+    fn process(this: ?*anyopaque, data_cptr: ?*anv.ProcessData) callconv(cc) Result {
+        const plugin: *Vst3Plugin = @fieldParentPtr("processor", arbor.cast(*Processor, this));
+        if (plugin.user) |plug| {
+            if (data_cptr) |data| {
+                const input = data.inputs orelse {
+                    log.err("Input data null\n", .{}, @src());
+                    return .InvalidArgument;
+                };
+                const output = data.outputs orelse {
+                    log.err("Output data null\n", .{}, @src());
+                    return .InvalidArgument;
+                };
+                const uframes: usize = @intCast(data.num_samples);
+                const buffer = arbor.AudioBuffer(f32){
+                    .input = &.{
+                        input.data.buffer32[0][0..uframes],
+                        input.data.buffer32[1][0..uframes],
+                    },
+                    .output = &.{
+                        output.data.buffer32[0][0..uframes],
+                        output.data.buffer32[1][0..uframes],
+                    },
+                    .num_ch = @intCast(@min(data.num_inputs, data.num_outputs)),
+                    .frames = @intCast(data.num_samples),
+                };
+
+                plug.interface.process(plug, buffer);
+            }
+        }
         return .Ok;
     }
 
@@ -215,18 +243,24 @@ const Component = extern struct {
     }
 
     fn initialize(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
-        _ = this;
         _ = context;
         log.debug("Component: Initialize\n", .{}, @src());
         // this is where we'd get a pointer to the host
         // query its interface for host context and save a pointer to it in our plugin
+        const plugin: *Vst3Plugin = @fieldParentPtr("component", arbor.cast(*Component, this));
+
+        // call user's init function
+        plugin.user = arbor.Plugin.init();
         return .Ok;
     }
 
     fn terminate(this: ?*anyopaque) callconv(cc) Result {
-        _ = this;
         log.debug("Component: Terminate\n", .{}, @src());
-        // kill
+        const plugin: *Vst3Plugin = @fieldParentPtr("component", arbor.cast(*Component, this));
+        if (plugin.user) |plug| {
+            plug.interface.deinit(plug);
+            plug.deinit();
+        }
         return .Ok;
     }
 
@@ -450,12 +484,18 @@ const Controller = extern struct {
 
         const self = arbor.cast(*Controller, this);
         const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
-        const param_info = if (plugin.user) |plug|
-            plug.param_info[@intCast(index)]
-        else {
+        const param_info = if (plugin.user) |plug| get: {
+            if (index < 0 or index >= plug.param_info.len) {
+                log.err("Invalid param ID\n", .{}, @src());
+                return .InvalidArgument;
+            }
+            break :get plug.param_info[@intCast(index)];
+        } else {
             log.err("User data null\n", .{}, @src());
             return .InternalError;
         };
+
+        dest_info.id = @intCast(index);
 
         _ = utf8To16(&dest_info.title, param_info.name) catch |e| {
             log.err("{!}\n", .{e}, @src());
@@ -468,7 +508,9 @@ const Controller = extern struct {
 
         dest_info.default_normalized = @floatCast(param_info.getNormalizedValue(param_info.default_value));
 
-        dest_info.flags = .{ .CanAutomate = true };
+        dest_info.flags = .{
+            .CanAutomate = true,
+        };
 
         return .Ok;
     }
@@ -476,9 +518,13 @@ const Controller = extern struct {
     fn getParamStringByValue(this: ?*anyopaque, index: u32, value_normalized: f64, string: *anv.wstr) callconv(cc) Result {
         const self = arbor.cast(*Controller, this);
         const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
-        const param_info = if (plugin.user) |plug|
-            plug.param_info[@intCast(index)]
-        else {
+        const param_info = if (plugin.user) |plug| get: {
+            if (index < 0 or index >= plug.param_info.len) {
+                log.err("Invalid param ID\n", .{}, @src());
+                return .InvalidArgument;
+            }
+            break :get plug.param_info[@intCast(index)];
+        } else {
             log.err("User data null\n", .{}, @src());
             return .InternalError;
         };
@@ -486,22 +532,32 @@ const Controller = extern struct {
         @memset(string, 0);
 
         const val_denorm = param_info.valueFromNormalized(@floatCast(value_normalized));
-        var buf: [10]u8 = undefined;
+        var buf = [_]u8{0} ** 12;
         if (param_info.value_to_text) |func| {
             const len = func(val_denorm, &buf);
-            _ = utf8To16(string[0..len], &buf) catch |e| {
+            _ = utf8To16(string[0..len], buf[0..len]) catch |e| {
                 log.err("{!}\n", .{e}, @src());
                 return .InternalError;
             };
         } else {
             // no user conversion, print raw
-            const out = std.fmt.bufPrint(&buf, "{d:.2}", .{val_denorm}) catch |e| {
-                log.err("{!}\n", .{e}, @src());
-                return .InternalError;
-            };
-            _ = utf8To16(string[0..out.len], out) catch |e| {
-                log.err("{!}\n", .{e}, @src());
-                return .InternalError;
+            if (param_info.flags.is_enum) if (param_info.enum_choices) |choices| {
+                const choice_id: usize = @intFromFloat(value_normalized *
+                    @as(f32, @floatFromInt(choices.len - 1)));
+                const choice = choices[choice_id];
+                _ = utf8To16(string[0..choice.len], choice) catch |e| {
+                    log.err("{!}\n", .{e}, @src());
+                    return .InternalError;
+                };
+            } else {
+                const out = std.fmt.bufPrint(&buf, "{d:.2}", .{val_denorm}) catch |e| {
+                    log.err("{!}\n", .{e}, @src());
+                    return .InternalError;
+                };
+                _ = utf8To16(string[0..out.len], out) catch |e| {
+                    log.err("{!}\n", .{e}, @src());
+                    return .InternalError;
+                };
             };
         }
         return .Ok;
@@ -515,31 +571,65 @@ const Controller = extern struct {
         return .NotImplemented;
     }
 
+    /// Convert a normalized value to a regular value
     fn normalizedParamToPlain(this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) f64 {
-        _ = this;
-        _ = id;
-        _ = value_normalized;
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", arbor.cast(*Controller, this));
+        if (plugin.user) |plug| {
+            if (id < 0 or id >= plug.param_info.len) {
+                log.err("Invalid param ID\n", .{}, @src());
+                return 0;
+            }
+            const param = plug.param_info[id];
+            return @floatCast(param.valueFromNormalized(@floatCast(value_normalized)));
+        }
+        log.err("User data null\n", .{}, @src());
         return 0;
     }
 
+    /// Convert a regular value to a normalized one
     fn plainParamToNormalized(this: ?*anyopaque, id: u32, plain_value: f64) callconv(cc) f64 {
-        _ = this;
-        _ = id;
-        _ = plain_value;
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", arbor.cast(*Controller, this));
+        if (plugin.user) |plug| {
+            if (id < 0 or id >= plug.param_info.len) {
+                log.err("Invalid param ID\n", .{}, @src());
+                return 0;
+            }
+            const param = plug.param_info[id];
+            return @floatCast(param.getNormalizedValue(@floatCast(plain_value)));
+        }
+        log.err("User data null\n", .{}, @src());
         return 0;
     }
 
+    /// Get current normalized value
     fn getParamNormalized(this: ?*anyopaque, id: u32) callconv(cc) f64 {
-        _ = this;
-        _ = id;
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", arbor.cast(*Controller, this));
+        if (plugin.user) |plug| {
+            if (id < 0 or id >= plug.param_info.len) {
+                log.err("Invalid param ID\n", .{}, @src());
+                return 0;
+            }
+            const param = plug.param_info[id];
+            const value = plug.params[id];
+            return @floatCast(param.getNormalizedValue(value));
+        }
+        log.err("User data null\n", .{}, @src());
         return 0;
     }
 
     fn setParamNormalized(this: ?*anyopaque, id: u32, value: f64) callconv(cc) Result {
-        _ = this;
-        _ = id;
-        _ = value;
-        return .Ok;
+        const plugin: *Vst3Plugin = @fieldParentPtr("controller", arbor.cast(*Controller, this));
+        if (plugin.user) |plug| {
+            if (id < 0 or id >= plug.param_info.len) {
+                log.err("Invalid param ID\n", .{}, @src());
+                return .InvalidArgument;
+            }
+            const param = plug.param_info[id];
+            plug.params[id] = param.valueFromNormalized(@floatCast(value));
+            return .Ok;
+        }
+        log.err("User data null\n", .{}, @src());
+        return .InternalError;
     }
 
     fn setComponentHandler(this: ?*anyopaque, handler_cptr: ?*?*anv.Interface.ComponentHandler) callconv(cc) Result {
