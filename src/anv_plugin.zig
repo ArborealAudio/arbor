@@ -56,13 +56,10 @@ const Processor = extern struct {
         const self = arbor.cast(*Processor, this);
         const ref_count = self.ref_counter.fetchSub(1, .release) - 1;
         log.debug("Processor: Releasing ref | Count: {d}\n", .{ref_count}, @src());
-        if (ref_count > 0) {
-            return ref_count;
-        } else {
-            log.debug("Processor: All refs released, destroying\n", .{}, @src());
-            const plugin: *Vst3Plugin = @fieldParentPtr("processor", self);
-            plugin.deinit();
-        }
+        if (ref_count > 0) return ref_count;
+
+        const plugin: *Vst3Plugin = @fieldParentPtr("processor", self);
+        plugin.deinit();
         return 0;
     }
 
@@ -242,13 +239,12 @@ const Component = extern struct {
         const self = arbor.cast(*Component, this);
         const ref_count = self.ref_counter.fetchSub(1, .release) - 1;
         log.debug("Component: Releasing ref | Count: {d}\n", .{ref_count}, @src());
-        if (ref_count > 0) {
+        if (ref_count > 0)
             return ref_count;
-        } else {
-            log.debug("Component: All refs released, destroying\n", .{}, @src());
-            const plugin: *Vst3Plugin = @fieldParentPtr("component", self);
-            plugin.deinit();
-        }
+        const plugin: *Vst3Plugin = @fieldParentPtr("component", self);
+        _ = Processor.release(&plugin.processor);
+        _ = Controller.release(&plugin.controller);
+        // plugin.deinit();
         return 0;
     }
 
@@ -270,6 +266,7 @@ const Component = extern struct {
         if (plugin.user) |plug| {
             plug.interface.deinit(plug);
             plug.deinit();
+            plugin.user = null;
         }
         return .Ok;
     }
@@ -431,12 +428,10 @@ const Controller = extern struct {
 
         if (ref_count > 0) return ref_count;
 
-        log.debug("Controller: All refs released, destroying\n", .{}, @src());
         _ = if (self.handler) |handler| if (handler.base.release) |rel| rel(handler);
 
         const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
         plugin.deinit();
-
         return 0;
     }
 
@@ -693,15 +688,21 @@ const Vst3Plugin = extern struct {
     user: ?*arbor.Plugin = null,
 
     pub fn deinit(self: *Vst3Plugin) void {
-        var total_refs: u32 = 0;
-        total_refs += self.component.ref_counter.load(.acquire);
-        total_refs += self.processor.ref_counter.load(.acquire);
-        total_refs += self.controller.ref_counter.load(.acquire);
-        if (total_refs == 0)
-            allocator.destroy(self)
-        else {
-            log.err("Tried to deallocate with non-zero refcount | Count: {d}\n", .{total_refs}, @src());
+        const total_refs = self.getTotalRefCount();
+        if (total_refs == 0) {
+            log.debug("All refs released, destroying plugin\n", .{}, @src());
+            allocator.destroy(self);
+        } else {
+            log.err("Deinit called with non-zero refcount | Count: {d}\n", .{total_refs}, @src());
         }
+    }
+
+    pub fn getTotalRefCount(self: *Vst3Plugin) u32 {
+        var total: u32 = 0;
+        total += self.component.ref_counter.load(.acquire);
+        total += self.processor.ref_counter.load(.acquire);
+        total += self.controller.ref_counter.load(.acquire);
+        return total;
     }
 };
 
