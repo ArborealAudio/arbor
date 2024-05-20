@@ -146,7 +146,12 @@ pub fn createPlugin(options: InitOptions) *Plugin {
 
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
+<<<<<<< HEAD
     .VST2 => Description,
+=======
+    .VST2 => Plugin.Description,
+    .VST3 => {},
+>>>>>>> 860bc88 (Improve handling of number of channels)
 };
 
 /// Create a description that satisfies the requirements of the format being compiled for.

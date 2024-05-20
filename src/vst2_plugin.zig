@@ -12,6 +12,8 @@ const config = arbor.config;
 const vst2 = @import("vst2_api.zig");
 
 const Plugin = arbor.Plugin;
+const plugin_num_ch = Plugin.num_channels;
+
 const Parameter = arbor.Parameter;
 const Gui = arbor.Gui;
 const PlatformGui = Gui.Platform;
@@ -314,7 +316,7 @@ fn dispatch(
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Input";
             @memcpy(pin.label[0..name.len], name);
-            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
+            pin.flags = .{ .IsActive = true, .IsStereo = plugin_num_ch > 1 };
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
@@ -333,7 +335,7 @@ fn dispatch(
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Output";
             @memcpy(pin.label[0..name.len], name);
-            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
+            pin.flags = .{ .IsActive = true, .IsStereo = plugin_num_ch > 1 };
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
@@ -416,17 +418,24 @@ fn processReplacing(
     processInEvents(vst);
 
     const uframes: usize = @intCast(frames);
+    const num_ch: usize = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs));
     const buffer: arbor.AudioBuffer(f32) = .{
-        .input = &.{
-            inputs[0][0..uframes],
-            inputs[1][0..uframes],
+        .input = make: {
+            var buf: [plugin_num_ch][]f32 = undefined;
+            for (0..num_ch) |ch| {
+                buf[ch] = inputs[ch][0..uframes];
+            }
+            break :make buf[0..num_ch];
         },
-        .output = &.{
-            outputs[0][0..uframes],
-            outputs[1][0..uframes],
+        .output = make: {
+            var buf: [plugin_num_ch][]f32 = undefined;
+            for (0..num_ch) |ch| {
+                buf[ch] = outputs[ch][0..uframes];
+            }
+            break :make buf[0..num_ch];
         },
         .frames = uframes,
-        .num_ch = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs)),
+        .num_ch = num_ch,
         // TODO: Handle unequal in/out pairs
     };
     plugin.interface.process(plugin, buffer);
