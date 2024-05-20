@@ -73,7 +73,7 @@ pub const Plugin = struct {
 
     pub const Interface = struct {
         deinit: *const fn (*Plugin) void,
-        prepare: *const fn (*Plugin, f32, u32) void,
+        prepare: *const fn (*Plugin, sample_rate: f32, max_frames: u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
     };
@@ -139,6 +139,7 @@ pub const Plugin = struct {
     }
 };
 
+// TODO: Make a clearer separation btw this and the extern user init func
 /// Initialize a Plugin. Caller owns the returned pointer and must free it by
 /// calling "deinit".
 pub fn init(
