@@ -50,7 +50,7 @@ pub const plugin_name = plugin_desc.name;
 pub const Plugin = struct {
     pub const Interface = struct {
         deinit: *const fn (*Plugin) void,
-        prepare: *const fn (*Plugin, f32, u32) void,
+        prepare: *const fn (*Plugin, sample_rate: f32, max_frames: u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
         createGui: ?*const fn (*Plugin) void = null,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
@@ -377,12 +377,8 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-<<<<<<< HEAD
         if (@import("builtin").mode != .Debug) return;
         std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
-=======
-        std.debug.print(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
->>>>>>> cd9526a (Logging: Rearrange line # and func name)
     }
 
     /// default info
