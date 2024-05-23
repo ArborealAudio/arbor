@@ -131,10 +131,9 @@ const State = struct {
     ) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             const num_params = plug.params.len;
-            // PROBLEM: This crashes the plugin!
             if (stream) |str|
                 return @sizeOf(f32) * num_params == str.write(
-                    stream,
+                    str,
                     plug.params.ptr,
                     @sizeOf(f32) * num_params,
                 );
