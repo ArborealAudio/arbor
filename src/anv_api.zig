@@ -90,7 +90,7 @@ pub const Result = if (builtin.os.tag != .windows) enum(i32) {
 
 pub const CardinalityManyInstances = 0x7fffffff;
 
-pub const wstr = [128]u16;
+pub const Wstr = [128]u16;
 
 // structs
 
@@ -530,14 +530,14 @@ pub const Interface = struct {
         getState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
         getParameterCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
         getParameterInfo: ?*const fn (this: ?*anyopaque, param_index: i32, info: ?*ParameterInfo) callconv(cc) Result,
-        getParamStringByValue: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64, string: *wstr) callconv(cc) Result,
+        getParamStringByValue: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64, string: *Wstr) callconv(cc) Result,
         getParamValueByString: ?*const fn (this: ?*anyopaque, id: u32, string: [*:0]u16, value_normalized: ?*f64) callconv(cc) Result,
         normalizedParamToPlain: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) f64,
         plainParamToNormalized: ?*const fn (this: ?*anyopaque, id: u32, plain_value: f64) callconv(cc) f64,
         getParamNormalized: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) f64,
         setParamNormalized: ?*const fn (this: ?*anyopaque, id: u32, value: f64) callconv(cc) Result,
         setComponentHandler: ?*const fn (this: ?*anyopaque, handler: ?*?*ComponentHandler) callconv(cc) Result,
-        createView: ?*const fn (this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?*View,
+        createView: ?*const fn (this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?**const View,
 
         pub const UID = uidCreate(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);
     };
@@ -554,8 +554,8 @@ pub const Interface = struct {
 
     pub const View = extern struct {
         base: Base,
-        isPlatformTypeSupported: ?*const fn (this: ?*anyopaque, type: [*:0]const u8) callconv(cc) Result,
-        attached: ?*const fn (this: ?*anyopaque, parent: ?*anyopaque, type: [*:0]const u8) callconv(cc) Result,
+        isPlatformTypeSupported: ?*const fn (this: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result,
+        attached: ?*const fn (this: ?*anyopaque, parent: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result,
         removed: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
         onWheel: ?*const fn (this: ?*anyopaque, distance: f32) callconv(cc) Result,
         onKeyDown: ?*const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
@@ -566,6 +566,19 @@ pub const Interface = struct {
         setFrame: ?*const fn (this: ?*anyopaque, frame: ?*Frame) callconv(cc) Result,
         canResize: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
         checkSizeConstraint: ?*const fn (this: ?*anyopaque, rect: ?*Rect) callconv(cc) Result,
+
+        pub const PlatformType = struct {
+            /// Windows
+            pub const Hwnd = "HWND";
+            /// MacOS (not sure when or where)
+            pub const HiView = "HIView";
+            /// MacOS (standard)
+            pub const NsView = "NSView";
+            /// iOS
+            pub const UiView = "UIView";
+            /// X11 on Linux
+            pub const X11Window = "X11EmbedWindowID";
+        };
 
         pub const UID = uidCreate(0x5BC32507, 0xD06049EA, 0xA6151B52, 0x2B755B29);
     };

@@ -323,16 +323,14 @@ const Gui = struct {
             return false;
         if (plug_cast(plugin).plugin) |plug| {
             std.debug.assert(plug.gui == null);
-            arbor.Gui.gui_init(plug);
-            if (plug.gui) |gui| {
-                const clap_plug = plug_cast(plugin);
-                if (builtin.os.tag == .linux) {
-                    if (clap_plug.host_fd_support) |host_fd| {
-                        _ = host_fd.register_fd(clap_plug.host, gui.impl.fd, .{ .FD_READ = true });
-                    }
+            const gui = arbor.Gui.init(plug);
+            const clap_plug = plug_cast(plugin);
+            if (builtin.os.tag == .linux) {
+                if (clap_plug.host_fd_support) |host_fd| {
+                    _ = host_fd.register_fd(clap_plug.host, gui.impl.fd, .{ .FD_READ = true });
                 }
-                return true;
-            } else return false; // No GUI supplied
+            }
+            return true;
         }
         return false;
     }
@@ -347,7 +345,6 @@ const Gui = struct {
                 }
             }
             plug.gui.?.deinit();
-            plug.gui = null;
         }
     }
 
@@ -525,7 +522,6 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
 pub fn destroy(plugin: ?*const clap.Plugin) callconv(.C) void {
     const clap_plug = plug_cast(plugin);
     if (clap_plug.plugin) |plug| {
-        plug.interface.deinit(plug);
         plug.deinit();
     }
     allocator.destroy(clap_plug);

@@ -106,18 +106,22 @@ const border_color = draw.Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
 const TITLE = "DISTORTION";
 
 // Export an entry to our GUI implementation
-export fn gui_init(plugin: *arbor.Plugin) void {
-    const gui = arbor.Gui.init(plugin.allocator, .{
-        .layout = .default,
+export fn gui_create(plugin: *arbor.Plugin, config: *arbor.Gui.Config) void {
+    _ = plugin;
+    config.* = .{
         .width = WIDTH,
         .height = HEIGHT,
         .timer_ms = 16,
         .interface = .{
+            .init = gui_init,
             .deinit = gui_deinit,
             .render = gui_render,
         },
-    });
-    plugin.gui = gui;
+    };
+}
+
+fn gui_init(gui: *arbor.Gui) void {
+    const plugin = gui.plugin;
 
     // we can draw the logo here and just copy its memory to the global canvas
     // in our render function

@@ -24,10 +24,10 @@ const AtomicBool = std.atomic.Value(bool);
 const Gui = @This();
 
 /// User gui init
-pub extern fn gui_init(*Plugin) void;
+pub extern fn gui_create(*Plugin, *Config) void;
 
-pub const GuiConfig = struct {
-    layout: LayoutType,
+pub const Config = struct {
+    layout: LayoutType = .default,
     width: u32,
     height: u32,
     interface: Interface,
@@ -35,22 +35,23 @@ pub const GuiConfig = struct {
 };
 
 pub const Interface = struct {
+    init: *const fn (*Gui) void,
     render: *const fn (*Gui) void,
     deinit: *const fn (*Gui) void,
 };
+
+plugin: *Plugin,
 
 bits: []u32,
 impl: *GuiImpl,
 canvas: draw.Canvas,
 
 interface: Interface,
-layout: LayoutType,
+layout: LayoutType = .default,
 components: std.ArrayList(Component),
 
 in_events: *Queue,
 out_events: *Queue,
-
-allocator: Allocator,
 
 state: struct {
     type: GuiState = .Idle,
@@ -61,39 +62,46 @@ state: struct {
 
 wants_repaint: AtomicBool = AtomicBool.init(true),
 
-var arena_impl = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-const arena = arena_impl.allocator();
+allocator: std.mem.Allocator,
 
 /// Call this from within your gui_init function to init the GUI backend
-pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
-    _ = allocator;
-    const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e}, @src());
-    const bits = arena.alloc(u32, config.width * config.height) catch |e|
+pub fn init(plugin: *arbor.Plugin) *Gui {
+    const allocator = std.heap.c_allocator;
+    const ptr = allocator.create(Gui) catch |e| log.fatal("{!}\n", .{e}, @src());
+    const config = allocator.create(Config) catch |e| log.fatal("{!}\n", .{e}, @src());
+    gui_create(plugin, config);
+    const bits = allocator.alloc(u32, config.width * config.height) catch |e|
         log.fatal("{!}\n", .{e}, @src());
     ptr.* = .{
-        .allocator = arena,
+        .plugin = plugin,
+        .allocator = allocator,
         .bits = bits,
         .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, config.timer_ms, arbor.plugin_name),
         .interface = config.interface,
         .layout = config.layout,
-        .components = std.ArrayList(Component).init(arena),
-        .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
-        .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
+        .components = std.ArrayList(Component).init(allocator),
+        .in_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}, @src()),
+        .out_events = Queue.init(allocator) catch |e| log.fatal("{!}\n", .{e}, @src()),
         .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
     };
+    plugin.gui = ptr;
+
+    ptr.interface.init(ptr);
 
     return ptr;
 }
 
 pub fn deinit(self: *Gui) void {
+    const plugin = self.plugin;
     self.interface.deinit(self);
     Platform.guiDestroy(self.impl);
-    // self.allocator.free(self.bits);
-    // self.components.deinit();
-    // self.in_events.deinit();
-    // self.out_events.deinit();
-    // self.allocator.destroy(self);
-    arena_impl.deinit();
+    plugin.gui = null;
+    self.allocator.free(self.bits);
+    self.components.deinit();
+    self.in_events.deinit();
+    self.out_events.deinit();
+    self.allocator.destroy(self);
+    // arena_impl.deinit();
 }
 
 pub fn requestDraw(self: *Gui) void {

@@ -227,11 +227,7 @@ fn dispatch(
             // Init GUI
             // ptr = native parent window (HWND, NSView/NSWindow?, X Window)
             assert(plug.gui == null);
-            Gui.gui_init(plug);
-            const gui = plug.gui orelse {
-                log.err("{s}: Gui is null\n", .{@tagName(code)}, @src());
-                return 0;
-            };
+            const gui = Gui.init(plug);
 
             const width: i16 = @intCast(gui.getSize().x);
             const height: i16 = @intCast(gui.getSize().y);
@@ -270,7 +266,6 @@ fn dispatch(
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();
-                plug.gui = null;
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
@@ -536,7 +531,9 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
 }
 
 fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
-    if (self.plugin) |plug| plug.interface.deinit(plug);
+    if (self.plugin) |plug| {
+        plug.deinit();
+    }
     alloc.destroy(self.effect);
     alloc.destroy(self);
 }
