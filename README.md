@@ -11,13 +11,13 @@ extending support to other APIs
 
 * Easy comptime parameter generation
 
-### Plugin APIs
+### Plugin Formats
 
-* Basic CLAP audio plugin supporting different types of parameters, sample-accurate automation
+* CLAP: basic audio plugin supporting different types of parameters, sample-accurate automation
 
-* WIP ANV (A.N.V. == **A**NV's **N**ot **V**ST3)
+* VST3: via ANV API (A.N.V. == **A**NV's **N**ot **V**ST3)
 
-* A janky VST2 implementation that works in Reaper and mostly works in other DAWs
+* VST2: still kind of janky implementation that works in Reaper and mostly works in other DAWs
 
 ### DSP
 
@@ -111,6 +111,17 @@ choice with little-to-no platform-specific considerations.
 - [ ] Make GUI optional (should allow cross-compiling)
 
 	- [x] Semi-working by handling user leaving gui null after `gui_init`
+
+## Dependencies
+
+Requires Zig 0.12 stable -- not tracking Zig master branch
+
+* **MacOS**: Xcode Command Line Tools
+
+* **Windows**: Can compile with just Zig, but it's unclear whether the binaries
+will work when cross-compiled from another OS.
+
+* **Linux**: X11
 
 ## Usage
 
@@ -220,8 +231,8 @@ export fn init() *arbor.Plugin {
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
-	const plugin: plugin.getUser(Plugin);
-	plugin.allocator.destroy(plugin);
+	const user = plugin.getUser(Plugin);
+	plugin.allocator.destroy(user);
 }
 
 fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
