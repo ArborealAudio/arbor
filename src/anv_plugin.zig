@@ -127,6 +127,7 @@ const Processor = extern struct {
         return .Ok;
     }
 
+    // TODO: Handle in & out events in here
     fn process(this: ?*anyopaque, data_cptr: ?*anv.ProcessData) callconv(cc) Result {
         const plugin: *Vst3Plugin = @fieldParentPtr("processor", arbor.cast(*Processor, this));
         const plug = plugin.user;
