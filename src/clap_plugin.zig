@@ -355,8 +355,8 @@ const Gui = struct {
                         _ = host_fd.register_fd(clap_plug.host, gui.impl.fd, .{ .FD_READ = true });
                     }
                 }
-                return true;
-            } else return false; // No GUI supplied
+            }
+            return true;
         }
         return false;
     }
@@ -371,7 +371,6 @@ const Gui = struct {
                 }
             }
             plug.gui.?.deinit();
-            plug.gui = null;
         }
     }
 
@@ -549,7 +548,6 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.c) bool {
 pub fn destroy(plugin: ?*const clap.Plugin) callconv(.c) void {
     const clap_plug = plug_cast(plugin);
     if (clap_plug.plugin) |plug| {
-        plug.interface.deinit(plug);
         plug.deinit();
     }
     allocator.destroy(clap_plug);

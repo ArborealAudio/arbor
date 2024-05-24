@@ -59,8 +59,9 @@ pub const Plugin = struct {
     /// User-provided initialization function
     pub extern fn init() *Plugin;
 
-    /// Deinit a Plugin using the allocator passed to it in init().
+    /// Deinit plugin, also calling user deinit function
     pub fn deinit(plugin: *Plugin) void {
+        plugin.interface.deinit(plugin);
         plugin.allocator.free(plugin.params);
         plugin.allocator.destroy(plugin);
     }
@@ -68,6 +69,7 @@ pub const Plugin = struct {
     interface: Interface,
 
     num_channels: u32,
+    // NOTE: Setting these to default values feels dumb, so does undefined
     sample_rate: f32 = undefined,
     max_frames: u32 = undefined,
 
@@ -79,6 +81,8 @@ pub const Plugin = struct {
     allocator: Allocator,
 
     // functions for dealing with a plugin's parameters
+    // NOTE: Why are these not methods within a parameter data type?
+    // With the exception of getParamValue(), they don't need plugin data
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
@@ -146,12 +150,8 @@ pub fn createPlugin(options: InitOptions) *Plugin {
 
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
-<<<<<<< HEAD
     .VST2 => Description,
-=======
-    .VST2 => Plugin.Description,
     .VST3 => {},
->>>>>>> 860bc88 (Improve handling of number of channels)
 };
 
 /// Create a description that satisfies the requirements of the format being compiled for.

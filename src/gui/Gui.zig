@@ -32,22 +32,23 @@ pub const GuiConfig = struct {
 };
 
 pub const Interface = struct {
+    init: *const fn (*Gui) void,
     render: *const fn (*Gui) void,
     deinit: *const fn (*Gui) void,
 };
+
+plugin: *Plugin,
 
 bits: []u32,
 impl: *GuiImpl,
 canvas: draw.Canvas,
 
 interface: Interface,
-layout: LayoutType,
+layout: LayoutType = .default,
 components: std.ArrayList(Component),
 
 in_events: *Queue,
 out_events: *Queue,
-
-allocator: Allocator,
 
 state: struct {
     type: GuiState = .Idle,
@@ -67,7 +68,7 @@ pub fn init(plugin: *Plugin, config: GuiConfig) *Gui {
     const bits = arena.alloc(u32, config.width * config.height) catch |e|
         log.fatal("{}\n", .{e}, @src());
     ptr.* = .{
-        .allocator = arena,
+        .plugin = plugin,
         .bits = bits,
         .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, config.timer_ms, arbor.plugin_name),
         .interface = config.interface,
@@ -83,8 +84,10 @@ pub fn init(plugin: *Plugin, config: GuiConfig) *Gui {
 }
 
 pub fn deinit(self: *Gui) void {
+    const plugin = self.plugin;
     self.interface.deinit(self);
     Platform.guiDestroy(self.impl);
+    plugin.gui = null;
     // self.allocator.free(self.bits);
     // self.components.deinit();
     // self.in_events.deinit();

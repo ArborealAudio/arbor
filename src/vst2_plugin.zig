@@ -268,7 +268,6 @@ fn dispatch(
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();
-                plug.gui = null;
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
