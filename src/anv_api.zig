@@ -444,25 +444,25 @@ pub const ComponentRestartFlags = packed struct(i32) {
 
 pub const Interface = struct {
     pub const Base = extern struct {
-        queryInterface: ?*const fn (this: ?*anyopaque, iid: *const Uid, obj: ?*?*anyopaque) callconv(cc) Result,
-        addRef: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
-        release: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
+        queryInterface: *const fn (this: ?*anyopaque, iid: *const Uid, obj: ?*?*anyopaque) callconv(cc) Result,
+        addRef: *const fn (this: ?*anyopaque) callconv(cc) u32,
+        release: *const fn (this: ?*anyopaque) callconv(cc) u32,
 
         pub const UID = uidCreate(0x00000000, 0x00000000, 0xC0000000, 0x00000046);
     };
 
     pub const HostApplication = extern struct {
         base: Base,
-        getName: ?*const fn (this: ?*anyopaque, name: [128]u16) callconv(cc) Result,
-        createInstance: ?*const fn (this: ?*anyopaque, cid: [*:0]const u8, iid: [*:0]const u8, obj: ?*?*anyopaque) callconv(cc) Result,
+        getName: *const fn (this: ?*anyopaque, name: [128]u16) callconv(cc) Result,
+        createInstance: *const fn (this: ?*anyopaque, cid: [*:0]const u8, iid: [*:0]const u8, obj: ?*?*anyopaque) callconv(cc) Result,
 
         pub const UID = uidCreate(0x58E595CC, 0xDB2D4969, 0x8B6AAF8C, 0x36A664E5);
     };
 
     pub const PluginBase = extern struct {
         base: Base,
-        initialize: ?*const fn (this: ?*anyopaque, context: ?*Base) callconv(cc) Result,
-        terminate: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
+        initialize: *const fn (this: ?*anyopaque, context: ?*Base) callconv(cc) Result,
+        terminate: *const fn (this: ?*anyopaque) callconv(cc) Result,
 
         pub const UID = uidCreate(0x22888DDB, 0x156E45AE, 0x8358B348, 0x08190625);
     };
@@ -470,21 +470,21 @@ pub const Interface = struct {
     /// extends `PluginBase`
     pub const Component = extern struct {
         base: PluginBase,
-        getControllerClass: ?*const fn (this: ?*anyopaque, cid: *Uid) callconv(cc) Result,
-        setIoMode: ?*const fn (this: ?*anyopaque, mode: IoMode) callconv(cc) Result,
-        getBusCount: ?*const fn (this: ?*anyopaque, type: MediaType, dir: BusDirection) callconv(cc) i32,
-        getBusInfo: ?*const fn (
+        getControllerClass: *const fn (this: ?*anyopaque, cid: *Uid) callconv(cc) Result,
+        setIoMode: *const fn (this: ?*anyopaque, mode: IoMode) callconv(cc) Result,
+        getBusCount: *const fn (this: ?*anyopaque, type: MediaType, dir: BusDirection) callconv(cc) i32,
+        getBusInfo: *const fn (
             this: ?*anyopaque,
             type: MediaType,
             dir: BusDirection,
             index: i32,
             bus: ?*BusInfo,
         ) callconv(cc) Result,
-        getRoutingInfo: ?*const fn (this: ?*anyopaque, in_info: ?*RoutingInfo, out_info: ?*RoutingInfo) callconv(cc) Result,
-        activateBus: ?*const fn (this: ?*anyopaque, type: MediaType, dir: BusDirection, index: i32, state: bool) callconv(cc) Result,
-        setActive: ?*const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
-        setState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
-        getState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        getRoutingInfo: *const fn (this: ?*anyopaque, in_info: ?*RoutingInfo, out_info: ?*RoutingInfo) callconv(cc) Result,
+        activateBus: *const fn (this: ?*anyopaque, type: MediaType, dir: BusDirection, index: i32, state: bool) callconv(cc) Result,
+        setActive: *const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
+        setState: *const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        getState: *const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
 
         pub const Flags = packed struct(u32) {
             Distributable: bool = false,
@@ -498,74 +498,74 @@ pub const Interface = struct {
     /// An interface that works in tandem with `Component` to form a plugin
     pub const AudioProcessor = extern struct {
         base: Base,
-        setBusArrangements: ?*const fn (
+        setBusArrangements: *const fn (
             this: ?*anyopaque,
             inputs: ?*SpeakerArrangement,
             num_in: i32,
             outputs: ?*SpeakerArrangement,
             num_out: i32,
         ) callconv(cc) Result,
-        getBusArrangement: ?*const fn (this: ?*anyopaque, dir: BusDirection, index: i32, arr: ?*SpeakerArrangement) callconv(cc) Result,
-        canProcessSampleSize: ?*const fn (this: ?*anyopaque, size: SampleSize) callconv(cc) Result,
-        getLatencySamples: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
-        setupProcessing: ?*const fn (this: ?*anyopaque, setup: ?*ProcessSetup) callconv(cc) Result,
-        setProcessing: ?*const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
-        process: ?*const fn (this: ?*anyopaque, data: ?*ProcessData) callconv(cc) Result,
-        getTailSamples: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
+        getBusArrangement: *const fn (this: ?*anyopaque, dir: BusDirection, index: i32, arr: ?*SpeakerArrangement) callconv(cc) Result,
+        canProcessSampleSize: *const fn (this: ?*anyopaque, size: SampleSize) callconv(cc) Result,
+        getLatencySamples: *const fn (this: ?*anyopaque) callconv(cc) u32,
+        setupProcessing: *const fn (this: ?*anyopaque, setup: ?*ProcessSetup) callconv(cc) Result,
+        setProcessing: *const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
+        process: *const fn (this: ?*anyopaque, data: ?*ProcessData) callconv(cc) Result,
+        getTailSamples: *const fn (this: ?*anyopaque) callconv(cc) u32,
 
         pub const UID = uidCreate(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
     };
 
     pub const ProcessContextRequirements = extern struct {
         base: Base,
-        getProcessContextRequirements: ?*const fn (this: ?*anyopaque) ProcessContext.Requirements,
+        getProcessContextRequirements: *const fn (this: ?*anyopaque) ProcessContext.Requirements,
 
         pub const UID = uidCreate(0x2A654303, 0xEF764E3D, 0x95B5FE83, 0x730EF6D0);
     };
 
     pub const EditController = extern struct {
         base: PluginBase,
-        setComponentState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
-        setState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
-        getState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
-        getParameterCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
-        getParameterInfo: ?*const fn (this: ?*anyopaque, param_index: i32, info: ?*ParameterInfo) callconv(cc) Result,
-        getParamStringByValue: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64, string: *Wstr) callconv(cc) Result,
-        getParamValueByString: ?*const fn (this: ?*anyopaque, id: u32, string: [*:0]u16, value_normalized: ?*f64) callconv(cc) Result,
-        normalizedParamToPlain: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) f64,
-        plainParamToNormalized: ?*const fn (this: ?*anyopaque, id: u32, plain_value: f64) callconv(cc) f64,
-        getParamNormalized: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) f64,
-        setParamNormalized: ?*const fn (this: ?*anyopaque, id: u32, value: f64) callconv(cc) Result,
-        setComponentHandler: ?*const fn (this: ?*anyopaque, handler: ?*?*ComponentHandler) callconv(cc) Result,
-        createView: ?*const fn (this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?**const View,
+        setComponentState: *const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        setState: *const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        getState: *const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        getParameterCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
+        getParameterInfo: *const fn (this: ?*anyopaque, param_index: i32, info: ?*ParameterInfo) callconv(cc) Result,
+        getParamStringByValue: *const fn (this: ?*anyopaque, id: u32, value_normalized: f64, string: *Wstr) callconv(cc) Result,
+        getParamValueByString: *const fn (this: ?*anyopaque, id: u32, string: [*:0]u16, value_normalized: ?*f64) callconv(cc) Result,
+        normalizedParamToPlain: *const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) f64,
+        plainParamToNormalized: *const fn (this: ?*anyopaque, id: u32, plain_value: f64) callconv(cc) f64,
+        getParamNormalized: *const fn (this: ?*anyopaque, id: u32) callconv(cc) f64,
+        setParamNormalized: *const fn (this: ?*anyopaque, id: u32, value: f64) callconv(cc) Result,
+        setComponentHandler: *const fn (this: ?*anyopaque, handler: ?*?*ComponentHandler) callconv(cc) Result,
+        createView: *const fn (this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?**const View,
 
         pub const UID = uidCreate(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);
     };
 
     pub const ComponentHandler = extern struct {
         base: Base,
-        beginEdit: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) Result,
-        performEdit: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) Result,
-        endEdit: ?*const fn (this: ?*anyopaque, id: u32) callconv(cc) Result,
-        restartComponent: ?*const fn (this: ?*anyopaque, flags: ComponentRestartFlags) callconv(cc) Result,
+        beginEdit: *const fn (this: ?*anyopaque, id: u32) callconv(cc) Result,
+        performEdit: *const fn (this: ?*anyopaque, id: u32, value_normalized: f64) callconv(cc) Result,
+        endEdit: *const fn (this: ?*anyopaque, id: u32) callconv(cc) Result,
+        restartComponent: *const fn (this: ?*anyopaque, flags: ComponentRestartFlags) callconv(cc) Result,
 
         pub const UID = uidCreate(0x93A0BEA3, 0x0BD045DB, 0x8E890B0C, 0xC1E46AC6);
     };
 
     pub const View = extern struct {
         base: Base,
-        isPlatformTypeSupported: ?*const fn (this: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result,
-        attached: ?*const fn (this: ?*anyopaque, parent: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result,
-        removed: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
-        onWheel: ?*const fn (this: ?*anyopaque, distance: f32) callconv(cc) Result,
-        onKeyDown: ?*const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
-        onKeyUp: ?*const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
-        getSize: ?*const fn (this: ?*anyopaque, size: ?*Rect) callconv(cc) Result,
-        onSize: ?*const fn (this: ?*anyopaque, new_size: ?*Rect) callconv(cc) Result,
-        onFocus: ?*const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
-        setFrame: ?*const fn (this: ?*anyopaque, frame: ?*?*Frame) callconv(cc) Result,
-        canResize: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
-        checkSizeConstraint: ?*const fn (this: ?*anyopaque, rect: ?*Rect) callconv(cc) Result,
+        isPlatformTypeSupported: *const fn (this: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result,
+        attached: *const fn (this: ?*anyopaque, parent: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result,
+        removed: *const fn (this: ?*anyopaque) callconv(cc) Result,
+        onWheel: *const fn (this: ?*anyopaque, distance: f32) callconv(cc) Result,
+        onKeyDown: *const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
+        onKeyUp: *const fn (this: ?*anyopaque, key: u16, key_code: i16, modifiers: i16) callconv(cc) Result,
+        getSize: *const fn (this: ?*anyopaque, size: ?*Rect) callconv(cc) Result,
+        onSize: *const fn (this: ?*anyopaque, new_size: ?*Rect) callconv(cc) Result,
+        onFocus: *const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
+        setFrame: *const fn (this: ?*anyopaque, frame: ?*?*Frame) callconv(cc) Result,
+        canResize: *const fn (this: ?*anyopaque) callconv(cc) Result,
+        checkSizeConstraint: *const fn (this: ?*anyopaque, rect: ?*Rect) callconv(cc) Result,
 
         pub const PlatformType = struct {
             /// Windows
@@ -585,30 +585,30 @@ pub const Interface = struct {
 
     pub const Frame = extern struct {
         base: Base,
-        resizeView: ?*const fn (this: ?*anyopaque, view: ?*?*View, new_size: ?*Rect) callconv(cc) Result,
+        resizeView: *const fn (this: ?*anyopaque, view: ?*?*View, new_size: ?*Rect) callconv(cc) Result,
 
         pub const UID = uidCreate(0x367FAF01, 0xAFA94693, 0x8D4DA2A0, 0xED0882A3);
     };
 
     pub const Factory = extern struct {
         base: Base,
-        getFactoryInfo: ?*const fn (this: ?*anyopaque, info: ?*Info) callconv(cc) Result,
-        countClasses: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
-        getClassInfo: ?*const fn (this: ?*anyopaque, index: i32, info: ?*ClassInfo) callconv(cc) Result,
-        createInstance: ?*const fn (
+        getFactoryInfo: *const fn (this: ?*anyopaque, info: ?*Info) callconv(cc) Result,
+        countClasses: *const fn (this: ?*anyopaque) callconv(cc) i32,
+        getClassInfo: *const fn (this: ?*anyopaque, index: i32, info: ?*ClassInfo) callconv(cc) Result,
+        createInstance: *const fn (
             this: ?*anyopaque,
             cid: [*:0]const u8,
             iid: [*:0]const u8,
             obj: ?*?*anyopaque,
         ) callconv(cc) Result,
         // what will happen if we just...put the other functions in here?
-        getClassInfo2: ?*const fn (this: ?*anyopaque, index: i32, info: ?*ClassInfo2) callconv(cc) Result,
-        getClassInfoUnicode: ?*const fn (
+        getClassInfo2: *const fn (this: ?*anyopaque, index: i32, info: ?*ClassInfo2) callconv(cc) Result,
+        getClassInfoUnicode: *const fn (
             this: ?*anyopaque,
             index: i32,
             info: ?*ClassInfoW,
         ) callconv(cc) Result,
-        setHostContext: ?*const fn (this: ?*anyopaque, context: ?*Base) callconv(cc) Result,
+        setHostContext: *const fn (this: ?*anyopaque, context: ?*Base) callconv(cc) Result,
 
         pub const Info = extern struct {
             vendor: [64]u8,
@@ -634,32 +634,32 @@ pub const Interface = struct {
 
     pub const Stream = extern struct {
         base: Base,
-        read: ?*const fn (this: ?*anyopaque, buffer: ?*anyopaque, num_bytes: i32, bytes_read: ?*i32) callconv(cc) Result,
-        write: ?*const fn (this: ?*anyopaque, buffer: ?*anyopaque, num_bytes: i32, bytes_written: ?*i32) callconv(cc) Result,
-        seek: ?*const fn (this: ?*anyopaque, pos: i64, mode: i32, result: ?*i64) callconv(cc) Result,
-        tell: ?*const fn (this: ?*anyopaque, pos: ?*i64) callconv(cc) Result,
+        read: *const fn (this: ?*anyopaque, buffer: ?*anyopaque, num_bytes: i32, bytes_read: ?*i32) callconv(cc) Result,
+        write: *const fn (this: ?*anyopaque, buffer: ?*anyopaque, num_bytes: i32, bytes_written: ?*i32) callconv(cc) Result,
+        seek: *const fn (this: ?*anyopaque, pos: i64, mode: i32, result: ?*i64) callconv(cc) Result,
+        tell: *const fn (this: ?*anyopaque, pos: ?*i64) callconv(cc) Result,
 
         pub const UID = uidCreate(0xC3BF6EA2, 0x30994752, 0x9B6BF990, 0x1EE33E9B);
     };
 
     pub const EventList = extern struct {
         base: Base,
-        getEventCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
-        getEvent: ?*const fn (this: ?*anyopaque, index: i32, event: ?*Event) callconv(cc) Result,
-        addEvent: ?*const fn (this: ?*anyopaque, event: ?*Event) callconv(cc) Result,
+        getEventCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
+        getEvent: *const fn (this: ?*anyopaque, index: i32, event: ?*Event) callconv(cc) Result,
+        addEvent: *const fn (this: ?*anyopaque, event: ?*Event) callconv(cc) Result,
 
         pub const UID = uidCreate(0x3A2C4214, 0x346349FE, 0xB2C4F397, 0xB9695A44);
     };
 
     pub const ParamValueQueue = extern struct {
         base: Base,
-        getParameterId: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
+        getParameterId: *const fn (this: ?*anyopaque) callconv(cc) u32,
         /// Number of 'points' (instances of change in a block of audio samples)
-        getPointCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
+        getPointCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
         /// Get value from param @ `index` at a given sample offset
-        getPoint: ?*const fn (this: ?*anyopaque, index: i32, sample_offset: ?*i32, value: ?*f64) callconv(cc) Result,
+        getPoint: *const fn (this: ?*anyopaque, index: i32, sample_offset: ?*i32, value: ?*f64) callconv(cc) Result,
         /// Push a param value at a given sample offset. Returns resulting index into queue
-        addPoint: ?*const fn (this: ?*anyopaque, sample_offset: i32, value: f64, index: ?*i32) callconv(cc) Result,
+        addPoint: *const fn (this: ?*anyopaque, sample_offset: i32, value: f64, index: ?*i32) callconv(cc) Result,
 
         pub const UID = uidCreate(0x01263A18, 0xED074F6F, 0x98C9D356, 0x4686F9BA);
     };
@@ -667,12 +667,12 @@ pub const Interface = struct {
     pub const ParameterChange = extern struct {
         base: Base,
         /// Number of parameter changes
-        getParameterCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
+        getParameterCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
         /// Get a queue of changes at `index` position in the changes list
-        getParameterData: ?*const fn (this: ?*anyopaque, index: i32) callconv(cc) ?*?*ParamValueQueue,
+        getParameterData: *const fn (this: ?*anyopaque, index: i32) callconv(cc) ?*?*ParamValueQueue,
         /// Add a queue of parameter changes with `id`, returns a pointer to the new
         /// queue and `index` will be set to its index in the changes list
-        addParameterData: ?*const fn (this: ?*anyopaque, id: ?*const u32, index: ?*i32) callconv(cc) ?*?*ParamValueQueue,
+        addParameterData: *const fn (this: ?*anyopaque, id: ?*const u32, index: ?*i32) callconv(cc) ?*?*ParamValueQueue,
 
         pub const UID = uidCreate(0xA4779663, 0x0BB64A56, 0xB44384A8, 0x466FEB9D);
     };
