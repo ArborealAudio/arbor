@@ -212,10 +212,10 @@ pub const ProcessData = extern struct {
     num_outputs: i32,
     inputs: ?*AudioBuffer,
     outputs: ?*AudioBuffer,
-    in_param_changes: ?*Interface.ParameterChange,
-    out_param_changes: ?*Interface.ParameterChange,
-    in_events: ?*Interface.EventList,
-    out_events: ?*Interface.EventList,
+    in_param_changes: ?*?*Interface.ParameterChange,
+    out_param_changes: ?*?*Interface.ParameterChange,
+    in_events: ?*?*Interface.EventList,
+    out_events: ?*?*Interface.EventList,
     process_context: ?*ProcessContext,
 };
 
@@ -483,8 +483,8 @@ pub const Interface = struct {
         getRoutingInfo: ?*const fn (this: ?*anyopaque, in_info: ?*RoutingInfo, out_info: ?*RoutingInfo) callconv(cc) Result,
         activateBus: ?*const fn (this: ?*anyopaque, type: MediaType, dir: BusDirection, index: i32, state: bool) callconv(cc) Result,
         setActive: ?*const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
-        setState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
-        getState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
+        setState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        getState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
 
         pub const Flags = packed struct(u32) {
             Distributable: bool = false,
@@ -525,9 +525,9 @@ pub const Interface = struct {
 
     pub const EditController = extern struct {
         base: PluginBase,
-        setComponentState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
-        setState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
-        getState: ?*const fn (this: ?*anyopaque, state: ?*Stream) callconv(cc) Result,
+        setComponentState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        setState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
+        getState: ?*const fn (this: ?*anyopaque, state: ?*?*Stream) callconv(cc) Result,
         getParameterCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
         getParameterInfo: ?*const fn (this: ?*anyopaque, param_index: i32, info: ?*ParameterInfo) callconv(cc) Result,
         getParamStringByValue: ?*const fn (this: ?*anyopaque, id: u32, value_normalized: f64, string: *Wstr) callconv(cc) Result,
@@ -563,7 +563,7 @@ pub const Interface = struct {
         getSize: ?*const fn (this: ?*anyopaque, size: ?*Rect) callconv(cc) Result,
         onSize: ?*const fn (this: ?*anyopaque, new_size: ?*Rect) callconv(cc) Result,
         onFocus: ?*const fn (this: ?*anyopaque, state: bool) callconv(cc) Result,
-        setFrame: ?*const fn (this: ?*anyopaque, frame: ?*Frame) callconv(cc) Result,
+        setFrame: ?*const fn (this: ?*anyopaque, frame: ?*?*Frame) callconv(cc) Result,
         canResize: ?*const fn (this: ?*anyopaque) callconv(cc) Result,
         checkSizeConstraint: ?*const fn (this: ?*anyopaque, rect: ?*Rect) callconv(cc) Result,
 
@@ -585,7 +585,7 @@ pub const Interface = struct {
 
     pub const Frame = extern struct {
         base: Base,
-        resizeView: ?*const fn (this: ?*anyopaque, view: ?*View, new_size: ?*Rect) callconv(cc) Result,
+        resizeView: ?*const fn (this: ?*anyopaque, view: ?*?*View, new_size: ?*Rect) callconv(cc) Result,
 
         pub const UID = uidCreate(0x367FAF01, 0xAFA94693, 0x8D4DA2A0, 0xED0882A3);
     };
@@ -654,8 +654,11 @@ pub const Interface = struct {
     pub const ParamValueQueue = extern struct {
         base: Base,
         getParameterId: ?*const fn (this: ?*anyopaque) callconv(cc) u32,
+        /// Number of 'points' (instances of change in a block of audio samples)
         getPointCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
+        /// Get value from param @ `index` at a given sample offset
         getPoint: ?*const fn (this: ?*anyopaque, index: i32, sample_offset: ?*i32, value: ?*f64) callconv(cc) Result,
+        /// Push a param value at a given sample offset. Returns resulting index into queue
         addPoint: ?*const fn (this: ?*anyopaque, sample_offset: i32, value: f64, index: ?*i32) callconv(cc) Result,
 
         pub const UID = uidCreate(0x01263A18, 0xED074F6F, 0x98C9D356, 0x4686F9BA);
@@ -663,9 +666,13 @@ pub const Interface = struct {
 
     pub const ParameterChange = extern struct {
         base: Base,
+        /// Number of parameter changes
         getParameterCount: ?*const fn (this: ?*anyopaque) callconv(cc) i32,
-        getParameterData: ?*const fn (this: ?*anyopaque, index: i32) callconv(cc) ?*ParamValueQueue,
-        addParameterData: ?*const fn (this: ?*anyopaque, id: ?*const u32, index: ?*i32) callconv(cc) ?*ParamValueQueue,
+        /// Get a queue of changes at `index` position in the changes list
+        getParameterData: ?*const fn (this: ?*anyopaque, index: i32) callconv(cc) ?*?*ParamValueQueue,
+        /// Add a queue of parameter changes with `id`, returns a pointer to the new
+        /// queue and `index` will be set to its index in the changes list
+        addParameterData: ?*const fn (this: ?*anyopaque, id: ?*const u32, index: ?*i32) callconv(cc) ?*?*ParamValueQueue,
 
         pub const UID = uidCreate(0xA4779663, 0x0BB64A56, 0xB44384A8, 0x466FEB9D);
     };
