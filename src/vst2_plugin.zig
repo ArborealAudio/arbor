@@ -520,7 +520,6 @@ pub fn init(host_callback: vst2.HostCallback) !*vst2.AEffect {
 
 pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
     const plug = self.plugin;
-    plug.interface.deinit(plug);
     plug.deinit();
     self.in_events.deinit();
     alloc.destroy(self.effect);
