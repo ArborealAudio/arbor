@@ -270,13 +270,17 @@ pub const BundleStep = struct {
                     defer out_dir.close();
                     _ = try std.fs.cwd().updateFile(gen_file, out_dir, out_file, .{});
                 } else {
+                    const bin_filename = if (target_os == .linux)
+                        try std.mem.concat(b.allocator, u8, &.{ out_name, ".so" })
+                    else
+                        out_file;
                     const bundle = b.pathJoin(&.{ out_file, "Contents" });
                     const os_name = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag);
                     var bundle_dir = try std.fs.cwd().makeOpenPath(b.pathJoin(&.{ dest, bundle }), .{});
                     defer bundle_dir.close();
                     _ = try std.fs.cwd().updateFile(gen_file, bundle_dir, b.pathJoin(&.{
                         os_name,
-                        out_file,
+                        bin_filename,
                     }), .{});
                 }
             },
