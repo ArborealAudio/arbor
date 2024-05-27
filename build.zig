@@ -265,9 +265,20 @@ pub const BundleStep = struct {
                 try bndl.writeAll("BNDL????");
             },
             .windows, .linux => {
-                var out_dir = try std.fs.cwd().makeOpenPath(dest, .{});
-                defer out_dir.close();
-                _ = try std.fs.cwd().updateFile(gen_file, out_dir, out_file, .{});
+                if (self.format != .VST3) {
+                    var out_dir = try std.fs.cwd().makeOpenPath(dest, .{});
+                    defer out_dir.close();
+                    _ = try std.fs.cwd().updateFile(gen_file, out_dir, out_file, .{});
+                } else {
+                    const bundle = b.pathJoin(&.{ out_file, "Contents" });
+                    const os_name = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag);
+                    var bundle_dir = try std.fs.cwd().makeOpenPath(b.pathJoin(&.{ dest, bundle }), .{});
+                    defer bundle_dir.close();
+                    _ = try std.fs.cwd().updateFile(gen_file, bundle_dir, b.pathJoin(&.{
+                        os_name,
+                        out_file,
+                    }), .{});
+                }
             },
             else => @panic("Unsupported OS"),
         }
@@ -351,7 +362,7 @@ pub const CopyStep = struct {
                 else => @panic("Unsupported OS"),
             },
         };
-        const plugin_dest_path = if (os == .macos) b.pathJoin(&.{
+        const plugin_dest_path = if (os == .macos or format == .VST3) b.pathJoin(&.{
             sys_install_path,
             bundle_name,
         }) else sys_install_path;
@@ -359,7 +370,7 @@ pub const CopyStep = struct {
         var plugin_dir = try std.fs.cwd().makeOpenPath(plugin_dest_path, .{});
         defer plugin_dir.close();
 
-        if (os == .macos) {
+        if (os == .macos or format == .VST3) {
             var bundle_dir = try std.fs.cwd().makeOpenPath(bundle_path, .{ .iterate = true });
             defer bundle_dir.close();
             try copyRecursive(b.allocator, bundle_dir, plugin_dir);
