@@ -127,36 +127,49 @@ const Processor = extern struct {
         return .Ok;
     }
 
-    // TODO: Handle in & out events in here
     fn process(this: ?*anyopaque, data_cptr: ?*anv.ProcessData) callconv(cc) Result {
         const plugin: *Vst3Plugin = @fieldParentPtr("processor", arbor.cast(*Processor, this));
         const plug = plugin.user;
-        if (data_cptr) |data| {
-            const input = data.inputs orelse {
-                log.err("Input data null\n", .{}, @src());
-                return .InvalidArgument;
-            };
-            const output = data.outputs orelse {
-                log.err("Output data null\n", .{}, @src());
-                return .InvalidArgument;
-            };
-            const uframes: usize = @intCast(data.num_samples);
-            const num_ch: usize = @intCast(@min(input.num_channels, output.num_channels));
-            assert(uframes <= plug.max_frames);
-            assert(num_ch <= arbor.Plugin.num_channels);
+        const data = data_cptr orelse {
+            log.err("ProcessData is null\n", .{}, @src());
+            return .InvalidArgument;
+        };
+        const out_changes = data.out_param_changes orelse {
+            log.err("Out param changes is null\n", .{}, @src());
+            return .InvalidArgument;
+        };
+        if (plug.gui) |_| plugin.processOutEvents(out_changes);
+        plugin.processInEvents();
 
+        const input = data.inputs orelse {
+            log.err("Input data null\n", .{}, @src());
+            return .InvalidArgument;
+        };
+        const output = data.outputs orelse {
+            log.err("Output data null\n", .{}, @src());
+            return .InvalidArgument;
+        };
+        const num_frames: u32 = @intCast(data.num_samples);
+        assert(num_frames <= plug.max_frames);
+        const num_ch: usize = @intCast(@min(input.num_channels, output.num_channels));
+        assert(num_ch <= arbor.Plugin.num_channels);
+        var frame: u32 = 0;
+        // TODO: Figure out sample-accurate automation with this insane API
+        // NOTE: You almost need to work with in inside-out to get an ordered list
+        // of changes for *all* parameters
+        while (frame < num_frames) {
             const buffer = arbor.AudioBuffer(f32){
                 .input = make: {
                     var buf: [arbor.Plugin.num_channels][]f32 = undefined;
                     for (0..@intCast(input.num_channels)) |ch| {
-                        buf[ch] = input.data.buffer32[ch][0..uframes];
+                        buf[ch] = input.data.buffer32[ch][frame .. frame + num_frames];
                     }
                     break :make buf[0..num_ch];
                 },
                 .output = make: {
                     var buf: [arbor.Plugin.num_channels][]f32 = undefined;
                     for (0..@intCast(output.num_channels)) |ch| {
-                        buf[ch] = output.data.buffer32[ch][0..uframes];
+                        buf[ch] = output.data.buffer32[ch][frame .. frame + num_frames];
                     }
                     break :make buf[0..num_ch];
                 },
@@ -165,6 +178,7 @@ const Processor = extern struct {
             };
 
             plug.interface.process(plug, buffer);
+            frame += num_frames;
         }
         return .Ok;
     }
@@ -354,13 +368,13 @@ const Component = extern struct {
         return .Ok;
     }
 
-    fn setState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+    fn setState(this: ?*anyopaque, state: ?*?*anv.Interface.Stream) callconv(cc) Result {
         // TODO
         _ = this;
         _ = state;
         return .Ok;
     }
-    fn getState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+    fn getState(this: ?*anyopaque, state: ?*?*anv.Interface.Stream) callconv(cc) Result {
         _ = this;
         _ = state;
         return .Ok;
@@ -426,7 +440,7 @@ const Controller = extern struct {
 
         if (ref_count > 0) return ref_count;
 
-        _ = if (self.handler) |handler| if (handler.base.release) |rel| rel(handler);
+        _ = if (self.handler) |handler| handler.base.release(handler);
 
         const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
         plugin.deinit();
@@ -447,14 +461,14 @@ const Controller = extern struct {
     }
 
     /// Propagate the Controller's state to its corresponding `Component`
-    fn setComponentState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+    fn setComponentState(this: ?*anyopaque, state: ?*?*anv.Interface.Stream) callconv(cc) Result {
         _ = this;
         _ = state;
         return .NotImplemented;
     }
 
     /// Assuming this is getting state from the host which we will send to the `Component`
-    fn setState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+    fn setState(this: ?*anyopaque, state: ?*?*anv.Interface.Stream) callconv(cc) Result {
         // TODO
         _ = this;
         _ = state;
@@ -462,7 +476,7 @@ const Controller = extern struct {
     }
 
     /// Assuming this is sending state to the host
-    fn getState(this: ?*anyopaque, state: ?*anv.Interface.Stream) callconv(cc) Result {
+    fn getState(this: ?*anyopaque, state: ?*?*anv.Interface.Stream) callconv(cc) Result {
         // TODO
         _ = this;
         _ = state;
@@ -609,8 +623,12 @@ const Controller = extern struct {
             log.err("Invalid param ID\n", .{}, @src());
             return .InvalidArgument;
         }
-        const param = plug.param_info[id];
-        plug.params[id] = param.valueFromNormalized(@floatCast(value));
+        plugin.in_events.push_try(.{
+            .param_change = .{ .id = id, .value = @floatCast(value) },
+        }) catch |e| {
+            log.err("in_events push failed: {!}\n", .{e}, @src());
+            return .InternalError;
+        };
         return .Ok;
     }
 
@@ -618,7 +636,7 @@ const Controller = extern struct {
         const self = arbor.cast(*Controller, this);
         if (handler_cptr) |_| {
             log.debug("TODO, maybe\n", .{}, @src());
-            _ = if (self.handler) |old| if (old.base.release) |rel| rel(old);
+            _ = if (self.handler) |old| old.base.release(old);
             return .Ok;
         }
         log.err("Handler is null\n", .{}, @src());
@@ -796,7 +814,7 @@ const View = extern struct {
         return .Ok;
     }
 
-    fn setFrame(this: ?*anyopaque, frame: ?*anv.Interface.Frame) callconv(cc) Result {
+    fn setFrame(this: ?*anyopaque, frame: ?*?*anv.Interface.Frame) callconv(cc) Result {
         _ = this;
         _ = frame;
         return .Ok;
@@ -842,10 +860,35 @@ const Vst3Plugin = extern struct {
 
     user: *arbor.Plugin,
 
+    in_events: *arbor.Queue,
+
+    pub fn init() !*Vst3Plugin {
+        const plugin = try allocator.create(Vst3Plugin);
+        plugin.* = Vst3Plugin{
+            .component = .{
+                .vtable = &Component.vtable,
+                .ref_counter = RefCounter.init(1),
+            },
+            .processor = .{
+                .vtable = &Processor.vtable,
+                .ref_counter = RefCounter.init(1),
+            },
+            .controller = .{
+                .vtable = &Controller.vtable,
+                .ref_counter = RefCounter.init(1),
+                .handler = null,
+            },
+            .user = undefined,
+            .in_events = try arbor.Queue.init(allocator),
+        };
+        return plugin;
+    }
+
     pub fn deinit(self: *Vst3Plugin) void {
         const total_refs = self.getTotalRefCount();
         if (total_refs == 0) {
             log.debug("All refs released, destroying plugin\n", .{}, @src());
+            self.in_events.deinit();
             allocator.destroy(self);
         } else {
             log.err("Deinit called with non-zero refcount | Count: {d}\n", .{total_refs}, @src());
@@ -858,6 +901,70 @@ const Vst3Plugin = extern struct {
         total += self.processor.ref_counter.load(.acquire);
         total += self.controller.ref_counter.load(.acquire);
         return total;
+    }
+
+    /// Process events from automation & send to GUI if needed.
+    pub fn processInEvents(self: *Vst3Plugin) void {
+        if (self.in_events.mutex.tryLock()) {
+            defer self.in_events.mutex.unlock();
+            while (self.in_events.next_no_lock()) |event| {
+                switch (event) {
+                    .param_change => |change| {
+                        const id = change.id;
+                        const value = change.value;
+                        self.user.params[id] = self.user.param_info[id]
+                            .valueFromNormalized(value);
+
+                        if (self.user.gui) |gui| {
+                            gui.in_events.push_try(event) catch |e| {
+                                log.err("{!}\n", .{e}, @src());
+                            };
+
+                            gui.requestDraw();
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    /// Process events from GUI
+    pub fn processOutEvents(
+        self: *Vst3Plugin,
+        out_changes: *?*anv.Interface.ParameterChange,
+    ) void {
+        const plug = self.user;
+        const gui = plug.gui orelse {
+            log.err("GUI is null\n", .{}, @src());
+            assert(false);
+            return;
+        };
+        while (gui.out_events.next_try()) |event| {
+            switch (event) {
+                .param_change => |change| {
+                    const param = plug.param_info[change.id];
+                    plug.params[change.id] = param.valueFromNormalized(change.value);
+
+                    var out_id: i32 = 0;
+                    const vtbl = anv.getInterface(anv.Interface.ParameterChange, out_changes) catch {
+                        log.err("ParameterChange vtable is null\n", .{}, @src());
+                        return;
+                    };
+                    const queue = vtbl.addParameterData(
+                        @ptrCast(out_changes),
+                        &@as(u32, @intCast(change.id)),
+                        &out_id,
+                    );
+                    const q_vtbl = anv.getInterface(anv.Interface.ParamValueQueue, queue) catch {
+                        log.err("addParameterData failed\n", .{}, @src());
+                        return;
+                    };
+                    const result = q_vtbl.addPoint(@ptrCast(queue), 0, @floatCast(change.value), &out_id);
+                    if (result != .Ok)
+                        log.err("addPoint failed: {s}\n", .{@tagName(result)}, @src());
+                },
+            }
+        }
     }
 };
 
@@ -962,23 +1069,9 @@ const Factory = extern struct {
         {
             if (obj) |o| {
                 log.debug("Creating: {s}\n", .{anv.uidToStr(iid[0..anv.uid_len])}, @src());
-                const plugin = allocator.create(Vst3Plugin) catch |e|
-                    log.fatal("{!}\n", .{e}, @src());
-                plugin.* = Vst3Plugin{
-                    .component = .{
-                        .vtable = &Component.vtable,
-                        .ref_counter = RefCounter.init(1),
-                    },
-                    .processor = .{
-                        .vtable = &Processor.vtable,
-                        .ref_counter = RefCounter.init(1),
-                    },
-                    .controller = .{
-                        .vtable = &Controller.vtable,
-                        .ref_counter = RefCounter.init(1),
-                        .handler = null,
-                    },
-                    .user = undefined,
+                const plugin = Vst3Plugin.init() catch |e| {
+                    log.err("{!}\n", .{e}, @src());
+                    return .InternalError;
                 };
                 o.* = &plugin.component;
                 return .Ok;
@@ -1055,17 +1148,18 @@ const Factory = extern struct {
         return .NotOk;
     }
 
-    fn setHostContext(this: ?*anyopaque, context: ?*anv.Interface.Base) callconv(cc) Result {
+    fn setHostContext(this: ?*anyopaque, context: ?*?*anv.Interface.Base) callconv(cc) Result {
         const self = arbor.cast(*Factory, this);
-        if (context) |_| {
-            log.debug("\n", .{}, @src());
-            _ = if (self.host_ctx) |old_ctx| if (old_ctx.release) |rel| rel(old_ctx);
-            // if (ctx.addRef) |add| _ = add(ctx);
-            // self.host_ctx = ctx;
-            return .Ok;
-        }
-        log.err("Host context is null\n", .{}, @src());
-        return .InvalidArgument;
+        const host = anv.getInterface(anv.Interface.Base, context) catch
+            return .InvalidArgument;
+        if (host.queryInterface(
+            host,
+            &anv.Interface.HostApplication.UID,
+            @ptrCast(&self.host_ctx),
+        ) != .Ok)
+            return .InternalError;
+
+        return .Ok;
     }
 
     const vtable = anv.Interface.Factory{
