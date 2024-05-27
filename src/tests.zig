@@ -25,6 +25,8 @@ export fn init() *arbor.Plugin {
     });
 }
 
+export fn gui_create(_: *arbor.Plugin, _: *arbor.Gui.Config) void {}
+
 fn deinit(_: *arbor.Plugin) void {}
 
 fn prepare(_: *arbor.Plugin, _: f32, _: u32) void {}
@@ -137,7 +139,7 @@ test "VST2" {
         for (params, 0..) |*p, i| {
             if (aeffect.getParameter) |get| {
                 p.* = get(aeffect, @intCast(i));
-                std.debug.print("p{d}: {d}\n", .{ i, p.* });
+                std.debug.print("param {d}: {d}\n", .{ i, p.* });
             }
         }
 
