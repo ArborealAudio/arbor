@@ -1154,7 +1154,7 @@ const Factory = extern struct {
         const host = anv.getInterface(anv.Interface.Base, context) catch
             return .InvalidArgument;
         if (host.queryInterface(
-            host,
+            @ptrCast(context),
             &anv.Interface.HostApplication.UID,
             @ptrCast(&self.host_ctx),
         ) != .Ok)
