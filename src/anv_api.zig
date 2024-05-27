@@ -67,6 +67,19 @@ pub fn uidToStr(uid: *const Uid) []const u8 {
     return "UnknownInterface";
 }
 
+/// Get an interface's vtable pointer from a pointer to one
+pub fn getInterface(comptime Iface: type, iface: ?*?*Iface) !*Iface {
+    if (iface) |outer| {
+        if (outer.*) |vtbl| return vtbl else {
+            std.log.err("Inner {s} vtable is null\n", .{@typeName(Iface)});
+            return error.NoInterface;
+        }
+    } else {
+        std.log.err("Ptr to {s} vtable null\n", .{@typeName(Iface)});
+        return error.NoInterface;
+    }
+}
+
 pub const Result = if (builtin.os.tag != .windows) enum(i32) {
     NoInterface = -1,
     Ok = 0,
@@ -608,7 +621,7 @@ pub const Interface = struct {
             index: i32,
             info: ?*ClassInfoW,
         ) callconv(cc) Result,
-        setHostContext: *const fn (this: ?*anyopaque, context: ?*Base) callconv(cc) Result,
+        setHostContext: *const fn (this: ?*anyopaque, context: ?*?*Base) callconv(cc) Result,
 
         pub const Info = extern struct {
             vendor: [64]u8,
@@ -656,7 +669,7 @@ pub const Interface = struct {
         getParameterId: *const fn (this: ?*anyopaque) callconv(cc) u32,
         /// Number of 'points' (instances of change in a block of audio samples)
         getPointCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
-        /// Get value from param @ `index` at a given sample offset
+        /// Get frame & value of change @ `index`
         getPoint: *const fn (this: ?*anyopaque, index: i32, sample_offset: ?*i32, value: ?*f64) callconv(cc) Result,
         /// Push a param value at a given sample offset. Returns resulting index into queue
         addPoint: *const fn (this: ?*anyopaque, sample_offset: i32, value: f64, index: ?*i32) callconv(cc) Result,
@@ -667,7 +680,7 @@ pub const Interface = struct {
     pub const ParameterChange = extern struct {
         base: Base,
         /// Number of parameter changes
-        getParameterCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
+        getChangeCount: *const fn (this: ?*anyopaque) callconv(cc) i32,
         /// Get a queue of changes at `index` position in the changes list
         getParameterData: *const fn (this: ?*anyopaque, index: i32) callconv(cc) ?*?*ParamValueQueue,
         /// Add a queue of parameter changes with `id`, returns a pointer to the new
