@@ -720,6 +720,8 @@ const View = extern struct {
             }
         }
 
+        log.err("View: unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
+
         return .NoInterface;
     }
 
@@ -730,14 +732,19 @@ const View = extern struct {
         return ref_count;
     }
 
+    // NOTE: This may be called without ever having called attached() or release()
     fn release(this: ?*anyopaque) callconv(cc) u32 {
         const self = arbor.cast(*View, this);
-        // const plugin: *Vst3Plugin = @fieldParentPtr("view", &self);
         const ref_count = self.ref_count.fetchSub(1, .release) - 1;
         if (ref_count > 0)
             return ref_count;
 
         log.debug("View: all refs released, destroying\n", .{}, @src());
+        if (self.user_gui) |gui| {
+            arbor.Gui.Platform.guiSetVisible(gui.impl, false);
+            gui.deinit();
+            self.user_gui = null;
+        }
         allocator.destroy(self);
         // ISSUE: We can't seem to get a mutable ptr to plugin from our
         // optional view ptr...
