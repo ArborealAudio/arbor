@@ -173,6 +173,70 @@ fn buildPlugin(
     return plug;
 }
 
+pub fn addStandalone(
+    b: *std.Build,
+    name: [:0]const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    const self = b.dependencyFromBuildZig(@This(), .{});
+
+    const config = BuildConfig{
+        .description = .{
+            .name = name,
+            .id = "com.Arbor.app",
+            .company = "Arboreal Audio",
+            .version = "0.1.0",
+            .copyright = "(c) Arboreal Audio, LLC",
+            .url = "",
+            .contact = "",
+            .manual = "",
+            .description = "",
+        },
+        .features = undefined,
+        .root_source_file = "",
+        .target = target,
+        .optimize = optimize,
+    };
+
+    const options = b.addOptions();
+    options.addOption(arbor.Plugin.Description, "plugin_desc", config.description);
+    options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
+    options.addOption(Format, "format", Format.Standalone);
+
+    const arbor_module = b.addModule("arbor", .{
+        .root_source_file = self.path("src/arbor.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    arbor_module.addOptions("config", options);
+
+    const sokol = self.builder.dependency("sokol", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_source_file = self.path("src/standalone.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("arbor", arbor_module);
+    exe.root_module.addImport("sokol", sokol.module("sokol"));
+    exe.addCSourceFile(.{
+        .file = self.path("src/gui/olive.c"),
+        .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
+    });
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+}
+
 pub const BundleStep = struct {
     const Step = std.Build.Step;
     step: Step,

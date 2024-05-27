@@ -3,6 +3,7 @@
 const std = @import("std");
 const windows = std.os.windows;
 const builtin = @import("builtin");
+const arbor = @import("../arbor.zig");
 const Gui = @import("Gui.zig");
 
 pub const Window = switch (builtin.os.tag) {
@@ -70,8 +71,10 @@ pub extern fn guiRender(gui: *GuiImpl, internal: bool) void;
 
 pub fn guiTimerCallback(timer: NSTimerRef, gui: *Gui) callconv(.C) void {
     _ = timer;
-    if (gui.wants_repaint.load(.acquire)) {
-        guiRender(gui.impl, true);
-        gui.wants_repaint.store(false, .release);
+    if (arbor.config.format == .Standalone) {} else {
+        if (gui.wants_repaint.load(.acquire)) {
+            guiRender(gui.impl, true);
+            gui.wants_repaint.store(false, .release);
+        }
     }
 }

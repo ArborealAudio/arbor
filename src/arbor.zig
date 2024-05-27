@@ -31,6 +31,7 @@ pub const Format = enum {
     CLAP,
     VST2,
     // Big 'ol TODO: VST3,
+    Standalone,
 };
 const format = config.format;
 

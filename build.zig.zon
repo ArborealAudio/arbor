@@ -1,6 +1,12 @@
 .{
     .name = "arbor",
     .version = "0.1.0",
+    .dependencies = .{
+        .sokol = .{
+            .url = "git+https://github.com/floooh/sokol-zig#master",
+            .hash = "12208bb4ec5961b0b3df7bd2282f55e1b7b8c1ff5c0e0750fa84c4b0b22ddef8c772",
+        },
+    },
     .minimum_zig_version = "0.12.0",
     .paths = .{
         "src",
