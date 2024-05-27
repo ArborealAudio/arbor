@@ -757,11 +757,12 @@ const View = extern struct {
     fn attached(this: ?*anyopaque, parent: ?*anyopaque, win_type: [*:0]const u8) callconv(cc) Result {
         log.debug("View: attached\n", .{}, @src());
         const self = arbor.cast(*View, this);
-        const win = if (builtin.os.tag == .linux and
-            std.mem.eql(u8, std.mem.span(win_type), "X11EmbedWindowID"))
-            @intFromPtr(parent)
-        else
-            arbor.cast(arbor.Gui.Platform.Window, parent);
+        const win = if (builtin.os.tag == .linux) blk: {
+            if (std.mem.eql(u8, std.mem.span(win_type), "X11EmbedWindowID"))
+                break :blk @as(c_ulong, @intFromPtr(parent))
+            else
+                return .InvalidArgument;
+        } else parent;
 
         const gui = self.user_gui orelse {
             log.err("User GUI is null\n", .{}, @src());
@@ -1196,5 +1197,15 @@ export fn bundleEntry(_: ?*anyopaque) bool {
 
 export fn bundleExit(_: ?*anyopaque) bool {
     log.debug("Bundle exit\n", .{}, @src());
+    return true;
+}
+
+export fn ModuleEntry(_: ?*anyopaque) bool {
+    log.debug("Module entry\n", .{}, @src());
+    return true;
+}
+
+export fn ModuleExit(_: ?*anyopaque) bool {
+    log.debug("Module exit\n", .{}, @src());
     return true;
 }
