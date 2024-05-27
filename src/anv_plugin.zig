@@ -762,7 +762,7 @@ const View = extern struct {
                 break :blk @as(c_ulong, @intFromPtr(parent))
             else
                 return .InvalidArgument;
-        } else parent;
+        } else arbor.cast(arbor.Gui.Platform.Window, parent);
 
         const gui = self.user_gui orelse {
             log.err("User GUI is null\n", .{}, @src());
