@@ -35,13 +35,13 @@ host_callback: *const fn (
     ptr: ?*anyopaque,
     opt: f32,
 ) callconv(.C) isize,
-plugin: ?*Plugin = null, // our specific plugin data
+plugin: *Plugin, // our specific plugin data
 
 in_events: *arbor.Queue,
 
 process_precision: vst2.ProcessPrecision = .ProcessPrecision32,
 
-fn plugCast(effect: ?*const vst2.AEffect) *VstPlugin {
+pub fn plugCast(effect: ?*const vst2.AEffect) *VstPlugin {
     if (effect) |ptr|
         return @ptrCast(@alignCast(ptr.object))
     else {
@@ -49,7 +49,6 @@ fn plugCast(effect: ?*const vst2.AEffect) *VstPlugin {
     }
 }
 
-// TODO: Handle extende set of opcodes
 fn dispatch(
     effect: ?*vst2.AEffect,
     opcode: i32,
@@ -59,10 +58,7 @@ fn dispatch(
     opt: f32,
 ) callconv(.C) isize {
     var plugin: *VstPlugin = plugCast(effect);
-    const plug = plugin.plugin orelse {
-        log.err("Plugin is null\n", .{}, @src());
-        return 0;
-    };
+    const plug = plugin.plugin;
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
         .Open => {
@@ -90,6 +86,7 @@ fn dispatch(
             );
             return 0;
         },
+        // ISSUE: This is kinda bunk right? Since the outer AEffect will end up destroying itself?
         .Close => {
             plugin.deinit(allocator);
             return 0;
@@ -104,8 +101,7 @@ fn dispatch(
             }
         },
         .GetVendorVersion => {
-            return arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e|
-                {
+            return arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e| {
                 log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
                 return 1;
             };
@@ -132,7 +128,7 @@ fn dispatch(
                     var buf: [*]u8 = @ptrCast(p);
                     const len = @min(vst2.StringConstants.MaxParamStrLen, name.len);
                     @memset(buf[0..vst2.StringConstants.MaxParamStrLen], 0);
-                    @memcpy(buf[0..len], name);
+                    @memcpy(buf[0..len], name[0..len]);
                     return 0;
                 }
             }
@@ -150,7 +146,7 @@ fn dispatch(
                     // Doesn't seem to matter that we pass strings longer than the API's
                     // insane restriction of 8 chars. Either most hosts subvert this limitation
                     // or it's, like, more of a suggestion.
-                    const max_len = 10;
+                    const max_len = vst2.StringConstants.MaxParamStrLen;
                     @memset(out[0..max_len], 0);
                     if (param_info.value_to_text) |func| {
                         var buf: [max_len]u8 = .{0} ** max_len;
@@ -193,14 +189,14 @@ fn dispatch(
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
             log.debug("Setting sample rate: {d}\n", .{opt}, @src());
             plug.interface.prepare(plug, opt, plug.max_frames);
-            return 1;
+            return 0;
         },
         .CanBeAutomated => return 1,
         .SetBlockSize => {
             // Do we need to wrap this in a mutex & re-init the plugin? Delay lines etc. will need resizing
             log.debug("Setting block size: {d}\n", .{value}, @src());
             plug.interface.prepare(plug, plug.sample_rate, @intCast(value));
-            return 1;
+            return 0;
         },
         .EditGetRect => {
             if (config.plugin_features & arbor.features.GUI == 0) return 0;
@@ -218,7 +214,10 @@ fn dispatch(
                     };
                     dest.* = &rect;
                     return 1;
-                } else return 0;
+                } else {
+                    log.err("{s}: Gui is null", .{@tagName(code)}, @src());
+                    return 0;
+                }
             }
             return 0;
         },
@@ -285,23 +284,24 @@ fn dispatch(
         },
         .GetChunk => {
             if (ptr) |p| {
-                var dest = p;
-                dest = @alignCast(@ptrCast(plug.params.ptr));
-                return 0;
+                var dest: [*]f32 = @ptrCast(@alignCast(p));
+                dest = plug.params.ptr;
+                return @intCast(@sizeOf(f32) * plug.params.len);
             }
             return 1;
         },
         .SetChunk => {
             if (ptr) |p| {
-                @memcpy(
-                    plug.params,
-                    @as([*]f32, @alignCast(@ptrCast(p))),
-                );
+                const src: [*]f32 = @ptrCast(@alignCast(p));
+                @memcpy(plug.params, src[0..plug.params.len]);
                 return 0;
             }
             return 1;
         },
-        .SetProgram, .GetProgram, .SetProgramName, .GetProgramName => {},
+        .SetProgram, .GetProgram, .SetProgramName, .GetProgramName => {
+            // Does anyone use this stuff?
+            return -1;
+        },
         .ProcessEvents => {},
         .GetInputProperties => {
             // TODO: Use `index` to support multiple pins
@@ -354,16 +354,10 @@ fn dispatch(
     return -1;
 }
 
-fn processInEvent(vst: *VstPlugin) void {
-    const plug = vst.plugin orelse {
-        log.err("Plugin is null\n", .{}, @src());
-        assert(false);
-        return;
-    };
-    // locking here makes sure we drain it before releasing
-    vst.in_events.mutex.lock();
-    defer vst.in_events.mutex.unlock();
-    while (vst.in_events.next_no_lock()) |event| {
+fn processInEvents(vst: *VstPlugin) void {
+    const plug = vst.plugin;
+    // Don't want to lock on the audio thread
+    while (vst.in_events.next_try()) |event| {
         switch (event) {
             .param_change => |change| {
                 plug.params[change.id] = plug.param_info[change.id]
@@ -380,12 +374,8 @@ fn processInEvent(vst: *VstPlugin) void {
     }
 }
 
-fn processOutEvent(vst: *VstPlugin) void {
-    const plugin = vst.plugin orelse {
-        log.err("Plugin is null\n", .{}, @src());
-        assert(false);
-        return;
-    };
+fn processOutEvents(vst: *VstPlugin) void {
+    const plugin = vst.plugin;
     const gui = plugin.gui orelse {
         log.err("Gui is null\n", .{}, @src());
         assert(false);
@@ -418,35 +408,28 @@ fn processReplacing(
 ) callconv(.C) void {
     audio_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
-    if (vst.plugin) |plugin| {
-        if (plugin.gui) |_| processOutEvent(vst);
+    const plugin = vst.plugin;
+    if (plugin.gui) |_| processOutEvents(vst);
 
-        processInEvent(vst);
+    processInEvents(vst);
 
-        const uframes: usize = @intCast(frames);
-        const num_ch: usize = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs));
-        const buffer: arbor.AudioBuffer(f32) = .{
-            .input = make: {
-                var buf: [plugin_num_ch][]f32 = undefined;
-                for (0..num_ch) |ch| {
-                    buf[ch] = inputs[ch][0..uframes];
-                }
-                break :make buf[0..num_ch];
-            },
-            .output = make: {
-                var buf: [plugin_num_ch][]f32 = undefined;
-                for (0..num_ch) |ch| {
-                    buf[ch] = outputs[ch][0..uframes];
-                }
-                break :make buf[0..num_ch];
-            },
-            .frames = uframes,
-            .num_ch = num_ch,
-            // TODO: Handle unequal in/out pairs
-        };
-        plugin.interface.process(plugin, buffer);
-    }
+    const uframes: usize = @intCast(frames);
+    const buffer: arbor.AudioBuffer(f32) = .{
+        .input = &.{
+            inputs[0][0..uframes],
+            inputs[1][0..uframes],
+        },
+        .output = &.{
+            outputs[0][0..uframes],
+            outputs[1][0..uframes],
+        },
+        .frames = uframes,
+        .num_ch = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs)),
+        // TODO: Handle unequal in/out pairs
+    };
+    plugin.interface.process(plugin, buffer);
 }
+
 fn processDoubleReplacing(
     effect: ?*vst2.AEffect,
     inputs: [*][*]f64,
@@ -462,38 +445,32 @@ fn processDoubleReplacing(
 fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.C) void {
     main_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
-    if (vst.plugin) |plugin| {
-        if (index >= 0 and index < plugin.param_info.len) {
-            const event = arbor.Event{
-                .param_change = .{ .id = @intCast(index), .value = value },
-            };
-            if (main_thread == audio_thread) {
-                vst.in_events.push_no_lock(event) catch |e| {
-                    log.err("{!}\n", .{e}, @src());
-                    return;
-                };
-                vst.processInEvent();
-            } else {
-                vst.in_events.push_wait(event) catch |e| {
-                    log.err("{!}\n", .{e}, @src());
-                    return;
-                };
-            }
+    const plugin = vst.plugin;
+    if (index >= 0 and index < plugin.param_info.len) {
+        const event = arbor.Event{
+            .param_change = .{ .id = @intCast(index), .value = value },
+        };
+        // ISSUE: This just feels no good...
+        // but, we don't know which thread this will be called from
+        if (main_thread == audio_thread) {
+            vst.in_events.push_no_lock(event) catch return; // Well, let's just not care if we overflow
+            vst.processInEvents();
+        } else {
+            vst.in_events.push_wait(event) catch return;
         }
     }
 }
 
 fn getParameter(effect: ?*vst2.AEffect, index: i32) callconv(.C) f32 {
-    if (plugCast(effect).plugin) |plugin| {
-        if (index >= 0 and index < plugin.param_info.len) {
-            const id: usize = @intCast(index);
-            return plugin.param_info[id].getNormalizedValue(plugin.params[id]);
-        }
+    const plugin = plugCast(effect).plugin;
+    if (index >= 0 and index < plugin.param_info.len) {
+        const id: usize = @intCast(index);
+        return plugin.param_info[id].getNormalizedValue(plugin.params[id]);
     }
     return 0;
 }
 
-fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffect {
+pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffect {
     const self = try alloc.create(VstPlugin);
     self.* = .{
         .effect = try alloc.create(vst2.AEffect),
@@ -511,9 +488,9 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
         .setParameter = setParameter,
         .getParameter = getParameter,
         .num_programs = 0,
-        .num_params = @intCast(self.plugin.?.param_info.len),
-        .num_inputs = plugin_num_ch,
-        .num_outputs = plugin_num_ch,
+        .num_params = @intCast(self.plugin.param_info.len),
+        .num_inputs = 2,
+        .num_outputs = 2,
         .flags = .{
             .HasStateChunk = true,
             .HasReplacing = true,
@@ -530,10 +507,11 @@ fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffe
     return self.effect;
 }
 
-fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
-    if (self.plugin) |plug| {
-        plug.deinit();
-    }
+pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
+    const plug = self.plugin;
+    plug.interface.deinit(plug);
+    plug.deinit();
+    self.in_events.deinit();
     alloc.destroy(self.effect);
     alloc.destroy(self);
 }
