@@ -620,7 +620,9 @@ pub fn processOutEvent(plugin: *ClapPlugin, clap_events: *const clap.OutputEvent
                     .key = -1,
                     .value = @floatCast(plug.params[change.id]),
                 };
-                _ = clap_events.try_push(clap_events, &out_event.header);
+                if (!clap_events.try_push(clap_events, &out_event.header)) {
+                    log.err("Out event push failed\n", .{}, @src());
+                }
             },
         }
     }
