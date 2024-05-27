@@ -66,10 +66,10 @@ pub fn init(
 
 /// deallocate filter state
 pub fn deinit(self: *Filter) void {
-    for (self.xn, 0..) |_, i|
-        self.allocator.free(self.xn[i]);
-    for (self.yn, 0..) |_, i|
-        self.allocator.free(self.yn[i]);
+    for (self.xn) |x|
+        self.allocator.free(x);
+    for (self.yn) |y|
+        self.allocator.free(y);
     self.allocator.free(self.xn);
     self.allocator.free(self.yn);
 }
