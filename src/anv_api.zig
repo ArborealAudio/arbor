@@ -531,7 +531,7 @@ pub const Interface = struct {
 
     pub const ProcessContextRequirements = extern struct {
         base: Base,
-        getProcessContextRequirements: *const fn (this: ?*anyopaque) ProcessContext.Requirements,
+        getProcessContextRequirements: *const fn (this: ?*anyopaque) callconv(cc) ProcessContext.Requirements,
 
         pub const UID = uidCreate(0x2A654303, 0xEF764E3D, 0x95B5FE83, 0x730EF6D0);
     };
