@@ -22,7 +22,23 @@ const Result = anv.Result;
 
 const RefCounter = std.atomic.Value(u32);
 
-pub const class_id: anv.Uid = anv.uidCreate('A', 'N', 'V', '3');
+fn makePluginCID() anv.Uid {
+    const base = &[_]u8{ 'A', 'N', 'V', '3' };
+    const id = arbor.config.plugin_desc.id;
+    const len = id.len;
+    if (len < 3) @compileError("Need a longer bundle ID");
+
+    const hash = std.hash.Fnv1a_32.hash;
+
+    return anv.uidCreate(
+        hash(id) | base[0],
+        hash(id) | base[1],
+        hash(id) | base[2],
+        hash(id) | base[3],
+    );
+}
+
+pub const class_id: anv.Uid = makePluginCID();
 pub const controller_id: anv.Uid = anv.uidCreate('C', 't', 'r', 'l');
 const uidCmp = anv.uidCmp;
 
