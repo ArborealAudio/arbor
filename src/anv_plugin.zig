@@ -44,6 +44,12 @@ const Processor = extern struct {
                 o.* = self;
                 return .Ok;
             }
+        } else if (uidCmp(iid, &anv.Interface.ProcessContextRequirements.UID)) {
+            log.debug("Processor: {s}\n", .{anv.uidToStr(iid)}, @src());
+            if (obj) |o| {
+                o.* = @ptrCast(&global_pc_requirements.vtable);
+                return .Ok;
+            }
         }
         log.debug("Processor: Unsupported: {s}\n", .{anv.uidToStr(iid)}, @src());
         return .NoInterface;
@@ -203,6 +209,56 @@ const Processor = extern struct {
         .process = process,
         .getTailSamples = getTailSamples,
     };
+};
+
+const ProcessContextRequirements = extern struct {
+    vtable: *const anv.Interface.ProcessContextRequirements,
+    ref_counter: RefCounter,
+
+    fn queryInterface(this: ?*anyopaque, iid: *const anv.Uid, obj: ?*?*anyopaque) callconv(cc) Result {
+        if (uidCmp(iid, &anv.Interface.Base.UID) or
+            uidCmp(iid, &anv.Interface.ProcessContextRequirements.UID))
+        {
+            const self = arbor.cast(*ProcessContextRequirements, this);
+            if (obj) |o| {
+                o.* = self;
+                return .Ok;
+            }
+        }
+
+        return .NoInterface;
+    }
+
+    fn addRef(_: ?*anyopaque) callconv(cc) u32 {
+        return 1;
+    }
+
+    fn release(_: ?*anyopaque) callconv(cc) u32 {
+        return 0;
+    }
+
+    fn getProcessContextRequirements(this: ?*anyopaque) callconv(cc) anv.ProcessContext.Requirements {
+        _ = this;
+        return anv.ProcessContext.Requirements{
+            .NeedContinousTimeSamples = true,
+            .NeedTempo = true,
+            .NeedTransportState = true,
+        };
+    }
+
+    pub const vtable = anv.Interface.ProcessContextRequirements{
+        .base = .{
+            .queryInterface = queryInterface,
+            .addRef = addRef,
+            .release = release,
+        },
+        .getProcessContextRequirements = getProcessContextRequirements,
+    };
+};
+
+var global_pc_requirements: ProcessContextRequirements = .{
+    .vtable = &ProcessContextRequirements.vtable,
+    .ref_counter = RefCounter.init(1),
 };
 
 /// The basic struct comprising an audio plugin. Despite handling tasks related
@@ -643,8 +699,7 @@ const Controller = extern struct {
         return .InvalidArgument;
     }
 
-    fn createView(this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?**const anv.Interface.View {
-        log.debug("Controller: createView '{s}'\n", .{name}, @src());
+    fn createView(this: ?*anyopaque, _: [*:0]const u8) callconv(cc) ?**const anv.Interface.View {
         if (arbor.config.plugin_features & arbor.features.GUI > 0) {
             const view = allocator.create(View) catch |e| {
                 log.err("{!}\n", .{e}, @src());
@@ -804,10 +859,21 @@ const View = extern struct {
         return .NotImplemented;
     }
 
-    fn getSize(this: ?*anyopaque, size: ?*anv.Rect) callconv(cc) Result {
-        _ = this;
-        _ = size;
-        return .Ok;
+    fn getSize(this: ?*anyopaque, rect_cptr: ?*anv.Rect) callconv(cc) Result {
+        const self = arbor.cast(*View, this);
+        const rect = rect_cptr orelse return .InvalidArgument;
+        if (self.user_gui) |gui| {
+            const size = gui.getSize();
+            rect.* = .{
+                .left = 0,
+                .top = 0,
+                .right = size.x,
+                .bottom = size.y,
+            };
+            return .Ok;
+        }
+
+        return .InternalError;
     }
 
     fn onSize(this: ?*anyopaque, new_size: ?*anv.Rect) callconv(cc) Result {
@@ -819,24 +885,31 @@ const View = extern struct {
     fn onFocus(this: ?*anyopaque, state: bool) callconv(cc) Result {
         _ = this;
         _ = state;
-        return .Ok;
+        return .NotImplemented;
     }
 
     fn setFrame(this: ?*anyopaque, frame: ?*?*anv.Interface.Frame) callconv(cc) Result {
         _ = this;
         _ = frame;
-        return .Ok;
+        return .NotImplemented;
     }
 
     fn canResize(this: ?*anyopaque) callconv(cc) Result {
         _ = this;
-        return .Ok;
+        return .NotOk;
     }
 
-    fn checkSizeConstraint(this: ?*anyopaque, rect: ?*anv.Rect) callconv(cc) Result {
-        _ = this;
-        _ = rect;
-        return .NotImplemented;
+    fn checkSizeConstraint(this: ?*anyopaque, rect_cptr: ?*anv.Rect) callconv(cc) Result {
+        const self = arbor.cast(*View, this);
+        const rect = rect_cptr orelse return .InvalidArgument;
+        if (self.user_gui) |gui| {
+            const size = gui.getSize();
+            if (rect.left + rect.right != size.x)
+                rect.right = rect.left + size.x;
+            if (rect.top + rect.bottom != size.y)
+                rect.bottom = rect.top + size.y;
+        }
+        return .Ok;
     }
 
     pub const vtable = anv.Interface.View{
