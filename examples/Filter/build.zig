@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) !void {
     try arbor.addPlugin(b, .{
         .description = .{
             .name = "Example Filter",
-            .id = "com.Arbor.ExDist",
+            .id = "com.Arbor.ExFilt",
             .company = "Arboreal Audio",
             .version = "0.1.0",
             .copyright = "(c) 2024 Arboreal Audio, LLC",
