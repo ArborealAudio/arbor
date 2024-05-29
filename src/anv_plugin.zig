@@ -140,16 +140,12 @@ const Processor = extern struct {
             log.err("ProcessData is null\n", .{}, @src());
             return .InvalidArgument;
         };
-        const out_changes = data.out_param_changes orelse {
-            log.err("Out param changes is null\n", .{}, @src());
-            return .InvalidArgument;
-        };
-        if (plug.gui) |_| plugin.processOutEvents(out_changes);
+        if (plug.gui) |_| plugin.processOutEvents(data.out_param_changes);
         plugin.processInEvents();
 
         const input = data.inputs orelse {
             log.err("Input data null\n", .{}, @src());
-            return .InvalidArgument;
+            return .Ok;
         };
         const output = data.outputs orelse {
             log.err("Output data null\n", .{}, @src());
@@ -376,12 +372,16 @@ const Component = extern struct {
         };
         if (media_type == .Audio) {
             if (dir == .Input) {
+                const name = std.unicode.utf8ToUtf16LeStringLiteral("Input");
+                @memcpy(bus.name[0..name.len], name);
                 bus.media_type = .Audio;
                 bus.direction = .Input;
                 bus.channel_count = 2;
                 bus.bus_type = .Main;
                 bus.flags = .{ .DefaultActive = true };
             } else {
+                const name = std.unicode.utf8ToUtf16LeStringLiteral("Output");
+                @memcpy(bus.name[0..name.len], name);
                 bus.media_type = .Audio;
                 bus.direction = .Output;
                 bus.channel_count = 2;
@@ -1012,7 +1012,7 @@ const Vst3Plugin = extern struct {
     /// Process events from GUI
     pub fn processOutEvents(
         self: *Vst3Plugin,
-        out_changes: *?*anv.Interface.ParameterChange,
+        out_changes_cptr: ?*?*anv.Interface.ParameterChange,
     ) void {
         const plug = self.user;
         const gui = plug.gui orelse {
@@ -1027,12 +1027,12 @@ const Vst3Plugin = extern struct {
                     plug.params[change.id] = param.valueFromNormalized(change.value);
 
                     var out_id: i32 = 0;
-                    const vtbl = anv.getInterface(anv.Interface.ParameterChange, out_changes) catch {
+                    const vtbl = anv.getInterface(anv.Interface.ParameterChange, out_changes_cptr) catch {
                         log.err("ParameterChange vtable is null\n", .{}, @src());
                         return;
                     };
                     const queue = vtbl.addParameterData(
-                        @ptrCast(out_changes),
+                        @ptrCast(out_changes_cptr),
                         &@as(u32, @intCast(change.id)),
                         &out_id,
                     );
