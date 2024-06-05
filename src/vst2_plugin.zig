@@ -12,6 +12,8 @@ const config = @import("config");
 const vst2 = @import("vst2_api.zig");
 
 const Plugin = arbor.Plugin;
+const plugin_num_ch = Plugin.num_channels;
+
 const Parameter = arbor.Parameter;
 const Gui = arbor.Gui;
 const PlatformGui = Gui.Platform;
@@ -224,11 +226,7 @@ fn dispatch(
             // Init GUI
             // ptr = native parent window (HWND, NSView/NSWindow?, X Window)
             assert(plug.gui == null);
-            Gui.gui_init(plug);
-            const gui = plug.gui orelse {
-                log.err("{s}: Gui is null\n", .{@tagName(code)}, @src());
-                return 0;
-            };
+            const gui = Gui.init(plug);
 
             const width: i16 = @intCast(gui.getSize().x);
             const height: i16 = @intCast(gui.getSize().y);
@@ -267,7 +265,6 @@ fn dispatch(
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();
-                plug.gui = null;
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
@@ -315,7 +312,7 @@ fn dispatch(
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Input";
             @memcpy(pin.label[0..name.len], name);
-            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
+            pin.flags = .{ .IsActive = true, .IsStereo = plugin_num_ch > 1 };
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
@@ -334,7 +331,7 @@ fn dispatch(
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Output";
             @memcpy(pin.label[0..name.len], name);
-            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
+            pin.flags = .{ .IsActive = true, .IsStereo = plugin_num_ch > 1 };
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
@@ -432,6 +429,7 @@ fn processReplacing(
     };
     plugin.interface.process(plugin, buffer);
 }
+
 fn processDoubleReplacing(
     effect: ?*vst2.AEffect,
     inputs: [*][*]f64,
@@ -483,7 +481,6 @@ pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.A
             return error.InitFailed;
         },
     };
-    self.plugin.num_channels = 2; // TODO: DOn't hardcode
     self.effect.* = .{
         .dispatcher = dispatch,
         .processReplacing = processReplacing,
@@ -512,7 +509,6 @@ pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.A
 
 pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
     const plug = self.plugin;
-    plug.interface.deinit(plug);
     plug.deinit();
     self.in_events.deinit();
     alloc.destroy(self.effect);

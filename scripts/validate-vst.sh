@@ -40,19 +40,18 @@ for ex in ${EXAMPLES[@]}; do
 	fi
 done
 
-# TODO
-# echo "Validating VST3 plugins"
-# for ex in ${EXAMPLES[@]}; do
-# 	VST_PATH=examples/$ex/zig-out/Example_${ex}.vst3
-# 	echo "Validating $VST_PATH"
-# 	if $pluginval --strictness-level 10 --validate-in-process --skip-gui-tests --timeout-ms 300000 $VST_PATH;
-# 	then
-# 		echo "Pluginval successful"
-# 	else
-# 		echo "Pluginval failed"
-# 		rm -rf pluginval*
-# 		exit 1
-# 	fi
-# done
+echo "Validating VST3 plugins"
+for ex in ${EXAMPLES[@]}; do
+	VST_PATH=examples/$ex/zig-out/Example_${ex}.vst3
+	echo "Validating $VST_PATH"
+	if $pluginval --strictness-level 10 --validate-in-process --skip-gui-tests --timeout-ms 300000 $VST_PATH;
+	then
+		echo "Pluginval successful"
+	else
+		echo "Pluginval failed"
+		rm -rf pluginval*
+		exit 1
+	fi
+done
 
 rm -rf pluginval*

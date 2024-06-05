@@ -30,7 +30,7 @@ pub const Parameter = param.Parameter;
 pub const Format = enum {
     CLAP,
     VST2,
-    // Big 'ol TODO: VST3,
+    VST3,
 };
 const format = config.format;
 
@@ -40,6 +40,7 @@ pub const dsp = @import("dsp/dsp.zig");
 
 pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
+pub const anv = @import("anv_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub const plugin_desc: DescType = createFormatDescription();
@@ -72,7 +73,7 @@ pub const Plugin = struct {
 
     pub const Interface = struct {
         deinit: *const fn (*Plugin) void,
-        prepare: *const fn (*Plugin, f32, u32) void,
+        prepare: *const fn (*Plugin, sample_rate: f32, max_frames: u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
     };
@@ -80,15 +81,19 @@ pub const Plugin = struct {
     /// User-provided initialization function
     pub extern fn init() *Plugin;
 
-    /// Deinit a Plugin using the allocator passed to it in init().
+    /// Deinit plugin, also calling user deinit function
     pub fn deinit(plugin: *Plugin) void {
+        plugin.interface.deinit(plugin);
         plugin.allocator.free(plugin.params);
         plugin.allocator.destroy(plugin);
     }
 
+    pub const num_channels: u32 =
+        if (config.plugin_features & features.STEREO > 0) 2 else 1;
+
     interface: Interface,
 
-    num_channels: u32 = undefined,
+    // NOTE: Setting these to default values feels dumb, so does undefined
     sample_rate: f32 = undefined,
     max_frames: u32 = undefined,
 
@@ -97,11 +102,11 @@ pub const Plugin = struct {
     user: ?*anyopaque = null,
     gui: ?*Gui = null,
 
-    mutex: std.Thread.Mutex = .{},
-
     allocator: Allocator = std.heap.c_allocator,
 
     // functions for dealing with a plugin's parameters
+    // NOTE: Why are these not methods within a parameter data type?
+    // With the exception of getParamValue(), they don't need plugin data
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
@@ -140,6 +145,7 @@ pub const Plugin = struct {
     }
 };
 
+// TODO: Make a clearer separation btw this and the extern user init func
 /// Initialize a Plugin. Caller owns the returned pointer and must free it by
 /// calling "deinit".
 pub fn init(
@@ -160,6 +166,7 @@ pub fn init(
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
     .VST2 => Plugin.Description,
+    .VST3 => {},
 };
 
 /// Create a description that satisfies the requirements of the format being
@@ -412,14 +419,14 @@ pub fn Slice(comptime T: type) type {
 pub const log = struct {
     const format_str = @tagName(format);
     const pre = plugin_name ++ " " ++ format_str ++ ": " ++
-        "{s}:{s}:{d}: ";
+        "{s}:{d}:{s}: ";
     /// debug logger which gets compiled out in release modes
     pub fn debug(
         comptime fmt: []const u8,
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.debug.print(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default info
@@ -428,7 +435,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.log.info(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.info(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default nonfatal error
@@ -437,7 +444,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.err(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default fatal error
@@ -446,7 +453,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) noreturn {
-        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.err(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
         std.process.exit(1);
     }
 };

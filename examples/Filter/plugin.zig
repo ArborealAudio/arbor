@@ -22,7 +22,7 @@ export fn init() *arbor.Plugin {
     self.* = .{
         .filter = dsp.Filter.init(
             allocator,
-            2,
+            arbor.Plugin.num_channels,
             .FirstOrderLowpass,
             params[0].default_value,
             std.math.sqrt1_2,

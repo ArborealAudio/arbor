@@ -158,6 +158,7 @@ fn buildPlugin(
     const plug_src = switch (format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
+        .VST3 => "src/anv_plugin.zig",
     };
     const plug = b.addSharedLibrary(.{
         .name = name,
@@ -182,6 +183,8 @@ pub const BundleStep = struct {
     bundle_name: ?[]const u8 = null,
     /// path to the generated bundle (which may be just a file)
     bundle_path: ?[]const u8 = null,
+    /// path to pdb debug info on windows
+    pdb: ?[]const u8 = null,
 
     pub fn create(
         b: *std.Build,
@@ -220,10 +223,12 @@ pub const BundleStep = struct {
                 .linux => ".so",
                 else => @panic("Unsupported OS"),
             });
+            arr.set(Format.VST3, ".vst3");
             break :make arr;
         };
 
         const gen_file = self.build_dep.getEmittedBin().generated.getPath();
+        if (target_os == .windows) self.pdb = self.build_dep.getEmittedPdb().generated.getPath();
         const ext = format_extensions.get(self.format);
         // make double sure we have a file name w/ no spaces
         const out_name = try b.allocator.dupe(u8, self.build_dep.name);
@@ -260,9 +265,24 @@ pub const BundleStep = struct {
                 try bndl.writeAll("BNDL????");
             },
             .windows, .linux => {
-                var out_dir = try std.fs.cwd().makeOpenPath(dest, .{});
-                defer out_dir.close();
-                _ = try std.fs.cwd().updateFile(gen_file, out_dir, out_file, .{});
+                if (self.format != .VST3) {
+                    var out_dir = try std.fs.cwd().makeOpenPath(dest, .{});
+                    defer out_dir.close();
+                    _ = try std.fs.cwd().updateFile(gen_file, out_dir, out_file, .{});
+                } else {
+                    const bin_filename = if (target_os == .linux)
+                        try std.mem.concat(b.allocator, u8, &.{ out_name, ".so" })
+                    else
+                        out_file;
+                    const bundle = b.pathJoin(&.{ out_file, "Contents" });
+                    const os_name = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag);
+                    var bundle_dir = try std.fs.cwd().makeOpenPath(b.pathJoin(&.{ dest, bundle }), .{});
+                    defer bundle_dir.close();
+                    _ = try std.fs.cwd().updateFile(gen_file, bundle_dir, b.pathJoin(&.{
+                        os_name,
+                        bin_filename,
+                    }), .{});
+                }
             },
             else => @panic("Unsupported OS"),
         }
@@ -306,6 +326,8 @@ pub const CopyStep = struct {
     pub fn make(step: *Step, _: *std.Progress.Node) !void {
         const self: *CopyStep = @fieldParentPtr("step", step);
         const b = step.owner;
+        const plugin_name = b.dupe(self.config.description.name);
+        std.mem.replaceScalar(u8, plugin_name, ' ', '_');
         const target = self.config.target;
         const format = self.format;
         const bundle_name = self.bundle.bundle_name orelse return error.NoBundleName;
@@ -331,12 +353,12 @@ pub const CopyStep = struct {
                 .windows => "/Program Files/Common Files/CLAP/",
                 else => @panic("Unsupported OS"),
             },
-            // .VST3 => switch (os) {
-            //     .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
-            //     .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
-            //     .windows => "/Program Files/Common Files/VST3/",
-            //     else => @panic("Unsupported OS"),
-            // },
+            .VST3 => switch (os) {
+                .linux => b.pathJoin(&.{ home_dir, "/.vst3/" }),
+                .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST3/" }),
+                .windows => "/Program Files/Common Files/VST3/",
+                else => @panic("Unsupported OS"),
+            },
             .VST2 => switch (os) {
                 .linux => b.pathJoin(&.{ home_dir, "/.vst/" }),
                 .macos => b.pathJoin(&.{ home_dir, "/Library/Audio/Plug-Ins/VST/" }),
@@ -344,7 +366,7 @@ pub const CopyStep = struct {
                 else => @panic("Unsupported OS"),
             },
         };
-        const plugin_dest_path = if (os == .macos) b.pathJoin(&.{
+        const plugin_dest_path = if (os == .macos or format == .VST3) b.pathJoin(&.{
             sys_install_path,
             bundle_name,
         }) else sys_install_path;
@@ -352,12 +374,19 @@ pub const CopyStep = struct {
         var plugin_dir = try std.fs.cwd().makeOpenPath(plugin_dest_path, .{});
         defer plugin_dir.close();
 
-        if (os == .macos) {
+        if (os == .macos or format == .VST3) {
             var bundle_dir = try std.fs.cwd().makeOpenPath(bundle_path, .{ .iterate = true });
             defer bundle_dir.close();
             try copyRecursive(b.allocator, bundle_dir, plugin_dir);
         } else {
             _ = try std.fs.cwd().updateFile(bundle_path, plugin_dir, bundle_name, .{});
+            if (os == .windows) if (self.bundle.pdb) |pdb| {
+                const pdb_name = try std.mem.concat(b.allocator, u8, &.{
+                    plugin_name,
+                    ".pdb",
+                });
+                _ = try std.fs.cwd().updateFile(pdb, plugin_dir, pdb_name, .{});
+            };
         }
     }
 };
