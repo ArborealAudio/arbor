@@ -8,6 +8,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arbor = @import("arbor.zig");
+const log = arbor.log;
 const draw = arbor.Gui.draw;
 
 const sokol = @import("sokol");
@@ -39,6 +40,8 @@ var state: struct {
     clear_action: sg.PassAction = .{},
     pip: sg.Pipeline = .{},
     bind: sg.Bindings = .{},
+
+    mouse_down: bool = false,
 
     plugin: *arbor.Plugin = undefined,
 } = .{};
@@ -112,6 +115,36 @@ fn frame() callconv(.C) void {
     sg.commit();
 }
 
+fn handle_event(e: ?*const sapp.Event) callconv(.C) void {
+    const event = e orelse {
+        log.err("Event is null\n", .{}, @src());
+        return;
+    };
+    const gui = state.plugin.gui orelse {
+        log.err("Plugin GUI is null\n", .{}, @src());
+        return;
+    };
+    const mouse_x: i32 = @intFromFloat(@max(0, event.mouse_x));
+    const mouse_y: i32 = @intFromFloat(@max(0, event.mouse_y));
+    switch (event.type) {
+        .MOUSE_MOVE => {
+            gui.sysInputEvent(mouse_x, mouse_y, if (state.mouse_down)
+                .MouseDrag
+            else
+                .MouseOver);
+        },
+        .MOUSE_DOWN => {
+            state.mouse_down = true;
+            gui.sysInputEvent(mouse_x, mouse_y, .MouseDown);
+        },
+        .MOUSE_UP => {
+            state.mouse_down = false;
+            gui.sysInputEvent(mouse_x, mouse_y, .MouseUp);
+        },
+        else => {},
+    }
+}
+
 fn deinit() callconv(.C) void {
     sg.shutdown();
 
@@ -128,6 +161,7 @@ pub fn main() !void {
         .height = GUI_H,
         .init_cb = init,
         .frame_cb = frame,
+        .event_cb = handle_event,
         .cleanup_cb = deinit,
         .logger = .{ .func = slog.func },
     });
