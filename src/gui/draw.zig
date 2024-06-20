@@ -12,8 +12,8 @@ pub const Vec2 = extern struct {
 };
 
 pub const Vec2i = extern struct {
-    x: i32,
-    y: i32,
+    x: u32,
+    y: u32,
 };
 
 pub const Vec2u = extern struct {

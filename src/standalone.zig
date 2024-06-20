@@ -1,6 +1,13 @@
+// For the time being, this is for the sake of getting a desktop application
+// up and running where we can just copy the olivec frame buffer used in the
+// plugin drawing code and render it using sokol.
+
+// The reason we're using sokol is so we can have a starting point for a new
+// hardware renderer that can be used in standalone or plugin UIs.
+
 const std = @import("std");
 const builtin = @import("builtin");
-const arbor = @import("arbor");
+const arbor = @import("arbor.zig");
 const draw = arbor.Gui.draw;
 
 const sokol = @import("sokol");
@@ -9,37 +16,109 @@ const sg = sokol.gfx;
 const sglue = sokol.glue;
 const slog = sokol.log;
 
+const shd = @import("quad");
+
 const allocator = std.heap.c_allocator;
 
-var state: struct {
-    pixels: []u32 = undefined,
-    canvas: arbor.Gui.draw.Canvas = undefined,
+const Vertex = extern struct {
+    x: f32,
+    y: f32,
 
+    u: f32,
+    v: f32,
+};
+
+const quad = [4]Vertex{
+    .{ .x = -1, .y = -1, .u = 0, .v = 1 },
+    .{ .x = 1, .y = -1, .u = 1, .v = 1 },
+    .{ .x = 1, .y = 1, .u = 1, .v = 0 },
+    .{ .x = -1, .y = 1, .u = 0, .v = 0 },
+};
+
+var state: struct {
     clear_action: sg.PassAction = .{},
     pip: sg.Pipeline = .{},
     bind: sg.Bindings = .{},
+
+    plugin: *arbor.Plugin = undefined,
 } = .{};
 
 const GUI_W = 800;
 const GUI_H = 600;
 
 fn init() callconv(.C) void {
+    state.plugin = arbor.Plugin.init();
+    arbor.Gui.gui_init(state.plugin);
+
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
     });
 
-    state.pixels = allocator.alloc(u32, GUI_W * GUI_H) catch @panic("OOM");
+    state.clear_action.colors[0] = .{
+        .load_action = .CLEAR,
+        .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
+    };
 
-    state.canvas = draw.olivec_canvas(state.pixels.ptr, GUI_W, GUI_H, GUI_W);
+    state.bind.vertex_buffers[0] = sg.makeBuffer(.{
+        .size = @sizeOf(Vertex) * quad.len,
+        .data = sg.asRange(&quad),
+    });
+
+    const indices = [_]u16{ 0, 1, 2, 0, 2, 3 };
+    state.bind.index_buffer = sg.makeBuffer(.{
+        .type = .INDEXBUFFER,
+        .size = @sizeOf(u16) * indices.len,
+        .data = sg.asRange(&indices),
+    });
+
+    const img_desc = sg.ImageDesc{
+        .width = GUI_W,
+        .height = GUI_H,
+        .pixel_format = .BGRA8,
+        .usage = .STREAM,
+    };
+
+    state.bind.fs.samplers[shd.SLOT_smp] = sg.makeSampler(.{});
+    state.bind.fs.images[0] = sg.makeImage(img_desc);
+
+    var pipeline_desc = sg.PipelineDesc{
+        .shader = sg.makeShader(shd.quadShaderDesc(sg.queryBackend())),
+        .index_type = .UINT16,
+    };
+    pipeline_desc.layout.attrs[shd.ATTR_vs_pos].format = .FLOAT2;
+    pipeline_desc.layout.attrs[shd.ATTR_vs_uv].format = .FLOAT2;
+    state.pip = sg.makePipeline(pipeline_desc);
 }
 
-fn frame() callconv(.C) void {}
+fn frame() callconv(.C) void {
+    sg.beginPass(.{
+        .action = state.clear_action,
+        .swapchain = sglue.swapchain(),
+    });
+
+    if (state.plugin.gui) |gui| {
+        gui.render();
+        var img_data: sg.ImageData = std.mem.zeroes(sg.ImageData);
+        img_data.subimage[0][0] = sg.asRange(gui.bits);
+        sg.updateImage(state.bind.fs.images[0], img_data);
+    }
+
+    sg.applyPipeline(state.pip);
+    sg.applyBindings(state.bind);
+
+    sg.draw(0, 6, 1);
+    sg.endPass();
+    sg.commit();
+}
 
 fn deinit() callconv(.C) void {
     sg.shutdown();
 
-    allocator.free(state.pixels);
+    if (state.plugin.gui) |gui| {
+        gui.deinit();
+    }
+    state.plugin.deinit();
 }
 
 pub fn main() !void {

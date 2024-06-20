@@ -175,29 +175,9 @@ fn buildPlugin(
 
 pub fn addStandalone(
     b: *std.Build,
-    name: [:0]const u8,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    config: BuildConfig,
 ) void {
     const self = b.dependencyFromBuildZig(@This(), .{});
-
-    const config = BuildConfig{
-        .description = .{
-            .name = name,
-            .id = "com.Arbor.app",
-            .company = "Arboreal Audio",
-            .version = "0.1.0",
-            .copyright = "(c) Arboreal Audio, LLC",
-            .url = "",
-            .contact = "",
-            .manual = "",
-            .description = "",
-        },
-        .features = undefined,
-        .root_source_file = "",
-        .target = target,
-        .optimize = optimize,
-    };
 
     const options = b.addOptions();
     options.addOption(arbor.Plugin.Description, "plugin_desc", config.description);
@@ -206,27 +186,59 @@ pub fn addStandalone(
 
     const arbor_module = b.addModule("arbor", .{
         .root_source_file = self.path("src/arbor.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
     arbor_module.addOptions("config", options);
 
+    const shader_compile = b.addSystemCommand(&.{"sokol-shdc"});
+    shader_compile.addArg("-i");
+    shader_compile.addFileArg(self.path("src/quad.glsl"));
+    shader_compile.addArg("-o");
+    const compiled_shader = shader_compile.addOutputFileArg("quad.glsl.zig");
+    shader_compile.addArgs(&.{
+        "-l",
+        "glsl430:hlsl4:metal_macos",
+        "-f",
+        "sokol_zig",
+    });
+    const shader_module = b.addModule("quad", .{
+        .root_source_file = compiled_shader,
+        .target = config.target,
+        .optimize = config.optimize,
+    });
+
     const sokol = self.builder.dependency("sokol", .{
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
+
+    shader_module.addImport("sokol", sokol.module("sokol"));
+
     const exe = b.addExecutable(.{
-        .name = name,
+        .name = config.description.name,
         .root_source_file = self.path("src/standalone.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
-    exe.root_module.addImport("arbor", arbor_module);
+    // exe.root_module.addImport("arbor", arbor_module);
     exe.root_module.addImport("sokol", sokol.module("sokol"));
+    exe.root_module.addImport("quad", shader_module);
+    exe.root_module.addOptions("config", options);
     exe.addCSourceFile(.{
         .file = self.path("src/gui/olive.c"),
         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
     });
+
+    const usr_lib = b.addStaticLibrary(.{
+        .name = config.description.name,
+        .root_source_file = b.path(config.root_source_file),
+        .target = config.target,
+        .optimize = config.optimize,
+    });
+    usr_lib.root_module.addOptions("config", options);
+    usr_lib.root_module.addImport("arbor", arbor_module);
+    exe.linkLibrary(usr_lib);
 
     b.installArtifact(exe);
 

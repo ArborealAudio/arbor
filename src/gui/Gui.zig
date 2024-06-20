@@ -100,7 +100,7 @@ pub fn requestDraw(self: *Gui) void {
     self.wants_repaint.store(true, .release);
 }
 
-fn render(self: *Gui) callconv(.C) void {
+pub fn render(self: *Gui) callconv(.C) void {
     // unload event queue
     self.processInEvents();
 
@@ -168,7 +168,7 @@ fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) call
     if (self.state.type != state)
         self.state.type = state;
     self.processGesture(
-        .{ .x = cursor_x, .y = cursor_y },
+        .{ .x = @intCast(cursor_x), .y = @intCast(cursor_y) },
     ) catch |e| {
         log.err("{!}\n", .{e}, @src());
         return;
@@ -633,6 +633,60 @@ pub const Menu = struct {
         .on_mouse_over = on_mouse_over,
         .on_mouse_exit = on_mouse_exit,
         .on_mouse_click = on_mouse_click,
+        .on_mouse_drag = null,
+    };
+};
+
+pub const Button = struct {
+    border_color: Color,
+    border_thickness: u32,
+
+    pub fn init(allocator: Allocator, border_color: Color, border_thickness: u32) *Button {
+        const self = allocator.create(Button) catch |e| {
+            log.fatal("Button alloc failed: {!}\n", .{e}, @src());
+        };
+        self.* = .{
+            .border_color = border_color,
+            .border_thickness = border_thickness,
+        };
+        return self;
+    }
+
+    fn draw_proc(self: *Component, canvas: draw.Canvas) void {
+        const button: *Button = arbor.cast(*Button, self.sub_type);
+        draw.olivec_rect(
+            canvas,
+            @intCast(self.bounds.x + self.padding.x),
+            @intCast(self.bounds.y + self.padding.y),
+            @intCast(self.bounds.width - (self.padding.x * 2)),
+            @intCast(self.bounds.height - (self.padding.y * 2)),
+            self.background_color.toBits(),
+        );
+
+        draw.olivec_frame(
+            canvas,
+            @intCast(self.bounds.x),
+            @intCast(self.bounds.y),
+            @intCast(self.bounds.width),
+            @intCast(self.bounds.height),
+            button.border_thickness,
+            button.border_color.toBits(),
+        );
+
+        if (self.label) |label|
+            draw.drawText(canvas, label, self.bounds);
+    }
+
+    fn on_mouse_click(self: *Component, _: Vec2) void {
+        const cur_value: bool = self.value == 1;
+        self.value = @floatFromInt(@intFromBool(!cur_value));
+    }
+
+    pub const interface = Component.Interface{
+        .draw_proc = draw_proc,
+        .on_mouse_click = on_mouse_click,
+        .on_mouse_over = null,
+        .on_mouse_exit = null,
         .on_mouse_drag = null,
     };
 };
