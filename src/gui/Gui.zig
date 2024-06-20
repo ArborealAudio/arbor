@@ -110,8 +110,8 @@ pub fn render(self: *Gui) callconv(.C) void {
         if (debug_mouse_pos) {
             draw.olivec_circle(
                 self.canvas,
-                @intFromFloat(self.state.mouse_pos.x),
-                @intFromFloat(self.state.mouse_pos.y),
+                self.state.mouse_pos.x,
+                self.state.mouse_pos.y,
                 3,
                 debug_mouse_color.toBits(),
             );
@@ -164,7 +164,7 @@ fn processInEvents(self: *Gui) void {
     }
 }
 
-fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.C) void {
+pub fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.C) void {
     if (self.state.type != state)
         self.state.type = state;
     self.processGesture(
@@ -371,11 +371,10 @@ pub const Component = struct {
     param_changed: bool = false,
 
     pub fn hitTest(self: Component, pt: Vec2) bool {
-        const pu = draw.Vec2u.fromVec2i(pt);
-        return (pu.x >= self.bounds.x and
-            pu.y >= self.bounds.y and
-            pu.x <= self.bounds.x + self.bounds.width and
-            pu.y <= self.bounds.y + self.bounds.height);
+        return (pt.x >= self.bounds.x and
+            pt.y >= self.bounds.y and
+            pt.x <= self.bounds.x + self.bounds.width and
+            pt.y <= self.bounds.y + self.bounds.height);
     }
 
     pub fn setValue(self: *Component, val: f32) void {
@@ -654,21 +653,24 @@ pub const Button = struct {
 
     fn draw_proc(self: *Component, canvas: draw.Canvas) void {
         const button: *Button = arbor.cast(*Button, self.sub_type);
+        const is_on: bool = self.value == 1;
+        const color = if (is_on) self.background_color.toBits() else 0;
+
         draw.olivec_rect(
             canvas,
-            @intCast(self.bounds.x + self.padding.x),
-            @intCast(self.bounds.y + self.padding.y),
-            @intCast(self.bounds.width - (self.padding.x * 2)),
-            @intCast(self.bounds.height - (self.padding.y * 2)),
-            self.background_color.toBits(),
+            @as(i32, @intCast(self.bounds.x)) + self.padding.x,
+            @as(i32, @intCast(self.bounds.y)) + self.padding.y,
+            @as(i32, @intCast(self.bounds.width)) - (self.padding.x * 2),
+            @as(i32, @intCast(self.bounds.height)) - (self.padding.y * 2),
+            color,
         );
 
         draw.olivec_frame(
             canvas,
-            @intCast(self.bounds.x),
-            @intCast(self.bounds.y),
-            @intCast(self.bounds.width),
-            @intCast(self.bounds.height),
+            @as(i32, @intCast(self.bounds.x)) + self.padding.x,
+            @as(i32, @intCast(self.bounds.y)) + self.padding.y,
+            @as(i32, @intCast(self.bounds.width)) - (self.padding.x * 2),
+            @as(i32, @intCast(self.bounds.height)) - (self.padding.y * 2),
             button.border_thickness,
             button.border_color.toBits(),
         );
@@ -680,6 +682,7 @@ pub const Button = struct {
     fn on_mouse_click(self: *Component, _: Vec2) void {
         const cur_value: bool = self.value == 1;
         self.value = @floatFromInt(@intFromBool(!cur_value));
+        self.param_changed = true;
     }
 
     pub const interface = Component.Interface{
