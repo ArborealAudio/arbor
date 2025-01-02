@@ -7,8 +7,8 @@ const Description = arbor.Plugin.Description;
 pub const features = arbor.features;
 
 comptime {
-    if (builtin.zig_version.minor != 12 and
-        builtin.zig_version.patch != 0) @compileError("Requires Zig 0.12 stable");
+    if (builtin.zig_version.minor != 13 and
+        builtin.zig_version.patch != 0) @compileError("Requires Zig 0.13 stable");
 }
 
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo

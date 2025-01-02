@@ -2,7 +2,7 @@
 
 set -e
 
-ZIG_VERSION="0.12.0"
+ZIG_VERSION="0.13.0"
 
 [ $(uname -s) == 'Darwin' ] && OS="macos"
 [ $(uname -s) == 'Linux' ] && OS="linux"
