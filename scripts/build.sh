@@ -14,14 +14,14 @@ TRIPLE="${OS}-${ARCH}-${ZIG_VERSION}"
 
 echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
 
-[ $OS != 'windows' ] && curl "https://ziglang.org/builds/zig-${TRIPLE}.tar.xz" | tar xJ
+[ $OS != 'windows' ] && curl "https://ziglang.org/download/${ZIG_VERSION}/zig-${TRIPLE}.tar.xz" | tar xJ
 if [[ $OS == 'windows' ]]; then
 	choco install zig --version $ZIG_VERSION
 	# powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://ziglang.org/builds/zig-${TRIPLE}.zip -OutFile zig-${TRIPLE}.zip"
 	# powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
 fi
 
-[ $OS != 'windows' ] && ZIG="zig-${TRIPLE}/zig" || ZIG="zig.exe"
+[ $OS != 'windows' ] && ZIG="${PWD}/zig-${TRIPLE}/zig" || ZIG="${PWD}/zig.exe"
 
 echo "Zig path = ${ZIG}"
 
@@ -33,5 +33,7 @@ EXAMPLES=(Distortion Filter)
 
 for ex in ${EXAMPLES[@]}; do
 	echo "Building example plugin: $ex"
-	$ZIG build --build-file examples/$ex/build.zig
+	pushd ./examples/$ex
+	$ZIG build
+	popd
 done
