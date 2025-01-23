@@ -7,8 +7,8 @@ const Description = arbor.Plugin.Description;
 pub const features = arbor.features;
 
 comptime {
-    if (builtin.zig_version.minor != 12 and
-        builtin.zig_version.patch != 0) @compileError("Requires Zig 0.12 stable");
+    if (builtin.zig_version.minor != 13 and
+        builtin.zig_version.patch != 0) @compileError("Requires Zig 0.13 stable");
 }
 
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo
@@ -204,7 +204,7 @@ pub const BundleStep = struct {
         return self;
     }
 
-    pub fn make(step: *Step, _: *std.Progress.Node) !void {
+    pub fn make(step: *Step, _: std.Progress.Node) !void {
         const self: *BundleStep = @fieldParentPtr("step", step);
         const b = self.step.owner;
         const dest = b.install_path;
@@ -223,7 +223,7 @@ pub const BundleStep = struct {
             break :make arr;
         };
 
-        const gen_file = self.build_dep.getEmittedBin().generated.getPath();
+        const gen_file = self.build_dep.getEmittedBin().getPath(b);
         const ext = format_extensions.get(self.format);
         // make double sure we have a file name w/ no spaces
         const out_name = try b.allocator.dupe(u8, self.build_dep.name);
@@ -303,7 +303,7 @@ pub const CopyStep = struct {
         return self;
     }
 
-    pub fn make(step: *Step, _: *std.Progress.Node) !void {
+    pub fn make(step: *Step, _: std.Progress.Node) !void {
         const self: *CopyStep = @fieldParentPtr("step", step);
         const b = step.owner;
         const target = self.config.target;
