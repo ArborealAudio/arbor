@@ -25,6 +25,11 @@ fi
 
 echo "Zig path = ${ZIG}"
 
+if [[ $OS == 'linux' ]]; then
+	echo "Installing X11 development libraries"
+	apt install libx11-dev
+fi
+
 echo "Running library tests"
 $ZIG build test
 
