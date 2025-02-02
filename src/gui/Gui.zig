@@ -16,6 +16,7 @@ const Rect = draw.Recti;
 const Color = draw.Color;
 
 pub const Platform = @import("platform.zig");
+const d2dl = Platform.d2dl;
 pub const GuiImpl = Platform.GuiImpl;
 pub const GuiState = Platform.GuiState;
 
@@ -23,11 +24,7 @@ const AtomicBool = std.atomic.Value(bool);
 
 const Gui = @This();
 
-/// User gui init
-pub extern fn gui_init(*Plugin) void;
-
 pub const GuiConfig = struct {
-    layout: LayoutType,
     width: u32,
     height: u32,
     interface: Interface,
@@ -39,13 +36,14 @@ pub const Interface = struct {
     deinit: *const fn (*Gui) void,
 };
 
-bits: []u32,
-impl: *GuiImpl,
-canvas: draw.Canvas,
-
+impl: GuiImpl,
 interface: Interface,
-layout: LayoutType,
+plugin: *const Plugin,
+
 components: std.ArrayList(Component),
+
+width: u32,
+height: u32,
 
 in_events: *Queue,
 out_events: *Queue,
@@ -65,34 +63,36 @@ var arena_impl = std.heap.ArenaAllocator.init(std.heap.c_allocator);
 const arena = arena_impl.allocator();
 
 /// Call this from within your gui_init function to init the GUI backend
-pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
-    _ = allocator;
+pub fn init(plugin: *Plugin, config: GuiConfig) *Gui {
     const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e}, @src());
-    const bits = arena.alloc(u32, config.width * config.height) catch |e|
-        log.fatal("{!}\n", .{e}, @src());
+    // const bits = arena.alloc(u32, config.width * config.height) catch |e|
+    //     log.fatal("{!}\n", .{e}, @src());
     ptr.* = .{
         .allocator = arena,
-        .bits = bits,
-        .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, config.timer_ms, arbor.plugin_name),
+        // TODO: So uhh how's this gonna work with other APIs? We need another layer of abstraction here
+        .impl = d2dl.Direct2D.init(
+            @intCast(config.width),
+            @intCast(config.height),
+            arbor.plugin_name,
+            .{ .child = .{ .user = ptr } },
+        ) catch |e| log.fatal("{!}\n", .{e}, @src()),
         .interface = config.interface,
-        .layout = config.layout,
+        .plugin = plugin,
+        .width = config.width,
+        .height = config.height,
         .components = std.ArrayList(Component).init(arena),
         .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
         .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
-        .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
     };
+
+    plugin.gui = ptr;
 
     return ptr;
 }
 
 pub fn deinit(self: *Gui) void {
     self.interface.deinit(self);
-    Platform.guiDestroy(self.impl);
-    // self.allocator.free(self.bits);
-    // self.components.deinit();
-    // self.in_events.deinit();
-    // self.out_events.deinit();
-    // self.allocator.destroy(self);
+    self.impl.deinit();
     arena_impl.deinit();
 }
 
@@ -104,37 +104,15 @@ fn render(self: *Gui) callconv(.C) void {
     // unload event queue
     self.processInEvents();
 
-    self.interface.render(self);
+    self.impl.beginDrawing();
+    self.impl.clear(.{ .r = 0, .g = 0, .b = 0 });
+    self.impl.fillRect(
+        .{ .left = 100, .top = 100, .right = @floatFromInt(self.width - 100), .bottom = @floatFromInt(self.height - 100) },
+        .{ .r = 0, .g = 1, .b = 0, .a = 0.25 },
+    );
+    self.impl.endDrawing();
 
-    if (builtin.mode == .Debug) {
-        if (debug_mouse_pos) {
-            draw.olivec_circle(
-                self.canvas,
-                @intFromFloat(self.state.mouse_pos.x),
-                @intFromFloat(self.state.mouse_pos.y),
-                3,
-                debug_mouse_color.toBits(),
-            );
-        }
-        if (debug_grid) {
-            draw.olivec_line(
-                self.canvas,
-                @divTrunc(self.getSize().x, 2),
-                0,
-                @divTrunc(self.getSize().x, 2),
-                self.getSize().y,
-                debug_grid_color.toBits(),
-            );
-            draw.olivec_line(
-                self.canvas,
-                0,
-                @divTrunc(self.getSize().y, 2),
-                self.getSize().x,
-                @divTrunc(self.getSize().y, 2),
-                debug_grid_color.toBits(),
-            );
-        }
-    }
+    self.interface.render(self);
 
     // check for component param change flags & push to plugin
     for (self.components.items, 0..) |*c, i| {
@@ -177,7 +155,7 @@ fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) call
 }
 
 pub fn getSize(self: Gui) Vec2 {
-    return .{ .x = @intCast(self.canvas.width), .y = @intCast(self.canvas.height) };
+    return .{ .x = @intCast(self.width), .y = @intCast(self.height) };
 }
 
 // NOTE: We do expect pointers for now, would prefer not to rely on heap
@@ -705,7 +683,7 @@ const debug_grid = false;
 const debug_grid_color = Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
 
 comptime {
-    @export(render, .{ .name = "gui_render", .linkage = .weak });
-    @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
-    @export(Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
+    @export(render, .{ .name = "arbor_gui_render", .linkage = .weak });
+    // @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
+    // @export(Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
 }

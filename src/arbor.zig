@@ -75,6 +75,7 @@ pub const Plugin = struct {
         prepare: *const fn (*Plugin, f32, u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
+        gui_init: ?*const fn (*Plugin) void = null,
     };
 
     /// User-provided initialization function

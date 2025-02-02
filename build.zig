@@ -74,6 +74,7 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
         const bundle_step = try BundleStep.create(b, fmt, config, plug);
         bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
         b.getInstallStep().dependOn(&bundle_step.step);
+        b.installArtifact(plug);
 
         const copy_cmd = try CopyStep.create(b, fmt, config, bundle_step);
         copy_cmd.step.dependOn(b.getInstallStep());
@@ -85,6 +86,7 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
             const bundle_step = try BundleStep.create(b, fmt, config, plug);
             bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
             b.getInstallStep().dependOn(&bundle_step.step);
+            b.installArtifact(plug);
 
             const copy_cmd = try CopyStep.create(b, fmt, config, bundle_step);
             copy_cmd.step.dependOn(b.getInstallStep());
@@ -109,12 +111,16 @@ fn buildGUI(
             });
         },
         .windows => {
+            arbor_mod.addCSourceFile(.{
+                .file = dep.path("src/gui/d2dl/d2dl.cpp"),
+                .flags = &.{"-std=c++20"},
+            });
+            // Maybe someday...
+            // arbor_mod.addIncludePath(dep.path("src/gui/d2dl"));
             arbor_mod.linkSystemLibrary("gdi32", .{});
             arbor_mod.linkSystemLibrary("user32", .{});
-            arbor_mod.addCSourceFile(.{
-                .file = dep.path("src/gui/gui_w32.c"),
-                .flags = &.{"-std=c99"},
-            });
+            arbor_mod.linkSystemLibrary("d2d1", .{});
+            arbor_mod.linkSystemLibrary("dwrite", .{});
         },
         .macos => {
             arbor_mod.linkFramework("Cocoa", .{});
@@ -358,6 +364,13 @@ pub const CopyStep = struct {
             try copyRecursive(b.allocator, bundle_dir, plugin_dir);
         } else {
             _ = try std.fs.cwd().updateFile(bundle_path, plugin_dir, bundle_name, .{});
+        }
+
+        // copy windows PDB
+        if (os == .windows and builtin.mode == .Debug) {
+            const pdb_path = self.bundle.build_dep.getEmittedPdb().getPath(b);
+            const basename = std.fs.path.basename(pdb_path);
+            _ = try std.fs.cwd().updateFile(pdb_path, plugin_dir, basename, .{});
         }
     }
 };

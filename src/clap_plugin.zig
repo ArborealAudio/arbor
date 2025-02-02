@@ -285,8 +285,8 @@ const Params = struct {
     };
 };
 
-const GuiPlatform = arbor.Gui.Platform;
-const GuiImpl = arbor.Gui.GuiImpl;
+// const GuiPlatform = arbor.Gui.Platform;
+// const GuiImpl = arbor.Gui.GuiImpl;
 const Gui = struct {
     pub const GUI_API = switch (builtin.os.tag) {
         .linux => clap.gui.Window.API_X11,
@@ -324,7 +324,9 @@ const Gui = struct {
             return false;
         if (plug_cast(plugin).plugin) |plug| {
             std.debug.assert(plug.gui == null);
-            arbor.Gui.gui_init(plug);
+            if (plug.interface.gui_init) |func|
+                func(plug);
+
             if (plug.gui) |gui| {
                 const clap_plug = plug_cast(plugin);
                 if (builtin.os.tag == .linux) {
@@ -409,7 +411,8 @@ const Gui = struct {
                     .windows => window.window.win32,
                     else => log.fatal("Unsupported OS\n", .{}, @src()),
                 };
-                GuiPlatform.guiSetParent(gui.impl, win_data);
+                gui.impl.setParent(win_data);
+                // GuiPlatform.guiSetParent(gui.impl, win_data);
                 return true;
             }
         }
@@ -429,7 +432,7 @@ const Gui = struct {
 
     fn show(plugin: ?*const clap.Plugin) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
-            if (plug.gui) |gui| GuiPlatform.guiSetVisible(gui.impl, true);
+            if (plug.gui) |gui| gui.impl.setVisible(true);
             return true;
         }
         return false;
@@ -437,7 +440,7 @@ const Gui = struct {
 
     fn hide(plugin: ?*const clap.Plugin) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
-            if (plug.gui) |gui| GuiPlatform.guiSetVisible(gui.impl, false);
+            if (plug.gui) |gui| gui.impl.setVisible(false);
             return true;
         }
         return false;
@@ -469,10 +472,11 @@ pub const PosixFDSupport = struct {
         flags: clap.posix_fd.Flags,
     ) callconv(.C) void {
         _ = fd;
+        _ = plugin;
         _ = flags;
-        if (plug_cast(plugin).plugin) |plug| {
-            if (plug.gui) |gui| GuiPlatform.guiOnPosixFd(gui.impl);
-        }
+        // if (plug_cast(plugin).plugin) |plug| {
+        //     if (plug.gui) |gui| GuiPlatform.guiOnPosixFd(gui.impl);
+        // }
     }
 
     pub const Data = clap.posix_fd.PluginSupport{

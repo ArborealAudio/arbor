@@ -224,9 +224,9 @@ fn dispatch(
             // Init GUI
             // ptr = native parent window (HWND, NSView/NSWindow?, X Window)
             assert(plug.gui == null);
-            Gui.gui_init(plug);
+            if (plug.interface.gui_init) |func| func(plug);
             const gui = plug.gui orelse {
-                log.err("{s}: Gui is null\n", .{@tagName(code)}, @src());
+                log.err("{s}: No GUI supplied\n", .{@tagName(code)}, @src());
                 return 0;
             };
 
@@ -250,12 +250,12 @@ fn dispatch(
                     arbor.cast(PlatformGui.Window, p)
                 else
                     @intFromPtr(p);
-                PlatformGui.guiSetParent(gui.impl, window);
+                gui.impl.setParent(window);
             } else {
                 log.err("Passed null parent window\n", .{}, @src());
                 return 0;
             }
-            PlatformGui.guiSetVisible(gui.impl, true);
+            gui.impl.setVisible(true);
             gui.requestDraw();
             return 1;
         },

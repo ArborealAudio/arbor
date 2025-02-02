@@ -1,0 +1,3 @@
+[submodule "src/gui/d2dl"]
+	path = src/gui/d2dl
+	url = https://github.com/abriccio/d2dl.git

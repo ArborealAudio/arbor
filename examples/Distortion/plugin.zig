@@ -24,6 +24,7 @@ export fn init() *arbor.Plugin {
         .deinit = deinit,
         .prepare = prepare,
         .process = process,
+        .gui_init = gui_init,
     });
     return plugin;
 }
@@ -105,23 +106,21 @@ const border_color = draw.Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
 
 const TITLE = "DISTORTION";
 
-// Export an entry to our GUI implementation
-export fn gui_init(plugin: *arbor.Plugin) void {
-    const gui = arbor.Gui.init(plugin.allocator, .{
-        .layout = .default,
+// Implement the GUI initialization function
+fn gui_init(plugin: *arbor.Plugin) void {
+    const gui = arbor.Gui.init(plugin, .{
         .width = WIDTH,
         .height = HEIGHT,
-        .timer_ms = 16,
+        .timer_ms = 1000 / 60,
         .interface = .{
             .deinit = gui_deinit,
             .render = gui_render,
         },
     });
-    plugin.gui = gui;
 
     // we can draw the logo here and just copy its memory to the global canvas
     // in our render function
-    drawLogo();
+    // drawLogo();
 
     // TODO: Allow the user to describe layout in more relative terms rather
     // than computing based on window size, etc.
@@ -197,32 +196,33 @@ fn gui_deinit(gui: *arbor.Gui) void {
 }
 
 fn gui_render(gui: *arbor.Gui) void {
+    _ = gui;
     // draw our background and frame
-    draw.olivec_fill(gui.canvas, background_color.toBits());
-    draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
+    // draw.olivec_fill(gui.canvas, background_color.toBits());
+    // draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
 
     // draw plugin title
-    const title_width = WIDTH / 3;
-    draw.drawText(gui.canvas, .{
-        .text = TITLE,
-        .height = 25,
-        .color = slider_dark,
-        .background = silver,
-        .flags = .{ .background = true },
-    }, .{
-        .x = (WIDTH / 2) - (title_width / 2),
-        .y = 10,
-        .width = title_width,
-        .height = 50,
-    });
+    // const title_width = WIDTH / 3;
+    // draw.drawText(gui.canvas, .{
+    //     .text = TITLE,
+    //     .height = 25,
+    //     .color = slider_dark,
+    //     .background = silver,
+    //     .flags = .{ .background = true },
+    // }, .{
+    //     .x = (WIDTH / 2) - (title_width / 2),
+    //     .y = 10,
+    //     .width = title_width,
+    //     .height = 50,
+    // });
 
     // draw each component
-    for (gui.components.items) |*c| {
-        c.interface.draw_proc(c, gui.canvas);
-    }
+    // for (gui.components.items) |*c| {
+    //     c.interface.draw_proc(c, gui.canvas);
+    // }
 
     // render logo
-    draw.olivec_sprite_blend(gui.canvas, 6, 6, 64, 64, logo_canvas);
+    // draw.olivec_sprite_blend(gui.canvas, 6, 6, 64, 64, logo_canvas);
 }
 
 // TODO: Write Zig bindings for Olivec so we can run it at comptime
