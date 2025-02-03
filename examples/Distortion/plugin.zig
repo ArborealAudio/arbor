@@ -92,17 +92,18 @@ fn dbValToText(value: f32, buf: []u8) usize {
     return out.len;
 }
 
-const draw = arbor.Gui.draw;
+const Graphics = arbor.Gui.Graphics;
+const Color = arbor.Gui.Color;
 
 pub const WIDTH = 500;
 pub const HEIGHT = 600;
-const background_color = draw.Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
+const background_color = Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
 
-const slider_dark = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff };
-const silver = draw.Color.fromBits(0xff_aa_aa_aa);
+const slider_dark = Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff };
+const silver = Color.fromBits(0xff_aa_aa_aa, .ARGB);
 
-const highlight_color = draw.Color{ .r = 0x9f, .g = 0xc4, .b = 0x72, .a = 0xff };
-const border_color = draw.Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
+const highlight_color = Color{ .r = 0x9f, .g = 0xc4, .b = 0x72, .a = 0xff };
+const border_color = Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
 
 const TITLE = "DISTORTION";
 
@@ -126,67 +127,69 @@ fn gui_init(plugin: *arbor.Plugin) void {
     // than computing based on window size, etc.
     // somehting like getNextLayoutSection() and it will provide a rect which corresponds
     // to the appropriate area based on a layout chosen *prior* to instantiating components
-    const slider_height = 200;
-    const slider_gap = 90; // gap on either side of slider
-    // create pointers, assign IDs and values
-    // this is how the components get "attached" to parameters
-    // setup unique properties here
-    for (0..plugin.param_info.len) |i| {
-        const param_info = plugin.getParamWithId(@intCast(i)) catch |e| {
-            log.err("{!}\n", .{e}, @src());
-            return;
-        };
-        if (!std.mem.eql(u8, param_info.name, "Mode")) {
-            const width = (WIDTH / 2) - (slider_gap * 2);
-            gui.addComponent(.{
-                // given the gui.allocator, the memory will be cleaned up
-                // on global GUI deinit. Otherwise, deallocate manually.
-                .sub_type = arbor.Gui.Slider.init(gui.allocator, param_info, silver),
-                .interface = arbor.Gui.Slider.interface,
-                .value = param_info.getNormalizedValue(plugin.params[i]),
-                .bounds = .{
-                    .x = @intCast(i * (WIDTH / 2) + slider_gap),
-                    .y = (HEIGHT / 2) - (slider_height / 2),
-                    .width = width,
-                    .height = slider_height,
-                },
-                .background_color = slider_dark,
-                .label = .{
-                    .text = param_info.name,
-                    .height = 18,
-                    .color = draw.Color.WHITE,
-                    .border = silver,
-                    .flags = .{
-                        .border = true,
-                        .center_x = true,
-                        .center_y = false,
+    if (false) {
+        const slider_height = 200;
+        const slider_gap = 90; // gap on either side of slider
+        // create pointers, assign IDs and values
+        // this is how the components get "attached" to parameters
+        // setup unique properties here
+        for (0..plugin.param_info.len) |i| {
+            const param_info = plugin.getParamWithId(@intCast(i)) catch |e| {
+                log.err("{!}\n", .{e}, @src());
+                return;
+            };
+            if (!std.mem.eql(u8, param_info.name, "Mode")) {
+                const width = (WIDTH / 2) - (slider_gap * 2);
+                gui.addComponent(.{
+                    // given the gui.allocator, the memory will be cleaned up
+                    // on global GUI deinit. Otherwise, deallocate manually.
+                    .sub_type = arbor.Gui.Slider.init(gui.allocator, param_info, silver),
+                    .interface = arbor.Gui.Slider.interface,
+                    .value = param_info.getNormalizedValue(plugin.params[i]),
+                    .bounds = .{
+                        .x = @floatFromInt(i * (WIDTH / 2) + slider_gap),
+                        .y = (HEIGHT / 2) - (slider_height / 2),
+                        .width = width,
+                        .height = slider_height,
                     },
-                },
-            });
-        } else { // mode menu
-            const menu_width = WIDTH / 2;
-            const menu_height = HEIGHT / 8;
-            const bot_pad = 50;
-            gui.addComponent(.{
-                .sub_type = arbor.Gui.Menu.init(gui.allocator, param_info.enum_choices orelse {
-                    log.err("No enum choices available\n", .{}, @src());
-                    return;
-                }, silver, 3, highlight_color),
-                .interface = arbor.Gui.Menu.interface,
-                .value = param_info.getNormalizedValue(plugin.params[i]), // don't bother normalizing since we just care about the int
-                .bounds = .{
-                    .x = (WIDTH - menu_width) - menu_width / 2,
-                    .y = HEIGHT - menu_height - bot_pad,
-                    .width = menu_width,
-                    .height = menu_height,
-                },
-                .background_color = slider_dark,
-                .label = .{
-                    .text = param_info.name,
-                    .height = menu_height / 2,
-                    .color = draw.Color.WHITE,
-                },
-            });
+                    .background_color = slider_dark,
+                    .label = .{
+                        .text = param_info.name,
+                        .height = 18,
+                        .color = Color.White,
+                        .border = silver,
+                        .flags = .{
+                            .border = true,
+                            .center_x = true,
+                            .center_y = false,
+                        },
+                    },
+                });
+            } else { // mode menu
+                const menu_width = WIDTH / 2;
+                const menu_height = HEIGHT / 8;
+                const bot_pad = 50;
+                gui.addComponent(.{
+                    .sub_type = arbor.Gui.Menu.init(gui.allocator, param_info.enum_choices orelse {
+                        log.err("No enum choices available\n", .{}, @src());
+                        return;
+                    }, silver, 3, highlight_color),
+                    .interface = arbor.Gui.Menu.interface,
+                    .value = param_info.getNormalizedValue(plugin.params[i]), // don't bother normalizing since we just care about the int
+                    .bounds = .{
+                        .x = (WIDTH - menu_width) - menu_width / 2,
+                        .y = HEIGHT - menu_height - bot_pad,
+                        .width = menu_width,
+                        .height = menu_height,
+                    },
+                    .background_color = slider_dark,
+                    .label = .{
+                        .text = param_info.name,
+                        .height = menu_height / 2,
+                        .color = Color.White,
+                    },
+                });
+            }
         }
     }
 }
@@ -226,31 +229,31 @@ fn gui_render(gui: *arbor.Gui) void {
 }
 
 // TODO: Write Zig bindings for Olivec so we can run it at comptime
-var logo_pix: [32 * 32]u32 = undefined;
-var logo_canvas: draw.Canvas = .{
-    .pixels = @ptrCast(&logo_pix),
-    .width = 32,
-    .height = 32,
-    .stride = 32,
-};
+// var logo_pix: [32 * 32]u32 = undefined;
+// var logo_canvas: draw.Canvas = .{
+//     .pixels = @ptrCast(&logo_pix),
+//     .width = 32,
+//     .height = 32,
+//     .stride = 32,
+// };
 
-fn drawLogo() void {
-    const cx = 15;
-    const cy = 15;
-    draw.olivec_fill(logo_canvas, 0);
-    draw.olivec_circle(logo_canvas, cx, cy, 16, silver.toBits());
-    draw.olivec_line(logo_canvas, cx, 0, cx, 32, slider_dark.toBits());
-    var i: u32 = 3;
-    while (i < cy + 2) : (i += 3) {
-        const w = i * 2;
-        const x = 15 - (w / 2);
-        draw.olivec_line(
-            logo_canvas,
-            @intCast(x),
-            @intCast(i),
-            @intCast(x + w),
-            @intCast(i),
-            slider_dark.toBits(),
-        );
-    }
-}
+// fn drawLogo() void {
+//     const cx = 15;
+//     const cy = 15;
+//     draw.olivec_fill(logo_canvas, 0);
+//     draw.olivec_circle(logo_canvas, cx, cy, 16, silver.toBits());
+//     draw.olivec_line(logo_canvas, cx, 0, cx, 32, slider_dark.toBits());
+//     var i: u32 = 3;
+//     while (i < cy + 2) : (i += 3) {
+//         const w = i * 2;
+//         const x = 15 - (w / 2);
+//         draw.olivec_line(
+//             logo_canvas,
+//             @intCast(x),
+//             @intCast(i),
+//             @intCast(x + w),
+//             @intCast(i),
+//             slider_dark.toBits(),
+//         );
+//     }
+// }

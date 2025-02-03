@@ -14,7 +14,6 @@ const vst2 = @import("vst2_api.zig");
 const Plugin = arbor.Plugin;
 const Parameter = arbor.Parameter;
 const Gui = arbor.Gui;
-const PlatformGui = Gui.Platform;
 
 const allocator = std.heap.c_allocator;
 
@@ -247,15 +246,15 @@ fn dispatch(
 
             if (ptr) |p| {
                 const window = if (builtin.os.tag != .linux)
-                    arbor.cast(PlatformGui.Window, p)
+                    arbor.cast(Gui.renderpkg.Window, p)
                 else
                     @intFromPtr(p);
-                gui.impl.setParent(window);
+                gui.g.setParent(window);
             } else {
                 log.err("Passed null parent window\n", .{}, @src());
                 return 0;
             }
-            gui.impl.setVisible(true);
+            gui.g.setVisible(true);
             gui.requestDraw();
             return 1;
         },

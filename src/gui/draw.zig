@@ -59,8 +59,3 @@ pub const Recti = extern struct {
         return rect;
     }
 };
-
-pub const Circle = struct {
-    pos: Vec2, // center pos
-    radius: f32,
-};

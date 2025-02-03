@@ -331,7 +331,7 @@ const Gui = struct {
                 const clap_plug = plug_cast(plugin);
                 if (builtin.os.tag == .linux) {
                     if (clap_plug.host_fd_support) |host_fd| {
-                        _ = host_fd.register_fd(clap_plug.host, gui.impl.fd, .{ .FD_READ = true });
+                        _ = host_fd.register_fd(clap_plug.host, gui.g.fd, .{ .FD_READ = true });
                     }
                 }
                 return true;
@@ -411,7 +411,7 @@ const Gui = struct {
                     .windows => window.window.win32,
                     else => log.fatal("Unsupported OS\n", .{}, @src()),
                 };
-                gui.impl.setParent(win_data);
+                gui.g.setParent(win_data);
                 // GuiPlatform.guiSetParent(gui.impl, win_data);
                 return true;
             }
@@ -432,7 +432,7 @@ const Gui = struct {
 
     fn show(plugin: ?*const clap.Plugin) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
-            if (plug.gui) |gui| gui.impl.setVisible(true);
+            if (plug.gui) |gui| gui.g.setVisible(true);
             return true;
         }
         return false;
@@ -440,7 +440,7 @@ const Gui = struct {
 
     fn hide(plugin: ?*const clap.Plugin) callconv(.C) bool {
         if (plug_cast(plugin).plugin) |plug| {
-            if (plug.gui) |gui| gui.impl.setVisible(false);
+            if (plug.gui) |gui| gui.g.setVisible(false);
             return true;
         }
         return false;

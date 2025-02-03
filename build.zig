@@ -112,7 +112,7 @@ fn buildGUI(
         },
         .windows => {
             arbor_mod.addCSourceFile(.{
-                .file = dep.path("src/gui/d2dl/d2dl.cpp"),
+                .file = dep.path("src/gui/render/c/d2d.cpp"),
                 .flags = &.{"-std=c++20"},
             });
             // Maybe someday...
