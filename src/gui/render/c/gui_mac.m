@@ -131,7 +131,8 @@ void guiBeginDrawing(D2DContext *ctx)
 
 void guiEndDrawing(D2DContext *ctx)
 {
-    // turns out releasing the CGContextRef is a bug?
+    // NOTE: Either releasing the CGContextRef is a bug, or we need to implement some of our own
+    // refcounting, using static variables to track across plugin instances..?
 }
 
 void guiClear(D2DContext *ctx, D2DColor color)
