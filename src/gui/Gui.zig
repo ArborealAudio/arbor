@@ -11,7 +11,7 @@ const Event = arbor.Event;
 const Queue = arbor.Queue;
 
 pub const renderpkg = @import("render/render.zig");
-pub const Graphics = renderpkg.Graphics;
+pub const GraphicsContext = renderpkg.Context;
 pub const Vec2 = renderpkg.Vec2i;
 pub const Vec2u = renderpkg.Vec2u;
 pub const Rect = renderpkg.Rect;
@@ -33,7 +33,15 @@ pub const Interface = struct {
     deinit: *const fn (*Gui) void,
 };
 
-g: *Graphics,
+pub const GuiState = enum(u8) {
+    Idle,
+    MouseOver,
+    MouseDown,
+    MouseUp,
+    MouseDrag,
+};
+
+g: *GraphicsContext,
 interface: Interface,
 plugin: *const Plugin,
 
@@ -48,7 +56,7 @@ out_events: *Queue,
 allocator: Allocator,
 
 state: struct {
-    // type: GuiState = .Idle,
+    type: GuiState = .Idle,
 
     mouse_pos: Vec2 = .{ .x = 0, .y = 0 },
     comp_id: ?usize = null,
@@ -67,10 +75,10 @@ pub fn init(plugin: *Plugin, config: GuiConfig) *Gui {
     ptr.* = .{
         .allocator = arena,
         .g = renderpkg.init(
-            @intCast(config.width),
-            @intCast(config.height),
+            ptr,
+            config.width,
+            config.height,
             arbor.plugin_name,
-            .{ .child = .{ .user = ptr } },
         ) catch |e| log.fatal("{!}\n", .{e}, @src()),
         .interface = config.interface,
         .plugin = plugin,
@@ -80,6 +88,8 @@ pub fn init(plugin: *Plugin, config: GuiConfig) *Gui {
         .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
         .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
     };
+
+    ptr.g.loadFont("Arial", 24);
 
     plugin.gui = ptr;
 
@@ -101,11 +111,24 @@ fn render(self: *Gui) callconv(.C) void {
     self.processInEvents();
 
     self.g.beginDrawing();
-    self.g.clear(.{ .r = 0, .g = 0, .b = 0 });
-    self.g.fillRect(
-        .{ .left = 100, .top = 100, .right = @floatFromInt(self.width - 100), .bottom = @floatFromInt(self.height - 100) },
-        .{ .r = 0, .g = 1, .b = 0, .a = 0.25 },
+    self.g.clear(Color.Black.toFloat());
+    self.g.fillRoundedRect(
+        .{ .x = 100, .y = 100, .width = @floatFromInt(self.width - 200), .height = @floatFromInt(self.height - 200) },
+        25,
+        .{ .r = 0, .g = 0.5, .b = 0.5 },
     );
+    self.g.drawRoundedRect(
+        .{ .x = 100, .y = 100, .width = @floatFromInt(self.width - 200), .height = @floatFromInt(self.height - 200) },
+        25,
+        3,
+        .{ .r = 0.8, .g = 0.8, .b = 0.8 },
+    );
+    self.g.drawText("⚙︎ arbor ⚙︎", .{
+        .x = 100 + 24,
+        .y = 100 + 24,
+        .width = @floatFromInt(self.width),
+        .height = @floatFromInt(self.height),
+    }, .{ .r = 0.7, .g = 0.7, .b = 0.7 });
     self.g.endDrawing();
 
     self.interface.render(self);
@@ -138,17 +161,24 @@ fn processInEvents(self: *Gui) void {
     }
 }
 
-// fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.C) void {
-//     if (self.state.type != state)
-//         self.state.type = state;
-//     self.processGesture(
-//         .{ .x = cursor_x, .y = cursor_y },
-//     ) catch |e| {
-//         log.err("{!}\n", .{e}, @src());
-//         return;
-//     };
-//     self.requestDraw();
-// }
+fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.C) void {
+    if (self.state.type != state)
+        self.state.type = state;
+    self.processGesture(
+        .{ .x = cursor_x, .y = cursor_y },
+    ) catch |e| {
+        log.err("{!}\n", .{e}, @src());
+        return;
+    };
+    self.requestDraw();
+}
+
+fn timerCallback(_: renderpkg.Timer, self: *anyopaque) callconv(.C) void {
+    const gui = arbor.cast(*Gui, self);
+    if (gui.wants_repaint.load(.acquire)) {
+        gui.g.redraw();
+    }
+}
 
 pub fn getSize(self: Gui) Vec2 {
     const size = self.g.getRenderSize();
@@ -318,14 +348,14 @@ pub const Label = struct {
 
 pub const Component = struct {
     pub const Interface = struct {
-        draw_proc: *const fn (self: *Component, gi: *Graphics) void,
+        draw_proc: *const fn (self: *Component, gi: *GraphicsContext) void,
         on_mouse_over: ?*const fn (self: *Component, Vec2) void,
         on_mouse_exit: ?*const fn (self: *Component) void,
         on_mouse_click: ?*const fn (self: *Component, Vec2) void,
         on_mouse_drag: ?*const fn (self: *Component, Vec2) void,
     };
 
-    bounds: Rect = Rect.zero,
+    bounds: renderpkg.Recti = .zero,
     padding: Vec2 = .{ .x = 0, .y = 0 },
     background_color: Color,
 
@@ -376,7 +406,7 @@ pub const Slider = struct {
         return self;
     }
 
-    fn draw_proc(self: *Component, g: *Graphics) void {
+    fn draw_proc(self: *Component, g: *GraphicsContext) void {
         const slider = arbor.cast(*Slider, self.sub_type);
         const height = if (self.label) |label|
             self.bounds.height - @as(f32, @floatFromInt(label.height))
@@ -469,7 +499,7 @@ pub const Menu = struct {
         return self;
     }
 
-    pub fn draw_proc(self: *Component, g: *Graphics) void {
+    pub fn draw_proc(self: *Component, g: *GraphicsContext) void {
         const menu = arbor.cast(*Menu, self.sub_type);
         // const border = if (menu.is_mouse_over)
         //     menu.highlight_color
@@ -606,7 +636,7 @@ pub const Knob = struct {
         drop_shadow: bool = false,
     };
 
-    pub fn draw_proc(self: *Component, g: *Graphics) void {
+    pub fn draw_proc(self: *Component, g: *GraphicsContext) void {
         const radius: f32 = self.width / 2.0;
         const centerX: f32 = self.pos.x + radius;
         const centerY: f32 = self.pos.y + radius;
@@ -655,6 +685,6 @@ pub const Knob = struct {
 
 comptime {
     @export(render, .{ .name = "arbor_gui_render", .linkage = .weak });
-    // @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
-    // @export(Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
+    @export(sysInputEvent, .{ .name = "arbor_sys_event", .linkage = .weak });
+    @export(timerCallback, .{ .name = "arbor_timer_cb", .linkage = .weak });
 }

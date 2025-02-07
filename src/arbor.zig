@@ -20,6 +20,7 @@
 
 //! Main source file for framework, collecting everything in one place
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 pub const config = @import("config");
 const Allocator = std.mem.Allocator;
@@ -420,7 +421,8 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        if (builtin.mode == .Debug)
+            std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
     }
 
     /// default info

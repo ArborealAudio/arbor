@@ -125,16 +125,16 @@ fn buildGUI(
         .macos => {
             arbor_mod.linkFramework("Cocoa", .{});
             arbor_mod.addCSourceFile(.{
-                .file = dep.path("src/gui/gui_mac.m"),
+                .file = dep.path("src/gui/render/c/gui_mac.m"),
                 .flags = &.{"-ObjC"},
             });
         },
         else => @panic("Unimplemented OS\n"),
     }
-    arbor_mod.addCSourceFile(.{
-        .file = dep.path("src/gui/olive.c"),
-        .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
-    });
+    // arbor_mod.addCSourceFile(.{
+    //     .file = dep.path("src/gui/olive.c"),
+    //     .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
+    // });
 }
 
 fn buildPlugin(

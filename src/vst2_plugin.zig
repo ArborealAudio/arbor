@@ -255,7 +255,7 @@ fn dispatch(
                 return 0;
             }
             gui.g.setVisible(true);
-            gui.requestDraw();
+            // gui.requestDraw();
             return 1;
         },
         .EditRedraw => {

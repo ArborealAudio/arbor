@@ -2,25 +2,22 @@ const std = @import("std");
 const math = std.math;
 const builtin = @import("builtin");
 
+const arbor = @import("root");
 pub const d2d = @import("d2d.zig");
 
 const os = builtin.target.os.tag;
 
-pub const Graphics = switch (os) {
-    .windows => d2d.Context,
-    else => @panic("Unimplemented OS"),
-};
-
 pub const Window = switch (os) {
     .windows => d2d.HWND,
-    .macos => *opaque {},
+    .macos => ?*anyopaque,
     .linux => c_ulong,
     else => @panic("Unsupported OS"),
 };
 
-pub const init = switch (os) {
-    .windows => d2d.init,
-    else => @panic("Unimplemented OS"),
+pub const Timer = switch (os) {
+    .windows => c_uint,
+    .macos => *opaque {},
+    else => @panic("Unsupported OS"),
 };
 
 pub const Vec2 = extern struct {
@@ -41,6 +38,16 @@ pub const Vec2u = extern struct {
         std.debug.assert(v.x >= 0 and v.y >= 0);
         return .{ .x = @intCast(v.x), .y = @intCast(v.y) };
     }
+};
+
+pub const Point = extern struct {
+    x: f32,
+    y: f32,
+};
+
+pub const Size = extern struct {
+    width: f32,
+    height: f32,
 };
 
 pub const Rect = extern struct {
@@ -105,15 +112,13 @@ pub const Color = extern struct {
     r: u8,
     g: u8,
     b: u8,
-    a: u8,
+    a: u8 = 0xff,
 
-    pub const PlatformColor = switch (os) {
-        .windows => d2d.Color,
-        else => @panic("Unimplemented OS"),
-    };
-
-    pub const White = Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff };
-    pub const Black = Color{ .r = 0, .g = 0, .b = 0, .a = 0xff };
+    pub const White = Color{ .r = 0xff, .g = 0xff, .b = 0xff };
+    pub const Black = Color{ .r = 0, .g = 0, .b = 0 };
+    pub const Red = Color{ .r = 0xff, .g = 0, .b = 0 };
+    pub const Green = Color{ .r = 0, .g = 0xff, .b = 0 };
+    pub const Blue = Color{ .r = 0, .g = 0, .b = 0xff };
     pub const NULL = std.mem.zeroes(Color);
 
     pub fn toBits(self: Color, format: Format) u32 {
@@ -144,7 +149,7 @@ pub const Color = extern struct {
         return new;
     }
 
-    pub fn toPlatform(self: Color) PlatformColor {
+    pub fn toFloat(self: Color) Colorf {
         const max: f32 = math.maxInt(u8);
         return .{
             .r = @as(f32, @floatFromInt(self.r)) / max,
@@ -154,3 +159,109 @@ pub const Color = extern struct {
         };
     }
 };
+
+pub const Colorf = extern struct {
+    pub const Format = enum {
+        ARGB,
+        RGBA,
+    };
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32 = 1,
+
+    pub fn toInt(self: Colorf) Color {
+        return .{
+            .r = self.r * 255,
+            .g = self.g * 255,
+            .b = self.b * 255,
+            .a = self.a * 255,
+        };
+    }
+};
+
+pub fn init(user: *anyopaque, width: u32, height: u32, title: [:0]const u8) !*Context {
+    return guiInitChildWindow(user, @intCast(width), @intCast(height), title.ptr) orelse
+        return error.WindowInitFailed;
+}
+
+pub const Context = opaque {
+    pub fn deinit(self: *Context) void {
+        guiDeinit(self);
+    }
+
+    pub fn setParent(self: *Context, parent: Window) void {
+        guiSetParent(self, parent);
+    }
+
+    pub fn setVisible(self: *Context, visible: bool) void {
+        guiSetVisible(self, visible);
+    }
+
+    /// Request a redraw of the OS window
+    pub fn redraw(self: *Context) void {
+        guiRedraw(self);
+    }
+
+    pub fn beginDrawing(self: *Context) void {
+        guiBeginDrawing(self);
+    }
+
+    pub fn endDrawing(self: *Context) void {
+        guiEndDrawing(self);
+    }
+
+    pub fn clear(self: *Context, color: Colorf) void {
+        guiClear(self, color);
+    }
+
+    pub fn drawRect(self: *Context, rect: Rect, stroke_width: f32, color: Colorf) void {
+        guiDrawRect(self, rect, stroke_width, color);
+    }
+
+    pub fn fillRect(self: *Context, rect: Rect, color: Colorf) void {
+        guiFillRect(self, rect, color);
+    }
+
+    pub fn drawRoundedRect(
+        self: *Context,
+        rect: Rect,
+        radius: f32,
+        stroke_width: f32,
+        color: Colorf,
+    ) void {
+        guiDrawRoundedRect(self, rect, radius, stroke_width, color);
+    }
+
+    pub fn fillRoundedRect(self: *Context, rect: Rect, radius: f32, color: Colorf) void {
+        guiFillRoundedRect(self, rect, radius, color);
+    }
+
+    pub fn loadFont(self: *Context, font_name: [:0]const u8, size: f32) void {
+        guiLoadFont(self, font_name, size);
+    }
+
+    pub fn drawText(self: *Context, text: [:0]const u8, rect: Rect, color: Colorf) void {
+        guiDrawText(self, text, rect, color);
+    }
+
+    pub fn getRenderSize(self: *Context) Size {
+        return guiGetRenderSize(self);
+    }
+};
+
+extern fn guiInitChildWindow(*anyopaque, c_int, c_int, [*:0]const u8) ?*Context;
+extern fn guiDeinit(*Context) void;
+extern fn guiSetParent(*Context, Window) void;
+extern fn guiSetVisible(*Context, bool) void;
+extern fn guiRedraw(*Context) void;
+extern fn guiBeginDrawing(*Context) void;
+extern fn guiEndDrawing(*Context) void;
+extern fn guiClear(*Context, Colorf) void;
+extern fn guiDrawRect(*Context, Rect, f32, Colorf) void;
+extern fn guiFillRect(*Context, Rect, Colorf) void;
+extern fn guiDrawRoundedRect(*Context, Rect, f32, f32, Colorf) void;
+extern fn guiFillRoundedRect(*Context, Rect, f32, Colorf) void;
+extern fn guiLoadFont(*Context, [*:0]const u8, f32) void;
+extern fn guiDrawText(*Context, [*:0]const u8, Rect, Colorf) void;
+extern fn guiGetRenderSize(*Context) Size;

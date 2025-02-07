@@ -40,14 +40,6 @@ pub const GuiImpl = switch (builtin.os.tag) {
     else => @panic("Unsupported OS\n"),
 };
 
-pub const GuiState = enum(u8) {
-    Idle,
-    MouseOver,
-    MouseDown,
-    MouseUp,
-    MouseDrag,
-};
-
 pub extern fn guiCreate(
     user: ?*Gui,
     w: u32,
