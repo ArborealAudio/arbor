@@ -109,7 +109,7 @@ const TITLE = "DISTORTION";
 
 // Implement the GUI initialization function
 fn gui_init(plugin: *arbor.Plugin) void {
-    const gui = arbor.Gui.init(plugin, .{
+    _ = arbor.Gui.init(plugin, .{
         .width = WIDTH,
         .height = HEIGHT,
         .timer_ms = 1000 / 60,
@@ -118,80 +118,6 @@ fn gui_init(plugin: *arbor.Plugin) void {
             .render = gui_render,
         },
     });
-
-    // we can draw the logo here and just copy its memory to the global canvas
-    // in our render function
-    // drawLogo();
-
-    // TODO: Allow the user to describe layout in more relative terms rather
-    // than computing based on window size, etc.
-    // somehting like getNextLayoutSection() and it will provide a rect which corresponds
-    // to the appropriate area based on a layout chosen *prior* to instantiating components
-    if (false) {
-        const slider_height = 200;
-        const slider_gap = 90; // gap on either side of slider
-        // create pointers, assign IDs and values
-        // this is how the components get "attached" to parameters
-        // setup unique properties here
-        for (0..plugin.param_info.len) |i| {
-            const param_info = plugin.getParamWithId(@intCast(i)) catch |e| {
-                log.err("{!}\n", .{e}, @src());
-                return;
-            };
-            if (!std.mem.eql(u8, param_info.name, "Mode")) {
-                const width = (WIDTH / 2) - (slider_gap * 2);
-                gui.addComponent(.{
-                    // given the gui.allocator, the memory will be cleaned up
-                    // on global GUI deinit. Otherwise, deallocate manually.
-                    .sub_type = arbor.Gui.Slider.init(gui.allocator, param_info, silver),
-                    .interface = arbor.Gui.Slider.interface,
-                    .value = param_info.getNormalizedValue(plugin.params[i]),
-                    .bounds = .{
-                        .x = @floatFromInt(i * (WIDTH / 2) + slider_gap),
-                        .y = (HEIGHT / 2) - (slider_height / 2),
-                        .width = width,
-                        .height = slider_height,
-                    },
-                    .background_color = slider_dark,
-                    .label = .{
-                        .text = param_info.name,
-                        .height = 18,
-                        .color = Color.White,
-                        .border = silver,
-                        .flags = .{
-                            .border = true,
-                            .center_x = true,
-                            .center_y = false,
-                        },
-                    },
-                });
-            } else { // mode menu
-                const menu_width = WIDTH / 2;
-                const menu_height = HEIGHT / 8;
-                const bot_pad = 50;
-                gui.addComponent(.{
-                    .sub_type = arbor.Gui.Menu.init(gui.allocator, param_info.enum_choices orelse {
-                        log.err("No enum choices available\n", .{}, @src());
-                        return;
-                    }, silver, 3, highlight_color),
-                    .interface = arbor.Gui.Menu.interface,
-                    .value = param_info.getNormalizedValue(plugin.params[i]), // don't bother normalizing since we just care about the int
-                    .bounds = .{
-                        .x = (WIDTH - menu_width) - menu_width / 2,
-                        .y = HEIGHT - menu_height - bot_pad,
-                        .width = menu_width,
-                        .height = menu_height,
-                    },
-                    .background_color = slider_dark,
-                    .label = .{
-                        .text = param_info.name,
-                        .height = menu_height / 2,
-                        .color = Color.White,
-                    },
-                });
-            }
-        }
-    }
 }
 
 fn gui_deinit(gui: *arbor.Gui) void {
@@ -199,25 +125,30 @@ fn gui_deinit(gui: *arbor.Gui) void {
 }
 
 fn gui_render(gui: *arbor.Gui) void {
-    _ = gui;
+    const g = gui.g;
+    // const gui_size = g.getRenderSize();
+
+    g.beginDrawing();
     // draw our background and frame
-    // draw.olivec_fill(gui.canvas, background_color.toBits());
-    // draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
+    g.clear(background_color.toFloat());
+    g.drawRect(
+        .{ .x = 2, .y = 2, .width = WIDTH - 4, .height = HEIGHT - 4 },
+        4,
+        border_color.toFloat(),
+    );
 
     // draw plugin title
-    // const title_width = WIDTH / 3;
-    // draw.drawText(gui.canvas, .{
-    //     .text = TITLE,
-    //     .height = 25,
-    //     .color = slider_dark,
-    //     .background = silver,
-    //     .flags = .{ .background = true },
-    // }, .{
-    //     .x = (WIDTH / 2) - (title_width / 2),
-    //     .y = 10,
-    //     .width = title_width,
-    //     .height = 50,
-    // });
+    const title_width = WIDTH / 3;
+    const title_bounds = arbor.Gui.Rect{
+        .x = (WIDTH / 2) - (title_width / 2),
+        .y = 10,
+        .width = title_width,
+        .height = 50,
+    };
+    g.fillRect(title_bounds, silver.toFloat());
+    g.drawText(TITLE, title_bounds, slider_dark.toFloat());
+
+    g.endDrawing();
 
     // draw each component
     // for (gui.components.items) |*c| {

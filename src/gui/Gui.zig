@@ -110,27 +110,6 @@ fn render(self: *Gui) callconv(.C) void {
     // unload event queue
     self.processInEvents();
 
-    self.g.beginDrawing();
-    self.g.clear(Color.Black.toFloat());
-    self.g.fillRoundedRect(
-        .{ .x = 100, .y = 100, .width = @floatFromInt(self.width - 200), .height = @floatFromInt(self.height - 200) },
-        25,
-        .{ .r = 0, .g = 0.5, .b = 0.5 },
-    );
-    self.g.drawRoundedRect(
-        .{ .x = 100, .y = 100, .width = @floatFromInt(self.width - 200), .height = @floatFromInt(self.height - 200) },
-        25,
-        3,
-        .{ .r = 0.8, .g = 0.8, .b = 0.8 },
-    );
-    self.g.drawText("⚙︎ arbor ⚙︎", .{
-        .x = 100 + 24,
-        .y = 100 + 24,
-        .width = @floatFromInt(self.width),
-        .height = @floatFromInt(self.height),
-    }, .{ .r = 0.7, .g = 0.7, .b = 0.7 });
-    self.g.endDrawing();
-
     self.interface.render(self);
 
     // check for component param change flags & push to plugin
@@ -177,6 +156,7 @@ fn timerCallback(_: renderpkg.Timer, self: *anyopaque) callconv(.C) void {
     const gui = arbor.cast(*Gui, self);
     if (gui.wants_repaint.load(.acquire)) {
         gui.g.redraw();
+        gui.wants_repaint.store(false, .release);
     }
 }
 
@@ -387,6 +367,8 @@ pub const Component = struct {
         self.value = val;
     }
 };
+
+// pub fn slider(g: *GraphicsContext, val: *f32, label: ?Label) void {}
 
 pub const Slider = struct {
     // reference to associated parameter

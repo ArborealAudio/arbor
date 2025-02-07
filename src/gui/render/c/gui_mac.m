@@ -145,26 +145,28 @@ void guiClear(D2DContext *ctx, D2DColor color)
 void guiDrawRect(D2DContext *ctx, D2DRect rect, float stroke_width, D2DColor color)
 {
     GuiView *gui = ctx->view;
+    const float height = gui.bounds.size.height;
     CGContextSetRGBStrokeColor(gui.cg_ref, color.r, color.g, color.b, color.a);
     
     CGRect r;
     r.origin.x = rect.x;
-    r.origin.y = rect.y;
+    r.origin.y = height - rect.y;
     r.size.width = rect.width;
-    r.size.height = rect.height;
+    r.size.height = -rect.height;
     CGContextStrokeRectWithWidth(gui.cg_ref, r, stroke_width);
 }
 
 void guiFillRect(D2DContext *ctx, D2DRect rect, D2DColor color)
 {
     GuiView *gui = ctx->view;
+    const float height = gui.bounds.size.height;
     CGContextSetRGBFillColor(gui.cg_ref, color.r, color.g, color.b, color.a);
     
     CGRect r;
     r.origin.x = rect.x;
-    r.origin.y = rect.y;
+    r.origin.y = height - rect.y;
     r.size.width = rect.width;
-    r.size.height = rect.height;
+    r.size.height = -rect.height;
     CGContextFillRect(gui.cg_ref, r);
 }
 
@@ -172,13 +174,14 @@ void guiDrawRoundedRect(D2DContext *ctx, D2DRect rect, float radius,
                           float stroke_width, D2DColor color)
 {
     GuiView *gui = ctx->view;
+    const float height = gui.bounds.size.height;
 
     CGMutablePathRef path = CGPathCreateMutable();
     CGRect r;
     r.origin.x = rect.x;
-    r.origin.y = rect.y;
+    r.origin.y = height - rect.y;
     r.size.width = rect.width;
-    r.size.height = rect.height;
+    r.size.height = -rect.height;
     CGPathAddRoundedRect(path, NULL, r, radius, radius);
     CGContextSetRGBStrokeColor(gui.cg_ref, color.r, color.g, color.b, color.a);
     CGContextAddPath(gui.cg_ref, path);
@@ -191,13 +194,14 @@ void guiFillRoundedRect(D2DContext *ctx, D2DRect rect, float radius,
                           D2DColor color)
 {
     GuiView *gui = ctx->view;
+    const float height = gui.bounds.size.height;
 
     CGMutablePathRef path = CGPathCreateMutable();
     CGRect r;
     r.origin.x = rect.x;
-    r.origin.y = rect.y;
+    r.origin.y = height - rect.y;
     r.size.width = rect.width;
-    r.size.height = rect.height;
+    r.size.height = -rect.height;
     CGPathAddRoundedRect(path, NULL, r, radius, radius);
     CGContextSetRGBFillColor(gui.cg_ref, color.r, color.g, color.b, color.a);
     CGContextAddPath(gui.cg_ref, path);
@@ -243,7 +247,8 @@ void guiDrawText(D2DContext *ctx, String text, D2DRect rect, D2DColor color)
     CGContextSetRGBFillColor(view.cg_ref, color.r, color.g, color.b, color.a);
     // TODO: Figure out how to properly setup a bounding box for text instead of just using one point.
     // Looks like CTTypesetter is the class we need to use to perform automatic line breaking
-    CGContextSetTextPosition(view.cg_ref, rect.x, view.bounds.size.height - rect.y);
+    CGContextSetTextPosition(view.cg_ref, rect.x,
+                             view.bounds.size.height - rect.y - rect.height);
     CTLineDraw(line, view.cg_ref);
 
     CFRelease(line);
