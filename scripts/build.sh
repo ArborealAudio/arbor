@@ -4,9 +4,9 @@ set -e
 
 # ZIG_VERSION="0.15.1"
 
-# [ $(uname -s) == 'Darwin' ] && OS="macos"
-# [ $(uname -s) == 'Linux' ] && OS="linux"
-# [ $OS == 'Windows_NT' ] && OS='windows'
+[ $(uname -s) == 'Darwin' ] && OS="macos"
+[ $(uname -s) == 'Linux' ] && OS="linux"
+[ $OS == 'Windows_NT' ] && OS='windows'
 
 # [ $(uname -m) == 'arm64' ] && ARCH="aarch64" || ARCH=$(uname -m)
 
