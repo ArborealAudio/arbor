@@ -2,28 +2,28 @@
 
 set -e
 
-ZIG_VERSION="0.15.1"
+# ZIG_VERSION="0.15.1"
 
-[ $(uname -s) == 'Darwin' ] && OS="macos"
-[ $(uname -s) == 'Linux' ] && OS="linux"
-[ $OS == 'Windows_NT' ] && OS='windows'
+# [ $(uname -s) == 'Darwin' ] && OS="macos"
+# [ $(uname -s) == 'Linux' ] && OS="linux"
+# [ $OS == 'Windows_NT' ] && OS='windows'
 
-[ $(uname -m) == 'arm64' ] && ARCH="aarch64" || ARCH=$(uname -m)
+# [ $(uname -m) == 'arm64' ] && ARCH="aarch64" || ARCH=$(uname -m)
 
-TRIPLE="${ARCH}-${OS}-${ZIG_VERSION}"
+# TRIPLE="${ARCH}-${OS}-${ZIG_VERSION}"
 
-echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
+# echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
 
-[ $OS != 'windows' ] && curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-${TRIPLE}.tar.xz" | tar xJ
-if [[ $OS == 'windows' ]]; then
-	choco install zig --version $ZIG_VERSION
-	# powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://ziglang.org/builds/zig-${TRIPLE}.zip -OutFile zig-${TRIPLE}.zip"
-	# powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
-fi
+# [ $OS != 'windows' ] && curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-${TRIPLE}.tar.xz" | tar xJ
+# if [[ $OS == 'windows' ]]; then
+# 	choco install zig --version $ZIG_VERSION
+# 	# powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://ziglang.org/builds/zig-${TRIPLE}.zip -OutFile zig-${TRIPLE}.zip"
+# 	# powershell -Command "Expand-Archive -Path ./zig-${TRIPLE}.zip -DestinationPath ."
+# fi
 
-[ $OS != 'windows' ] && ZIG="${PWD}/zig-${TRIPLE}/zig" || ZIG="zig.exe"
+# [ $OS != 'windows' ] && ZIG="${PWD}/zig-${TRIPLE}/zig" || ZIG="zig.exe"
 
-echo "Zig path = ${ZIG}"
+# echo "Zig path = ${ZIG}"
 
 if [[ $OS == 'linux' ]]; then
 	echo "Installing X11 development libraries"
