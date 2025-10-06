@@ -595,7 +595,9 @@ pub fn processInEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) void
             switch (e.type) {
                 .PARAM_VALUE => {
                     const param_event = cast(*const clap.EventParamValue, e);
-                    plug.params[param_event.param_id] = @floatCast(param_event.value);
+                    const in_val: f32 = @floatCast(param_event.value);
+                    const param_info = plug.param_info[param_event.param_id];
+                    plug.params[param_event.param_id] = std.math.clamp(in_val, param_info.min_value, param_info.max_value);
                     if (plug.gui) |gui| {
                         gui.in_events.push_try(.{ .param_change = .{
                             .id = param_event.param_id,
