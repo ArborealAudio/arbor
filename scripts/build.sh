@@ -38,6 +38,6 @@ EXAMPLES=(Distortion Filter)
 for ex in ${EXAMPLES[@]}; do
 	echo "Building example plugin: $ex"
 	pushd ./examples/$ex
-	$ZIG build
+	zig build
 	popd
 done
