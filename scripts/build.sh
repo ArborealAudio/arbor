@@ -10,7 +10,7 @@ ZIG_VERSION="0.15.1"
 
 [ $(uname -m) == 'arm64' ] && ARCH="aarch64" || ARCH=$(uname -m)
 
-TRIPLE="${OS}-${ARCH}-${ZIG_VERSION}"
+TRIPLE="${ARCH}-${OS}-${ZIG_VERSION}"
 
 echo "Getting Zig ${ZIG_VERSION} for ${ARCH} ${OS}"
 
