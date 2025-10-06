@@ -24,7 +24,7 @@ jobs:
 
     - uses: mlugg/setup-zig@v2.0.5
       with:
-        version:
+        use-cache: false
 
     - name: Build
       run: bash ./scripts/build.sh
