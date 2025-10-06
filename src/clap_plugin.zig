@@ -232,6 +232,8 @@ const Params = struct {
             const param = plug.param_info[id];
             @memset(display[0..size], 0); // clear display string
             if (param.flags.stepped) {
+                // NOTE: Stepped values may be negative. We need different logic for an enum vs a
+                // regular stepped param
                 const ival: u32 = @intFromFloat(@round(value));
                 if (param.flags.is_enum) {
                     if (param.enum_choices) |choices| {
@@ -245,7 +247,7 @@ const Params = struct {
                     };
                 }
             } else {
-                _ = std.fmt.bufPrintZ(display[0..size], "{d:.2}", .{value}) catch |e| {
+                _ = std.fmt.bufPrintZ(display[0..size], "{d:.4}", .{value}) catch |e| {
                     log.err("{}\n", .{e}, @src());
                     return false;
                 };
@@ -261,10 +263,28 @@ const Params = struct {
         value_text: [*:0]const u8,
         out_value: ?*f64,
     ) callconv(.c) bool {
-        _ = out_value;
-        _ = value_text;
-        _ = param_id;
-        _ = plugin;
+        if (plug_cast(plugin).plugin) |plug| {
+            if (param_id >= plug.param_info.len)
+                return false;
+            const param_info = plug.param_info[param_id];
+            const text: []const u8 = std.mem.span(value_text);
+            const val: *f64 = out_value orelse return false;
+            if (param_info.flags.is_enum) {
+                if (param_info.enum_choices) |choices| {
+                    for (choices, 0..) |choice, i| {
+                        if (std.mem.eql(u8, choice, text)) {
+                            val.* = @floatFromInt(i);
+                            return true;
+                        }
+                    }
+                }
+            }
+            val.* = std.fmt.parseFloat(f64, text) catch |e| {
+                log.err("{}\n", .{e}, @src());
+                return false;
+            };
+            return true;
+        }
         return false;
     }
 
