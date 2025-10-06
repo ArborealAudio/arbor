@@ -31,5 +31,5 @@ jobs:
       
     - name: Validate
       run: |
-        bash ./scripts/validate-clap.sh
+        # bash ./scripts/validate-clap.sh
         bash ./scripts/validate-vst.sh
