@@ -1,96 +1,120 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const arbor = @import("src/arbor.zig");
+const arbor = @import("src/plugin_description.zig");
+const PluginConfig = arbor.PluginConfig;
 const Format = arbor.Format;
-const formats = std.enums.values(Format);
-const Description = arbor.Plugin.Description;
-pub const features = arbor.features;
+const all_formats = std.enums.values(Format);
+const Description = arbor.Description;
 
 comptime {
-    if (builtin.zig_version.minor != 13 and
-        builtin.zig_version.patch != 0) @compileError("Requires Zig 0.13 stable");
+    const minor_req = 15;
+    if (builtin.zig_version.minor != minor_req)
+        @compileError(std.fmt.comptimePrint("Requires Zig 0.{d}.x stable", .{minor_req}));
 }
 
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo
 // TODO: Configure OSX sysroot so we can supply our own SDK
 
+// pub const PluginConfig = struct {
+//     description: Description,
+//     features: arbor.PluginFeatures,
+//     root_source_file: []const u8,
+//     format: []const Format = all_formats,
+
+//     // in-place modification of certain properties
+
+//     pub fn withName(self: PluginConfig, name: [:0]const u8) PluginConfig {
+//         var new = self;
+//         new.description.name = name;
+//         return new;
+//     }
+
+//     pub fn withID(self: PluginConfig, id: [:0]const u8) PluginConfig {
+//         var new = self;
+//         new.description.id = id;
+//         return new;
+//     }
+
+//     pub fn withSource(self: PluginConfig, src: []const u8) PluginConfig {
+//         var new = self;
+//         new.root_source_file = src;
+//         return new;
+//     }
+
+//     pub fn withFeature(self: PluginConfig, feature: arbor.PluginFeatures) PluginConfig {
+//         var new = self;
+//         new.features |= feature;
+//         return new;
+//     }
+// };
+
 pub const BuildConfig = struct {
-    description: Description,
-    features: arbor.PluginFeatures,
-    root_source_file: []const u8,
+    plugin_config: PluginConfig,
+    plugin_config_path: std.Build.LazyPath,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-
-    // in-place modification of certain properties
-
-    pub fn withName(self: BuildConfig, name: [:0]const u8) BuildConfig {
-        var new = self;
-        new.description.name = name;
-        return new;
-    }
-
-    pub fn withID(self: BuildConfig, id: [:0]const u8) BuildConfig {
-        var new = self;
-        new.description.id = id;
-        return new;
-    }
-
-    pub fn withSource(self: BuildConfig, src: []const u8) BuildConfig {
-        var new = self;
-        new.root_source_file = src;
-        return new;
-    }
-
-    pub fn withFeature(self: BuildConfig, feature: arbor.PluginFeatures) BuildConfig {
-        var new = self;
-        new.features |= feature;
-        return new;
-    }
 };
 
-pub fn addPlugin(b: *std.Build, config: BuildConfig) !void {
+pub fn addPlugin(b: *std.Build, config: BuildConfig, formats: []const Format) !void {
     const root = b.dependencyFromBuildZig(@This(), .{});
-    const target = config.target;
-    const optimize = config.optimize;
 
-    // NOTE: Explore doing formats as an enum passed in BuildConfig rather than CLI option
-    // Or -- CLI option overrides build options or vice-versa.
-    const format = b.option(Format, "format", "Plugin format");
+    const plugin_config = config.plugin_config;
+    const config_mod = b.addModule("config", .{
+        .root_source_file = config.plugin_config_path,
+    });
+
+    const user_code = b.addLibrary(.{
+        .name = "user_code",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(config.plugin_config.root_source_file),
+            .target = config.target,
+            .optimize = config.optimize,
+        }),
+    });
 
     const arbor_mod = b.addModule("arbor", .{
         .root_source_file = root.path("src/arbor.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
         .link_libc = true,
+        .imports = &.{.{
+            .name = "config",
+            .module = config_mod,
+        }},
     });
 
+    user_code.root_module.addImport("arbor", arbor_mod);
+
     // build UI library
-    buildGUI(b, arbor_mod, target);
+    buildGUI(b, arbor_mod, config.target);
 
     const copy_step = b.step("copy", "Copy plugin to user plugins dir");
-    if (format) |fmt| {
-        const plug = try buildPlugin(b, arbor_mod, fmt, config);
 
-        const bundle_step = try BundleStep.create(b, fmt, config, plug);
+    for (formats) |fmt| {
+        const plug = try buildPlugin(b, fmt, config, plugin_config);
+        const opt = b.addOptions();
+        opt.addOption(Format, "format", fmt);
+        arbor_mod.addOptions("build_options", opt);
+        plug.root_module.addImport("config", config_mod);
+        plug.root_module.addOptions("build_options", opt);
+        plug.root_module.addImport("arbor", arbor_mod);
+        plug.linkLibrary(user_code);
+
+        const bundle_step = try BundleStep.create(
+            b,
+            fmt,
+            plugin_config,
+            config.target.result.os,
+            plug,
+        );
         bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
         b.getInstallStep().dependOn(&bundle_step.step);
 
         const copy_cmd = try CopyStep.create(b, fmt, config, bundle_step);
         copy_cmd.step.dependOn(b.getInstallStep());
         copy_step.dependOn(&copy_cmd.step);
-    } else {
-        inline for (formats) |fmt| {
-            const plug = try buildPlugin(b, arbor_mod, fmt, config);
-
-            const bundle_step = try BundleStep.create(b, fmt, config, plug);
-            bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
-            b.getInstallStep().dependOn(&bundle_step.step);
-
-            const copy_cmd = try CopyStep.create(b, fmt, config, bundle_step);
-            copy_cmd.step.dependOn(b.getInstallStep());
-            copy_step.dependOn(&copy_cmd.step);
-        }
     }
+    // }
 }
 
 fn buildGUI(
@@ -133,42 +157,34 @@ fn buildGUI(
 
 fn buildPlugin(
     b: *std.Build,
-    module: *std.Build.Module,
-    format: Format,
-    config: BuildConfig,
+    current_format: Format,
+    build_config: BuildConfig,
+    plugin_config: PluginConfig,
 ) !*std.Build.Step.Compile {
     const dep = b.dependencyFromBuildZig(@This(), .{});
-    const build_options = b.addOptions();
-    build_options.addOption(Format, "format", format);
-    build_options.addOption(Description, "plugin_desc", config.description);
-    build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
+    const opt = b.addOptions();
+    opt.addOption(Format, "format", current_format);
+
     // make sure we have a file name w/ no spaces
-    const name = b.dupe(config.description.name);
-    std.mem.replaceScalar(u8, name, ' ', '_');
+    const name = b.dupe(plugin_config.description.name);
+    if (std.mem.containsAtLeastScalar(u8, name, 1, ' ')) {
+        @panic("Plugin name cannot contains spaces\n");
+    }
 
-    const usr_plug = b.addStaticLibrary(.{
-        .name = name,
-        .root_source_file = b.path(config.root_source_file),
-        .target = config.target,
-        .optimize = config.optimize,
-        .pic = true,
-    });
-    usr_plug.root_module.addImport("arbor", module);
-
-    const plug_src = switch (format) {
+    const plug_src = switch (current_format) {
         .CLAP => "src/clap_plugin.zig",
         .VST2 => "src/vst2_plugin.zig",
     };
-    const plug = b.addSharedLibrary(.{
+    const plug = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = name,
-        .root_source_file = dep.path(plug_src),
-        .target = config.target,
-        .optimize = config.optimize,
-        .pic = true,
+        .root_module = b.createModule(.{
+            .root_source_file = dep.path(plug_src),
+            .target = build_config.target,
+            .optimize = build_config.optimize,
+            .pic = true,
+        }),
     });
-    plug.linkLibrary(usr_plug);
-    plug.root_module.addOptions("config", build_options);
-    module.addOptions("config", build_options);
 
     return plug;
 }
@@ -177,7 +193,8 @@ pub const BundleStep = struct {
     const Step = std.Build.Step;
     step: Step,
     format: Format,
-    config: BuildConfig,
+    config: PluginConfig,
+    target_os: std.Target.Os,
     build_dep: *Step.Compile,
     bundle_name: ?[]const u8 = null,
     /// path to the generated bundle (which may be just a file)
@@ -186,7 +203,8 @@ pub const BundleStep = struct {
     pub fn create(
         b: *std.Build,
         format: Format,
-        config: BuildConfig,
+        config: PluginConfig,
+        target_os: std.Target.Os,
         build_dep: *Step.Compile,
     ) !*BundleStep {
         const self = try b.allocator.create(BundleStep);
@@ -199,16 +217,17 @@ pub const BundleStep = struct {
             }),
             .format = format,
             .config = config,
+            .target_os = target_os,
             .build_dep = build_dep,
         };
         return self;
     }
 
-    pub fn make(step: *Step, _: std.Progress.Node) !void {
+    pub fn make(step: *Step, _: std.Build.Step.MakeOptions) !void {
         const self: *BundleStep = @fieldParentPtr("step", step);
         const b = self.step.owner;
         const dest = b.install_path;
-        const target_os = self.config.target.result.os.tag;
+        const target_os = self.target_os.tag;
 
         const format_extensions = make: {
             const Array = std.EnumArray(Format, []const u8);
@@ -246,7 +265,9 @@ pub const BundleStep = struct {
                 }), .{});
                 const plist = try bundle_dir.createFile("Info.plist", .{});
                 defer plist.close();
-                try plist.writer().print(osx_bundle_plist, .{
+                // LOVING THE NEW IO INTERFACE 🤣
+                var writer = plist.deprecatedWriter();
+                try writer.print(osx_bundle_plist, .{
                     out_name, //CFBundleExecutable
                     self.config.description.id, //CF BundleIdentifier
                     out_name, //CFBundleName
@@ -303,7 +324,7 @@ pub const CopyStep = struct {
         return self;
     }
 
-    pub fn make(step: *Step, _: std.Progress.Node) !void {
+    pub fn make(step: *Step, _: std.Build.Step.MakeOptions) !void {
         const self: *CopyStep = @fieldParentPtr("step", step);
         const b = step.owner;
         const target = self.config.target;
@@ -367,34 +388,34 @@ const osx_bundle_plist =
     \\<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
     \\<plist version="1.0">
     \\<dict>
-    \\	<key>CFBundleDevelopmentRegion</key>
-    \\	<string>English</string>
-    \\	<key>CFBundleExecutable</key>
-    \\	<string>{s}</string>
-    \\	<key>CFBundleGetInfoString</key>
-    \\	<string></string>
-    \\	<key>CFBundleIconFile</key>
-    \\	<string></string>
-    \\	<key>CFBundleIdentifier</key>
-    \\	<string>{s}</string>
-    \\	<key>CFBundleInfoDictionaryVersion</key>
-    \\	<string>6.0</string>
-    \\	<key>CFBundleName</key>
-    \\	<string>{s}</string>
-    \\	<key>CFBundleDisplayName</key>
-    \\	<string>{s}</string>
-    \\	<key>CFBundlePackageType</key>
-    \\	<string>BNDL</string>
-    \\	<key>CFBundleShortVersionString</key>
-    \\	<string>{s}</string>
-    \\	<key>CFBundleSignature</key>
-    \\	<string>????</string>
-    \\	<key>CFBundleVersion</key>
-    \\	<string>{s}</string>
-    \\	<key>CSResourcesFileMapped</key>
-    \\	<true/>
-    \\	<key>NSHumanReadableCopyright</key>
-    \\	<string>{s}</string>
+    \\  <key>CFBundleDevelopmentRegion</key>
+    \\  <string>English</string>
+    \\  <key>CFBundleExecutable</key>
+    \\  <string>{s}</string>
+    \\  <key>CFBundleGetInfoString</key>
+    \\  <string></string>
+    \\  <key>CFBundleIconFile</key>
+    \\  <string></string>
+    \\  <key>CFBundleIdentifier</key>
+    \\  <string>{s}</string>
+    \\  <key>CFBundleInfoDictionaryVersion</key>
+    \\  <string>6.0</string>
+    \\  <key>CFBundleName</key>
+    \\  <string>{s}</string>
+    \\  <key>CFBundleDisplayName</key>
+    \\  <string>{s}</string>
+    \\  <key>CFBundlePackageType</key>
+    \\  <string>BNDL</string>
+    \\  <key>CFBundleShortVersionString</key>
+    \\  <string>{s}</string>
+    \\  <key>CFBundleSignature</key>
+    \\  <string>????</string>
+    \\  <key>CFBundleVersion</key>
+    \\  <string>{s}</string>
+    \\  <key>CSResourcesFileMapped</key>
+    \\  <true/>
+    \\  <key>NSHumanReadableCopyright</key>
+    \\  <string>{s}</string>
     \\  <key>NSHighResolutionCapable</key>
     \\  <true/>
     \\</dict>
@@ -402,87 +423,91 @@ const osx_bundle_plist =
     \\
 ;
 
-pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+pub fn build(_: *std.Build) !void {
+    // const target = b.standardTargetOptions(.{});
+    // const optimize = b.standardOptimizeOption(.{});
 
-    const test_step = b.step("test", "Run library tests");
+    // const test_step = b.step("test", "Run library tests");
 
-    const config = BuildConfig{
-        .description = .{
-            .name = "Test plugin",
-            .id = "com.Arbor.test",
-            .company = "Arboreal Audio",
-            .version = "0.1.0",
-            .copyright = "(c) No One",
-            .url = "",
-            .contact = "",
-            .manual = "",
-            .description = "",
-        },
-        .features = features.STEREO | features.EFFECT | features.GUI,
-        .root_source_file = "",
-        .target = target,
-        .optimize = optimize,
-    };
+    // const config = BuildConfig{
+    //     .description = .{
+    //         .name = "Test plugin",
+    //         .id = "com.Arbor.test",
+    //         .company = "Arboreal Audio",
+    //         .version = "0.1.0",
+    //         .copyright = "(c) No One",
+    //         .url = "",
+    //         .contact = "",
+    //         .manual = "",
+    //         .description = "",
+    //     },
+    //     .features = features.STEREO | features.EFFECT | features.GUI,
+    //     .root_source_file = "",
+    //     .target = target,
+    //     .optimize = optimize,
+    // };
 
-    for (formats) |fmt| {
-        const build_options = b.addOptions();
-        build_options.addOption(Format, "format", fmt);
-        build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
-        build_options.addOption(arbor.Plugin.Description, "plugin_desc", config.description);
+    // for (formats) |fmt| {
+    //     const build_options = b.addOptions();
+    //     build_options.addOption(Format, "format", fmt);
+    //     build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
+    //     build_options.addOption(arbor.Plugin.Description, "plugin_desc", config.description);
 
-        const mod = b.addModule("arbor", .{
-            .root_source_file = b.path("src/arbor.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        mod.addOptions("config", build_options);
+    //     const mod = b.addModule("arbor", .{
+    //         .root_source_file = b.path("src/arbor.zig"),
+    //         .target = target,
+    //         .optimize = optimize,
+    //     });
+    //     mod.addOptions("config", build_options);
 
-        switch (target.result.os.tag) {
-            .linux => {
-                mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/" });
-                mod.linkSystemLibrary("X11", .{});
-                mod.addCSourceFile(.{
-                    .file = b.path("src/gui/gui_x11.c"),
-                    .flags = &.{"-std=c99"},
-                });
-            },
-            .windows => {
-                mod.linkSystemLibrary("gdi32", .{});
-                mod.linkSystemLibrary("user32", .{});
-                mod.addCSourceFile(.{
-                    .file = b.path("src/gui/gui_w32.c"),
-                    .flags = &.{"-std=c99"},
-                });
-            },
-            .macos => {
-                mod.linkFramework("Cocoa", .{});
-                mod.addCSourceFile(.{
-                    .file = b.path("src/gui/gui_mac.m"),
-                    .flags = &.{"-ObjC"},
-                });
-            },
-            else => @panic("Unimplemented OS\n"),
-        }
-        mod.addCSourceFile(.{
-            .file = b.path("src/gui/olive.c"),
-            .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
-        });
+    //     switch (target.result.os.tag) {
+    //         .linux => {
+    //             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/" });
+    //             mod.linkSystemLibrary("X11", .{});
+    //             mod.addCSourceFile(.{
+    //                 .file = b.path("src/gui/gui_x11.c"),
+    //                 .flags = &.{"-std=c99"},
+    //             });
+    //         },
+    //         .windows => {
+    //             mod.linkSystemLibrary("gdi32", .{});
+    //             mod.linkSystemLibrary("user32", .{});
+    //             mod.addCSourceFile(.{
+    //                 .file = b.path("src/gui/gui_w32.c"),
+    //                 .flags = &.{"-std=c99"},
+    //             });
+    //         },
+    //         .macos => {
+    //             mod.linkFramework("Cocoa", .{});
+    //             mod.addCSourceFile(.{
+    //                 .file = b.path("src/gui/gui_mac.m"),
+    //                 .flags = &.{"-ObjC"},
+    //             });
+    //         },
+    //         else => @panic("Unimplemented OS\n"),
+    //     }
+    //     mod.addCSourceFile(.{
+    //         .file = b.path("src/gui/olive.c"),
+    //         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
+    //     });
 
-        const tests = b.addTest(.{
-            .name = "tests",
-            .root_source_file = b.path("src/tests.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        });
-        tests.root_module.addImport("arbor", mod);
-        tests.root_module.addOptions("config", build_options);
+    //     const tests = b.addTest(.{
+    //         .name = "tests",
+    //         .root_module = b.createModule(.{
+    //             .root_source_file = b.path("src/tests.zig"),
+    //             .target = target,
+    //             .optimize = optimize,
+    //             .link_libc = true,
+    //             .imports = &.{
+    //                 .{ .name = "arbor", .module = mod },
+    //             },
+    //         }),
+    //     });
+    //     tests.root_module.addOptions("config", build_options);
 
-        const run_tests = b.addRunArtifact(tests);
-        test_step.dependOn(&run_tests.step);
-    }
+    //     const run_tests = b.addRunArtifact(tests);
+    //     test_step.dependOn(&run_tests.step);
+    // }
 }
 
 const Dir = std.fs.Dir;

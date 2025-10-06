@@ -6,12 +6,14 @@ set -e
 [ $(uname -s) == 'Linux' ] && OS='linux'
 [ $OS == 'Windows_NT' ] && OS='windows'
 
+PLUGINVAL_VERSION="v1.0.4"
+
 if [[ $OS == 'windows' ]]; then
-	powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.3/pluginval_Windows.zip -OutFile pluginval.zip"
+	powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/pluginval_Windows.zip -OutFile pluginval.zip"
 	powershell -Command "Expand-Archive -Path ./pluginval.zip -DestinationPath ."
 	pluginval="./pluginval.exe"
 else
-	wget -O pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.3/pluginval_${OS}.zip
+	wget -O pluginval.zip https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/pluginval_${OS}.zip
 	unzip pluginval
 	if [[ $(uname -s) == 'Darwin' ]]; then
 		pluginval="pluginval.app/Contents/MacOS/pluginval"

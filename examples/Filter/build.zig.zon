@@ -1,11 +1,12 @@
 .{
-    .name = "Example Filter",
+    .name = .Example_Filter,
     .version = "0.1.0",
     .dependencies = .{
         .arbor = .{
             .path = "../..",
         },
     },
+    .fingerprint = 0x14c38fcb5e845261,
     .paths = .{
         "",
     },

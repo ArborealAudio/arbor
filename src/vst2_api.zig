@@ -123,7 +123,7 @@ pub const HostCallback = ?*const fn (
     value: isize,
     ptr: ?*anyopaque,
     opt: f32,
-) callconv(.C) isize;
+) callconv(.c) isize;
 
 /// Host->plugin communication
 /// See `Opcodes` for possible options
@@ -134,30 +134,30 @@ pub const Dispatch = ?*const fn (
     value: isize,
     ptr: ?*anyopaque,
     opt: f32,
-) callconv(.C) isize;
+) callconv(.c) isize;
 
 pub const Process = ?*const fn (
     effect: ?*AEffect,
     inputs: [*][*]f32,
     outputs: [*][*]f32,
     frames: i32,
-) callconv(.C) void;
+) callconv(.c) void;
 pub const ProcessDouble = ?*const fn (
     effect: ?*AEffect,
     inputs: [*][*]f64,
     outputs: [*][*]f64,
     frames: i32,
-) callconv(.C) void;
+) callconv(.c) void;
 
 pub const SetParameter = ?*const fn (
     effect: ?*AEffect,
     index: i32,
     parameter: f32,
-) callconv(.C) void;
+) callconv(.c) void;
 pub const GetParameter = ?*const fn (
     effect: ?*AEffect,
     index: i32,
-) callconv(.C) f32;
+) callconv(.c) f32;
 
 /// Host-to-plugin instructions
 pub const Opcode = enum(i32) {

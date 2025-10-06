@@ -4,38 +4,50 @@ const param = arbor.param;
 const log = arbor.log;
 const dsp = arbor.dsp;
 
-const Filter = @This();
+const default_cutoff = 1500;
+const default_q = std.math.sqrt1_2;
 
-const params = &[_]arbor.Parameter{
-    param.Float("Freq", 20, 18e3, 1500, .{ .flags = .{} }),
+const Filter = struct {
+    filter: dsp.Filter,
+    last_cutoff: f32,
+    last_q: f32,
+    params: []const arbor.Parameter = &.{
+        param.Float("Freq", 20, 18e3, default_cutoff, .{}),
+        param.Float("Q", 0.1, 4, default_q, .{}),
+    },
 };
+
+// const params = &[_]arbor.Parameter{
+//     param.Float("Freq", 20, 18e3, 1500, .{ .flags = .{} }),
+// };
 
 const allocator = std.heap.c_allocator;
 
-filter: dsp.Filter,
-last_cutoff: f32,
-
 export fn init() *arbor.Plugin {
     const self = allocator.create(Filter) catch |e| {
-        log.fatal("{!}\n", .{e}, @src());
+        log.fatal("{t}\n", .{e}, @src());
     };
     self.* = .{
         .filter = dsp.Filter.init(
             allocator,
             2,
-            .FirstOrderLowpass,
-            params[0].default_value,
-            std.math.sqrt1_2,
-        ) catch |e| log.fatal("{!}\n", .{e}, @src()),
-        .last_cutoff = params[0].default_value,
+            .Lowpass,
+            default_cutoff,
+            default_q,
+        ) catch |e| log.fatal("{t}\n", .{e}, @src()),
+        .last_cutoff = default_cutoff,
+        .last_q = default_q,
     };
-    const plugin = arbor.init(allocator, params, .{
-        .deinit = deinit,
-        .prepare = prepare,
-        .process = process,
+    return arbor.createPlugin(.{
+        .allocator = allocator,
+        .params = self.params,
+        .interface = .{
+            .deinit = deinit,
+            .prepare = prepare,
+            .process = process,
+        },
+        .user_data = self,
     });
-    plugin.user = self;
-    return plugin;
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
@@ -55,10 +67,16 @@ fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_frames: u32) void {
 fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     const self = plugin.getUser(Filter);
     const cutoff = plugin.getParamValue(f32, "Freq");
+    const q = plugin.getParamValue(f32, "Q");
     if (self.last_cutoff != cutoff) {
         // TODO: Param smoothing
         self.filter.setCutoff(cutoff, plugin.sample_rate);
         self.last_cutoff = cutoff;
+    }
+
+    if (self.last_q != q) {
+        self.filter.setReso(q, plugin.sample_rate);
+        self.last_q = q;
     }
 
     self.filter.process(buffer.input, buffer.output);

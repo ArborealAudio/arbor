@@ -68,7 +68,7 @@ pub extern fn guiSetParent(gui: *GuiImpl, window: Window) void;
 pub extern fn guiSetVisible(gui: *GuiImpl, visible: bool) void;
 pub extern fn guiRender(gui: *GuiImpl, internal: bool) void;
 
-pub fn guiTimerCallback(timer: NSTimerRef, gui: *Gui) callconv(.C) void {
+pub fn guiTimerCallback(timer: NSTimerRef, gui: *Gui) callconv(.c) void {
     _ = timer;
     if (gui.wants_repaint.load(.acquire)) {
         guiRender(gui.impl, true);

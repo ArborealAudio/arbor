@@ -7,7 +7,7 @@ const log = arbor.log;
 const cast = arbor.cast;
 const builtin = @import("builtin");
 
-const config = @import("config");
+const config = arbor.config;
 
 const vst2 = @import("vst2_api.zig");
 
@@ -32,7 +32,7 @@ host_callback: *const fn (
     value: isize,
     ptr: ?*anyopaque,
     opt: f32,
-) callconv(.C) isize,
+) callconv(.c) isize,
 plugin: *Plugin, // our specific plugin data
 
 in_events: *arbor.Queue,
@@ -54,7 +54,7 @@ fn dispatch(
     value: isize,
     ptr: ?*anyopaque,
     opt: f32,
-) callconv(.C) isize {
+) callconv(.c) isize {
     var plugin: *VstPlugin = plugCast(effect);
     const plug = plugin.plugin;
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
@@ -92,7 +92,7 @@ fn dispatch(
         .GetVendorString => {
             if (ptr) |p| {
                 var buf: [*]u8 = @ptrCast(p);
-                const vendor = arbor.plugin_desc.company;
+                const vendor = arbor.config.description.company;
                 @memset(buf[0..vst2.StringConstants.MaxVendorStrLen], 0);
                 @memcpy(buf[0..vendor.len], vendor);
                 return 0;
@@ -100,7 +100,7 @@ fn dispatch(
         },
         .GetVendorVersion => {
             return arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e| {
-                log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
+                log.err("{s}: {}\n", .{ @tagName(code), e }, @src());
                 return 1;
             };
         },
@@ -114,13 +114,13 @@ fn dispatch(
             }
         },
         .GetPlugCategory => {
-            return @intFromEnum(arbor.parseVst2Features(config.plugin_features));
+            return @intFromEnum(arbor.parseVst2Features(config.features));
         },
         .GetParamName => {
             if (index >= 0 and index < plug.param_info.len) {
                 if (ptr) |p| {
                     const name = plug.getParamName(@intCast(index)) catch |e| {
-                        log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
+                        log.err("{s}: {}\n", .{ @tagName(code), e }, @src());
                         return 1;
                     };
                     var buf: [*]u8 = @ptrCast(p);
@@ -161,7 +161,7 @@ fn dispatch(
                     } else { // no value-to-text fn, just format it
                         var buf: [max_len]u8 = .{0} ** max_len;
                         const print = std.fmt.bufPrintZ(&buf, "{d:.2}", .{val}) catch |e| {
-                            log.err("{s}: {!}\n", .{ @tagName(code), e }, @src());
+                            log.err("{s}: {}\n", .{ @tagName(code), e }, @src());
                             return 1;
                         };
                         @memcpy(out[0..print.len], print);
@@ -176,7 +176,7 @@ fn dispatch(
                 const id: usize = @intCast(index);
                 const text: []const u8 = std.mem.span(@as([*:0]u8, @ptrCast(ptr)));
                 const val: f32 = std.fmt.parseFloat(f32, text) catch |e| {
-                    log.err("{!}\n", .{e}, @src());
+                    log.err("{}\n", .{e}, @src());
                     return 1;
                 };
                 plug.params[id] = val;
@@ -197,7 +197,7 @@ fn dispatch(
             return 0;
         },
         .EditGetRect => {
-            if (config.plugin_features & arbor.features.GUI == 0) return 0;
+            if (!config.features.gui) return 0;
             // copy to ptr
             if (ptr) |p| {
                 const dest = arbor.cast(**vst2.Rect, p);
@@ -220,11 +220,12 @@ fn dispatch(
             return 0;
         },
         .EditOpen => {
-            if (config.plugin_features & arbor.features.GUI == 0) return 0;
+            if (!config.features.gui) return 0;
             // Init GUI
             // ptr = native parent window (HWND, NSView/NSWindow?, X Window)
             assert(plug.gui == null);
-            Gui.gui_init(plug);
+            if (plug.interface.createGui) |func|
+                func(plug);
             const gui = plug.gui orelse {
                 log.err("{s}: Gui is null\n", .{@tagName(code)}, @src());
                 return 0;
@@ -263,7 +264,7 @@ fn dispatch(
             return 1;
         },
         .EditClose => {
-            if (config.plugin_features & arbor.features.GUI == 0) return 0;
+            if (!config.features.gui) return 0;
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();
@@ -309,7 +310,7 @@ fn dispatch(
         .GetInputProperties => {
             // TODO: Use `index` to support multiple pins
             const pin = allocator.create(vst2.PinProperties) catch |e| {
-                log.err("{!}\n", .{e}, @src());
+                log.err("{}\n", .{e}, @src());
                 return 1;
             };
             pin.* = std.mem.zeroes(vst2.PinProperties);
@@ -319,7 +320,7 @@ fn dispatch(
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
-                var dest: *vst2.PinProperties = @alignCast(@ptrCast(p));
+                var dest: *vst2.PinProperties = @ptrCast(@alignCast(p));
                 dest = pin;
                 return 0;
             }
@@ -328,7 +329,7 @@ fn dispatch(
         .GetOutputProperties => {
             // TODO: Use `index` to support multiple pins
             const pin = allocator.create(vst2.PinProperties) catch |e| {
-                log.err("{!}\n", .{e}, @src());
+                log.err("{}\n", .{e}, @src());
                 return 1;
             };
             pin.* = std.mem.zeroes(vst2.PinProperties);
@@ -338,7 +339,7 @@ fn dispatch(
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
-                var dest: *vst2.PinProperties = @alignCast(@ptrCast(p));
+                var dest: *vst2.PinProperties = @ptrCast(@alignCast(p));
                 dest = pin;
                 return 0;
             }
@@ -368,7 +369,7 @@ fn processInEvents(vst: *VstPlugin) void {
 
                 if (plug.gui) |gui| {
                     gui.in_events.push_try(event) catch |e| {
-                        log.err("{!}\n", .{e}, @src());
+                        log.err("{}\n", .{e}, @src());
                     };
                     gui.requestDraw();
                 }
@@ -408,7 +409,7 @@ fn processReplacing(
     inputs: [*][*]f32,
     outputs: [*][*]f32,
     frames: i32,
-) callconv(.C) void {
+) callconv(.c) void {
     audio_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
     const plugin = vst.plugin;
@@ -437,14 +438,14 @@ fn processDoubleReplacing(
     inputs: [*][*]f64,
     outputs: [*][*]f64,
     frames: i32,
-) callconv(.C) void {
+) callconv(.c) void {
     _ = effect;
     _ = frames;
     _ = outputs;
     _ = inputs;
 }
 
-fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.C) void {
+fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.c) void {
     main_thread = std.Thread.getCurrentId();
     const vst = plugCast(effect);
     const plugin = vst.plugin;
@@ -463,7 +464,7 @@ fn setParameter(effect: ?*vst2.AEffect, index: i32, value: f32) callconv(.C) voi
     }
 }
 
-fn getParameter(effect: ?*vst2.AEffect, index: i32) callconv(.C) f32 {
+fn getParameter(effect: ?*vst2.AEffect, index: i32) callconv(.c) f32 {
     const plugin = plugCast(effect).plugin;
     if (index >= 0 and index < plugin.param_info.len) {
         const id: usize = @intCast(index);
@@ -497,12 +498,12 @@ pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.A
         .flags = .{
             .HasStateChunk = true,
             .HasReplacing = true,
-            .HasEditor = (config.plugin_features & arbor.features.GUI > 0),
+            .HasEditor = (config.features.gui),
         },
         .latency = 0,
         .uniqueID = std.mem.bytesToValue(i32, arbor.plugin_desc.id),
         .version = arbor.Vst2VersionInt(arbor.plugin_desc.version) catch |e| {
-            log.fatal("{!}\n", .{e}, @src());
+            log.fatal("{}\n", .{e}, @src());
             return error.ParseVersionFailed;
         },
         .object = self,
@@ -519,6 +520,6 @@ pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
     alloc.destroy(self);
 }
 
-export fn VSTPluginMain(callback: vst2.HostCallback) callconv(.C) ?*anyopaque {
+export fn VSTPluginMain(callback: vst2.HostCallback) callconv(.c) ?*anyopaque {
     return init(allocator, callback) catch return null;
 }

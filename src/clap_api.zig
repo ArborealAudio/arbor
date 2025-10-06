@@ -63,21 +63,21 @@ pub const Id = u32;
 
 pub const PluginEntry = extern struct {
     clap_version: Version,
-    init: *const fn (plugin_path: [*:0]const u8) callconv(.C) bool,
-    deinit: *const fn () callconv(.C) void,
-    get_factory: *const fn (factory_id: [*:0]const u8) callconv(.C) ?*const anyopaque,
+    init: *const fn (plugin_path: [*:0]const u8) callconv(.c) bool,
+    deinit: *const fn () callconv(.c) void,
+    get_factory: *const fn (factory_id: [*:0]const u8) callconv(.c) ?*const anyopaque,
 };
 
 pub const PLUGIN_FACTORY_ID = "clap.plugin-factory";
 
 pub const PluginFactory = extern struct {
-    get_plugin_count: *const fn (factory: ?*const PluginFactory) callconv(.C) u32,
-    get_plugin_descriptor: *const fn (factory: ?*const PluginFactory, index: u32) callconv(.C) ?*const PluginDescriptor,
+    get_plugin_count: *const fn (factory: ?*const PluginFactory) callconv(.c) u32,
+    get_plugin_descriptor: *const fn (factory: ?*const PluginFactory, index: u32) callconv(.c) ?*const PluginDescriptor,
     create_plugin: *const fn (
         factory: ?*const PluginFactory,
         host: ?*const Host,
         plugin_id: [*:0]const u8,
-    ) callconv(.C) ?*const Plugin,
+    ) callconv(.c) ?*const Plugin,
 };
 
 pub const PluginDescriptor = extern struct {
@@ -97,21 +97,21 @@ pub const PluginDescriptor = extern struct {
 pub const Plugin = extern struct {
     desc: ?*const PluginDescriptor,
     plugin_data: ?*anyopaque,
-    init: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
-    destroy: *const fn (plugin: ?*const Plugin) callconv(.C) void,
+    init: *const fn (plugin: ?*const Plugin) callconv(.c) bool,
+    destroy: *const fn (plugin: ?*const Plugin) callconv(.c) void,
     activate: *const fn (
         plugin: ?*Plugin,
         sample_rate: f64,
         min_frames: u32,
         max_frames: u32,
-    ) callconv(.C) bool,
-    deactivate: *const fn (plugin: ?*const Plugin) callconv(.C) void,
-    start_processing: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
-    stop_processing: *const fn (plugin: ?*const Plugin) callconv(.C) void,
-    reset: *const fn (plugin: ?*const Plugin) callconv(.C) void,
-    process: *const fn (plugin: ?*const Plugin, process: ?*const Process) callconv(.C) ProcessStatus,
-    get_extension: *const fn (plugin: ?*const Plugin, id: [*:0]const u8) callconv(.C) ?*const anyopaque,
-    on_main_thread: *const fn (plugin: ?*const Plugin) callconv(.C) void,
+    ) callconv(.c) bool,
+    deactivate: *const fn (plugin: ?*const Plugin) callconv(.c) void,
+    start_processing: *const fn (plugin: ?*const Plugin) callconv(.c) bool,
+    stop_processing: *const fn (plugin: ?*const Plugin) callconv(.c) void,
+    reset: *const fn (plugin: ?*const Plugin) callconv(.c) void,
+    process: *const fn (plugin: ?*const Plugin, process: ?*const Process) callconv(.c) ProcessStatus,
+    get_extension: *const fn (plugin: ?*const Plugin, id: [*:0]const u8) callconv(.c) ?*const anyopaque,
+    on_main_thread: *const fn (plugin: ?*const Plugin) callconv(.c) void,
 };
 
 pub const AudioBuffer = extern struct {
@@ -321,14 +321,14 @@ pub const EventMidi2 = extern struct {
 /// Incoming events, probably from the host
 pub const InputEvents = extern struct {
     ctx: ?*anyopaque,
-    size: *const fn (list: ?*const InputEvents) callconv(.C) u32,
-    get: *const fn (list: ?*const InputEvents, index: u32) callconv(.C) ?*const EventHeader,
+    size: *const fn (list: ?*const InputEvents) callconv(.c) u32,
+    get: *const fn (list: ?*const InputEvents, index: u32) callconv(.c) ?*const EventHeader,
 };
 
 /// Any outgoing events you want to send
 pub const OutputEvents = extern struct {
     ctx: ?*anyopaque,
-    try_push: *const fn (list: ?*const OutputEvents, event: ?*const EventHeader) callconv(.C) bool,
+    try_push: *const fn (list: ?*const OutputEvents, event: ?*const EventHeader) callconv(.c) bool,
 };
 
 pub const Host = extern struct {
@@ -342,10 +342,10 @@ pub const Host = extern struct {
     get_extension: *const fn (
         host: ?*const Host,
         extension_id: [*:0]const u8,
-    ) callconv(.C) ?*const anyopaque,
-    request_restart: *const fn (host: ?*const Host) callconv(.C) void,
-    request_process: *const fn (host: ?*const Host) callconv(.C) void,
-    request_callback: *const fn (host: ?*const Host) callconv(.C) void,
+    ) callconv(.c) ?*const anyopaque,
+    request_restart: *const fn (host: ?*const Host) callconv(.c) void,
+    request_process: *const fn (host: ?*const Host) callconv(.c) void,
+    request_callback: *const fn (host: ?*const Host) callconv(.c) void,
 };
 
 pub const PluginFeatures = struct {
@@ -446,8 +446,8 @@ pub const AudioPorts = extern struct {
         in_place_pair: Id,
     };
 
-    count: *const fn (plugin: ?*const Plugin, is_input: bool) callconv(.C) u32,
-    get: *const fn (plugin: ?*const Plugin, index: u32, is_input: bool, info: ?*Info) callconv(.C) bool,
+    count: *const fn (plugin: ?*const Plugin, is_input: bool) callconv(.c) u32,
+    get: *const fn (plugin: ?*const Plugin, index: u32, is_input: bool, info: ?*Info) callconv(.c) bool,
 };
 
 pub const HostAudioPorts = extern struct {
@@ -473,17 +473,17 @@ pub const HostAudioPorts = extern struct {
         _: u26 = 0,
     };
 
-    is_rescan_flag_supported: *const fn (host: ?*const Host, flag: Flags) callconv(.C) bool,
-    rescan: *const fn (host: ?*const Host, flags: Flags) callconv(.C) void,
+    is_rescan_flag_supported: *const fn (host: ?*const Host, flag: Flags) callconv(.c) bool,
+    rescan: *const fn (host: ?*const Host, flags: Flags) callconv(.c) void,
 };
 
 pub const EXT_LATENCY = "clap.latency";
 pub const Latency = extern struct {
-    get: *const fn (plugin: ?*const Plugin) callconv(.C) u32,
+    get: *const fn (plugin: ?*const Plugin) callconv(.c) u32,
 };
 
 pub const HostLatency = extern struct {
-    changed: *const fn (host: ?*const Host) callconv(.C) void,
+    changed: *const fn (host: ?*const Host) callconv(.c) void,
 };
 
 pub const EXT_LOG = "clap.log";
@@ -498,13 +498,13 @@ pub const HostLog = extern struct {
         PluginMisbehaving,
     };
 
-    log: *const fn (host: ?*const Host, msg: [*:0]const u8) callconv(.C) void,
+    log: *const fn (host: ?*const Host, msg: [*:0]const u8) callconv(.c) void,
 };
 
 pub const EXT_NOTE_NAME = "clap.note-name";
 pub const PluginNoteName = extern struct {
-    count: *const fn (plugin: ?*const Plugin) callconv(.C) u32,
-    get: *const fn (plugin: ?*const Plugin, index: u32, note_name: ?*NoteName) callconv(.C) bool,
+    count: *const fn (plugin: ?*const Plugin) callconv(.c) u32,
+    get: *const fn (plugin: ?*const Plugin, index: u32, note_name: ?*NoteName) callconv(.c) bool,
 
     pub const NoteName = extern struct {
         name: [NAME_SIZE]u8,
@@ -514,7 +514,7 @@ pub const PluginNoteName = extern struct {
     };
 };
 pub const HostNoteName = extern struct {
-    changed: *const fn (host: ?*const Host) callconv(.C) void,
+    changed: *const fn (host: ?*const Host) callconv(.c) void,
 };
 
 pub const EXT_NOTE_PORTS = "clap.note-ports";
@@ -608,23 +608,23 @@ pub const params = struct {
     };
 
     pub const PluginParams = extern struct {
-        count: *const fn (plugin: ?*const Plugin) callconv(.C) u32,
-        get_info: *const fn (plugin: ?*const Plugin, param_index: u32, param_info: ?*Info) callconv(.C) bool,
-        get_value: *const fn (plugin: ?*const Plugin, param_id: Id, out_value: ?*f64) callconv(.C) bool,
+        count: *const fn (plugin: ?*const Plugin) callconv(.c) u32,
+        get_info: *const fn (plugin: ?*const Plugin, param_index: u32, param_info: ?*Info) callconv(.c) bool,
+        get_value: *const fn (plugin: ?*const Plugin, param_id: Id, out_value: ?*f64) callconv(.c) bool,
         value_to_text: *const fn (
             plugin: ?*const Plugin,
             param_id: Id,
             value: f64,
             out_buf: [*:0]u8,
             out_buf_cap: u32,
-        ) callconv(.C) bool,
+        ) callconv(.c) bool,
         text_to_value: *const fn (
             plugin: ?*const Plugin,
             param_id: Id,
             param_value_text: [*:0]const u8,
             out_value: ?*f64,
-        ) callconv(.C) bool,
-        flush: *const fn (plugin: ?*const Plugin, in: ?*const InputEvents, out: ?*const OutputEvents) callconv(.C) void,
+        ) callconv(.c) bool,
+        flush: *const fn (plugin: ?*const Plugin, in: ?*const InputEvents, out: ?*const OutputEvents) callconv(.c) void,
     };
 
     pub const RescanFlags = packed struct(u32) {
@@ -683,9 +683,9 @@ pub const params = struct {
     };
 
     pub const HostParams = extern struct {
-        rescan: *const fn (host: ?*const Host, flags: RescanFlags) callconv(.C) void,
-        clear: *const fn (host: ?*const Host, param_id: Id, flags: ClearFlags) callconv(.C) void,
-        request_flush: *const fn (host: ?*const Host) callconv(.C) void,
+        rescan: *const fn (host: ?*const Host, flags: RescanFlags) callconv(.c) void,
+        clear: *const fn (host: ?*const Host, param_id: Id, flags: ClearFlags) callconv(.c) void,
+        request_flush: *const fn (host: ?*const Host) callconv(.c) void,
     };
 };
 
@@ -719,33 +719,33 @@ pub const gui = struct {
             plugin: ?*const Plugin,
             api: [*:0]const u8,
             is_floating: bool,
-        ) callconv(.C) bool,
+        ) callconv(.c) bool,
         get_preferred_api: *const fn (
             plugin: ?*const Plugin,
             api: ?*[*:0]const u8,
             is_floating: ?*bool,
-        ) callconv(.C) bool,
-        create: *const fn (plugin: ?*const Plugin, api: [*:0]const u8, is_floating: bool) callconv(.C) bool,
-        destroy: *const fn (plugin: ?*const Plugin) callconv(.C) void,
-        set_scale: *const fn (plugin: ?*const Plugin, scale: f64) callconv(.C) bool,
-        get_size: *const fn (plugin: ?*const Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool,
-        can_resize: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
-        get_resize_hints: *const fn (plugin: ?*const Plugin, hints: ?*ResizeHints) callconv(.C) bool,
-        adjust_size: *const fn (plugin: ?*const Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool,
-        set_size: *const fn (plugin: ?*const Plugin, width: u32, height: u32) callconv(.C) bool,
-        set_parent: *const fn (plugin: ?*const Plugin, window: ?*const Window) callconv(.C) bool,
-        set_transient: *const fn (plugin: ?*const Plugin, window: ?*const Window) callconv(.C) bool,
-        suggest_title: *const fn (plugin: ?*const Plugin, title: [*:0]const u8) callconv(.C) void,
-        show: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
-        hide: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
+        ) callconv(.c) bool,
+        create: *const fn (plugin: ?*const Plugin, api: [*:0]const u8, is_floating: bool) callconv(.c) bool,
+        destroy: *const fn (plugin: ?*const Plugin) callconv(.c) void,
+        set_scale: *const fn (plugin: ?*const Plugin, scale: f64) callconv(.c) bool,
+        get_size: *const fn (plugin: ?*const Plugin, width: ?*u32, height: ?*u32) callconv(.c) bool,
+        can_resize: *const fn (plugin: ?*const Plugin) callconv(.c) bool,
+        get_resize_hints: *const fn (plugin: ?*const Plugin, hints: ?*ResizeHints) callconv(.c) bool,
+        adjust_size: *const fn (plugin: ?*const Plugin, width: ?*u32, height: ?*u32) callconv(.c) bool,
+        set_size: *const fn (plugin: ?*const Plugin, width: u32, height: u32) callconv(.c) bool,
+        set_parent: *const fn (plugin: ?*const Plugin, window: ?*const Window) callconv(.c) bool,
+        set_transient: *const fn (plugin: ?*const Plugin, window: ?*const Window) callconv(.c) bool,
+        suggest_title: *const fn (plugin: ?*const Plugin, title: [*:0]const u8) callconv(.c) void,
+        show: *const fn (plugin: ?*const Plugin) callconv(.c) bool,
+        hide: *const fn (plugin: ?*const Plugin) callconv(.c) bool,
     };
 
     pub const HostGui = extern struct {
-        resize_hints_changed: *const fn (host: ?*const Host) callconv(.C) void,
-        request_resize: *const fn (host: ?*const Host, width: u32, height: u32) callconv(.C) bool,
-        request_show: *const fn (host: ?*const Host) callconv(.C) bool,
-        request_hide: *const fn (host: ?*const Host) callconv(.C) bool,
-        closed: *const fn (host: ?*const Host, was_destroyed: bool) callconv(.C) void,
+        resize_hints_changed: *const fn (host: ?*const Host) callconv(.c) void,
+        request_resize: *const fn (host: ?*const Host, width: u32, height: u32) callconv(.c) bool,
+        request_show: *const fn (host: ?*const Host) callconv(.c) bool,
+        request_hide: *const fn (host: ?*const Host) callconv(.c) bool,
+        closed: *const fn (host: ?*const Host, was_destroyed: bool) callconv(.c) void,
     };
 };
 
@@ -763,13 +763,13 @@ pub const posix_fd = struct {
     };
 
     pub const PluginSupport = extern struct {
-        on_fd: *const fn (plugin: ?*const Plugin, fd: i32, flags: Flags) callconv(.C) void,
+        on_fd: *const fn (plugin: ?*const Plugin, fd: i32, flags: Flags) callconv(.c) void,
     };
 
     pub const HostSupport = extern struct {
-        register_fd: *const fn (host: ?*const Host, fd: i32, flags: Flags) callconv(.C) bool,
-        modify_fd: *const fn (host: ?*const Host, fd: i32, flags: Flags) callconv(.C) bool,
-        unregister_fd: *const fn (host: ?*const Host, fd: i32) callconv(.C) bool,
+        register_fd: *const fn (host: ?*const Host, fd: i32, flags: Flags) callconv(.c) bool,
+        modify_fd: *const fn (host: ?*const Host, fd: i32, flags: Flags) callconv(.c) bool,
+        unregister_fd: *const fn (host: ?*const Host, fd: i32) callconv(.c) bool,
     };
 };
 
@@ -777,39 +777,39 @@ pub const EXT_RENDER = "clap.render";
 pub const Render = extern struct {
     const Mode = enum(i32) { Realtime = 0, Offline = 1 };
 
-    has_hard_realtime_requirement: *const fn (plugin: ?*const Plugin) callconv(.C) bool,
-    set: *const fn (plugin: ?*const Plugin, mode: Mode) callconv(.C) bool,
+    has_hard_realtime_requirement: *const fn (plugin: ?*const Plugin) callconv(.c) bool,
+    set: *const fn (plugin: ?*const Plugin, mode: Mode) callconv(.c) bool,
 };
 
 pub const InStream = extern struct {
     ctx: ?*anyopaque,
 
-    read: *const fn (stream: ?*const InStream, buffer: ?*anyopaque, size: u64) callconv(.C) i64,
+    read: *const fn (stream: ?*const InStream, buffer: ?*anyopaque, size: u64) callconv(.c) i64,
 };
 
 pub const OutStream = extern struct {
     ctx: ?*anyopaque,
 
-    write: *const fn (stream: ?*const OutStream, buffer: ?*const anyopaque, size: u64) callconv(.C) i64,
+    write: *const fn (stream: ?*const OutStream, buffer: ?*const anyopaque, size: u64) callconv(.c) i64,
 };
 
 pub const EXT_STATE = "clap.state";
 pub const PluginState = extern struct {
-    save: *const fn (plugin: ?*const Plugin, stream: ?*const OutStream) callconv(.C) bool,
-    load: *const fn (plugin: ?*const Plugin, stream: ?*const InStream) callconv(.C) bool,
+    save: *const fn (plugin: ?*const Plugin, stream: ?*const OutStream) callconv(.c) bool,
+    load: *const fn (plugin: ?*const Plugin, stream: ?*const InStream) callconv(.c) bool,
 };
 
 pub const HostState = extern struct {
-    mark_dirty: *const fn (host: ?*const Host) callconv(.C) void,
+    mark_dirty: *const fn (host: ?*const Host) callconv(.c) void,
 };
 
 pub const EXT_TAIL = "clap.tail";
 pub const PluginTail = extern struct {
-    get: *const fn (plugin: ?*const Plugin) callconv(.C) u32,
+    get: *const fn (plugin: ?*const Plugin) callconv(.c) u32,
 };
 
 pub const HostTail = extern struct {
-    changed: *const fn (host: ?*const Host) callconv(.C) void,
+    changed: *const fn (host: ?*const Host) callconv(.c) void,
 };
 
 pub const EXT_THREAD_CHECK = "clap.thread-check";
@@ -817,14 +817,14 @@ pub const EXT_THREAD_CHECK = "clap.thread-check";
 /// sure that the functions are called on the correct threads.
 /// It is highly recommended that hosts implement this extension.
 pub const HostThreadCheck = extern struct {
-    is_main_thread: *const fn (host: ?*const Host) callconv(.C) bool,
-    is_audio_thread: *const fn (host: ?*const Host) callconv(.C) bool,
+    is_main_thread: *const fn (host: ?*const Host) callconv(.c) bool,
+    is_audio_thread: *const fn (host: ?*const Host) callconv(.c) bool,
 };
 
 pub const EXT_TIMER_SUPPORT = "clap.timer-support";
 pub const PluginTimer = extern struct {
     /// [main-thread]
-    on_timer: *const fn (plugin: ?*const Plugin, timer_id: Id) callconv(.C) void,
+    on_timer: *const fn (plugin: ?*const Plugin, timer_id: Id) callconv(.c) void,
 };
 
 pub const HostTimer = extern struct {
@@ -833,10 +833,10 @@ pub const HostTimer = extern struct {
     /// 30 Hz should be allowed.
     /// Returns true on success.
     /// [main-thread]
-    register_timer: *const fn (host: ?*const Host, period_ms: u32, timer_id: ?*Id) callconv(.C) bool,
+    register_timer: *const fn (host: ?*const Host, period_ms: u32, timer_id: ?*Id) callconv(.c) bool,
     /// Returns true on success.
     /// [main-thread]
-    unregister_timer: *const fn (host: ?*const Host, timer_id: Id) callconv(.C) bool,
+    unregister_timer: *const fn (host: ?*const Host, timer_id: Id) callconv(.c) bool,
 };
 
 pub const Color = extern struct {

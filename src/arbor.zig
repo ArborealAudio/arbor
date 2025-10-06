@@ -21,18 +21,19 @@
 //! Main source file for framework, collecting everything in one place
 const std = @import("std");
 const assert = std.debug.assert;
-pub const config = @import("config");
+
+const plugin_description = @import("plugin_description.zig");
+const Description = plugin_description.Description;
+const PluginConfig = plugin_description.PluginConfig;
+const PluginFeatures = plugin_description.PluginFeatures;
+const Format = plugin_description.Format;
+pub const config: PluginConfig = @import("config");
+pub const format = @import("build_options").format;
+
 const Allocator = std.mem.Allocator;
 
 pub const param = @import("params.zig");
 pub const Parameter = param.Parameter;
-
-pub const Format = enum {
-    CLAP,
-    VST2,
-    // Big 'ol TODO: VST3,
-};
-const format = config.format;
 
 pub const Gui = @import("gui/Gui.zig");
 
@@ -42,38 +43,16 @@ pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
 
 /// User-defined plugin description, converted to format type
-pub const plugin_desc: DescType = createFormatDescription();
-pub const plugin_name = config.plugin_desc.name;
+// pub const plugin_desc: DescType = createFormatDescription();
+pub const plugin_desc = config.description;
+pub const plugin_name = plugin_desc.name;
 
 pub const Plugin = struct {
-    pub const Description = struct {
-        /// plugin name
-        name: [:0]const u8,
-        /// unique id for plugin, i.e. com.Company.Plugin
-        id: [:0]const u8,
-        /// company name
-        company: [:0]const u8,
-        /// version string
-        version: [:0]const u8,
-        /// copyright string
-        copyright: [:0]const u8,
-        /// url of your website, not that you need one. It's nice to have!
-        url: [:0]const u8,
-        /// contact url
-        contact: [:0]const u8,
-        /// link to user manual
-        manual: [:0]const u8,
-        /// short description of plugin
-        description: [:0]const u8,
-        // NOTE: Removed features from this struct until bugs w/ Zig build options are fixed
-        // format-agnostic list of plugin features
-        // features: []const PluginFeatures,
-    };
-
     pub const Interface = struct {
         deinit: *const fn (*Plugin) void,
         prepare: *const fn (*Plugin, f32, u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
+        createGui: ?*const fn (*Plugin) void = null,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
     };
 
@@ -99,7 +78,7 @@ pub const Plugin = struct {
 
     mutex: std.Thread.Mutex = .{},
 
-    allocator: Allocator = std.heap.c_allocator,
+    allocator: Allocator,
 
     // functions for dealing with a plugin's parameters
 
@@ -108,10 +87,10 @@ pub const Plugin = struct {
             if (std.mem.orderZ(u8, p.name, name).compare(.eq)) {
                 const val = plugin.params[i];
                 switch (@typeInfo(BaseType)) {
-                    .Float => return val,
-                    .Int => return @intFromFloat(val),
-                    .Bool => return @as(BaseType, @as(u1, @intFromFloat(val)) != 0),
-                    .Enum => return @as(
+                    .float => return val,
+                    .int => return @intFromFloat(val),
+                    .bool => return @as(BaseType, @as(u1, @intFromFloat(val)) != 0),
+                    .@"enum" => return @as(
                         BaseType,
                         @enumFromInt(@as(i32, @intFromFloat(val))),
                     ),
@@ -133,6 +112,7 @@ pub const Plugin = struct {
     }
 
     /// Get a pointer to the user's data, if they provided one
+    /// TODO rename this function to be clearer as to its purpose
     pub fn getUser(plugin: *Plugin, comptime UserType: type) *UserType {
         if (plugin.user) |ptr| return cast(*UserType, ptr) else {
             log.fatal("User pointer is null\n", .{}, @src());
@@ -140,32 +120,36 @@ pub const Plugin = struct {
     }
 };
 
-/// Initialize a Plugin. Caller owns the returned pointer and must free it by
-/// calling "deinit".
-pub fn init(
-    allocator: Allocator,
+pub const InitOptions = struct {
+    allocator: ?Allocator = null,
     params: []const Parameter,
     interface: Plugin.Interface,
-) *Plugin {
+    user_data: ?*anyopaque = null,
+};
+
+/// Initialize a Plugin. Caller owns the returned pointer and must free it by
+/// calling "deinit".
+pub fn createPlugin(options: InitOptions) *Plugin {
+    const allocator = options.allocator orelse std.heap.c_allocator;
     const plug = allocator.create(Plugin) catch |e| log.fatal("Plugin create failed: {}\n", .{e}, @src());
     plug.* = .{
-        .interface = interface,
-        .param_info = params,
-        .params = param.createSlice(allocator, params),
+        .interface = options.interface,
+        .param_info = options.params,
+        .params = param.createSlice(allocator, options.params),
         .allocator = allocator,
+        .user = options.user_data,
     };
     return plug;
 }
 
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
-    .VST2 => Plugin.Description,
+    .VST2 => Description,
 };
 
-/// Create a description that satisfies the requirements of the format being
-/// compiled for.
+/// Create a description that satisfies the requirements of the format being compiled for.
 pub fn createFormatDescription() DescType {
-    const desc = config.plugin_desc;
+    const desc = config.description;
     switch (DescType) {
         clap.PluginDescriptor => {
             return .{
@@ -178,22 +162,10 @@ pub fn createFormatDescription() DescType {
                 .support_url = desc.contact.ptr,
                 .manual_url = desc.manual.ptr,
                 .description = desc.description.ptr,
-                .features = (parseClapFeatures(config.plugin_features) catch |e| {
-                    log.fatal("Parse CLAP features failed: {!}\n", .{e}, @src());
-                }).constSlice().ptr,
+                .features = parseClapFeatures(config.features).ptr,
             };
         },
-        Plugin.Description => return Plugin.Description{
-            .name = desc.name,
-            .id = desc.id,
-            .company = desc.company,
-            .version = desc.version,
-            .url = desc.url,
-            .contact = desc.contact,
-            .manual = desc.manual,
-            .description = desc.description,
-            .copyright = desc.copyright,
-        },
+        Description => return desc,
         else => @compileError("Unimplemented format"),
     }
 }
@@ -201,7 +173,7 @@ pub fn createFormatDescription() DescType {
 // NOTE: Had to convert from an enum to C-style bit flags, since Zig build options
 // generation seems bugged
 /// Bit-packed list of supported plugin features, which will be converted to format-specific feature list
-pub const PluginFeatures = u32;
+pub const PluginFeatures_old = u32;
 pub const features = struct {
     pub const MONO = 1 << 0;
     pub const STEREO = 1 << 1;
@@ -223,49 +195,57 @@ pub const features = struct {
     pub const GUI = 1 << 17;
 };
 
-// TODO: Improve this. Couldn't think of a better way to compare features.
-// There's gotta be a simple data structure which can aid converting between
-// our enum and a format's string representation.
-pub const FeaturesArray = std.BoundedArray(?[*:0]const u8, 18); // < Imagine hard-coding the number of flags
+const num_features = std.meta.fields(PluginFeatures).len;
 
-pub fn parseClapFeatures(comptime feat: PluginFeatures) !FeaturesArray {
+pub fn parseClapFeatures(comptime feat: PluginFeatures) []const ?[*:0]const u8 {
     const F = clap.PluginFeatures;
-    var out = try FeaturesArray.init(0);
+    const Array = struct {
+        var idx: usize = 0;
+        var buf: [num_features]?[*:0]const u8 = undefined;
+        pub fn append(comptime opt: ?[*:0]const u8) void {
+            buf[idx] = opt;
+            idx += 1;
+        }
+        pub fn appendSlice(comptime slice: []const [:0]const u8) void {
+            for (slice) |s| {
+                append(s);
+            }
+        }
+    };
 
-    if (feat & features.INSTRUMENT == 0 and feat & features.EFFECT == 0 and
-        feat & features.ANALYZER == 0)
+    if (!feat.instrument and !feat.effect and !feat.analyzer)
         @compileError("Must have one main CLAP feature: 'instrument', 'audio-effect', 'note-effect', or 'analyzer' ");
 
-    if (feat & features.MONO > 0) try out.append(F.MONO);
-    if (feat & features.STEREO > 0) try out.append(F.STEREO);
-    if (feat & features.SURROUND > 0) try out.append(F.SURROUND);
-    if (feat & features.AMBISONIC > 0) try out.append(F.AMBISONIC);
-    if (feat & features.EFFECT > 0) try out.append(F.AUDIO_EFFECT);
-    if (feat & features.DISTORTION > 0) try out.append(F.DISTORTION);
-    if (feat & features.DYNAMICS > 0) try out.appendSlice(&.{ F.COMPRESSOR, F.GATE, F.EXPANDER });
-    if (feat & features.EQ > 0) try out.append(F.EQUALIZER);
-    if (feat & features.REVERB > 0) try out.append(F.REVERB);
-    if (feat & features.PITCH_SHIFT > 0) try out.append(F.PITCH_SHIFTER);
-    if (feat & features.MASTERING > 0) try out.append(F.MASTERING);
-    if (feat & features.ANALYZER > 0) try out.append(F.ANALYZER);
-    if (feat & features.RESTORATION > 0) try out.append(F.RESTORATION);
-    if (feat & features.INSTRUMENT > 0) try out.append(F.INSTRUMENT);
-    if (feat & features.SYNTH > 0) try out.append(F.SYNTHESIZER);
-    if (feat & features.SAMPLER > 0) try out.append(F.SAMPLER);
-    if (feat & features.DRUM > 0) try out.appendSlice(&.{ F.DRUM, F.DRUM_MACHINE });
+    if (feat.mono) Array.append(F.MONO);
+    if (feat.stereo) Array.append(F.STEREO);
+    if (feat.surround) Array.append(F.SURROUND);
+    if (feat.ambisonic) Array.append(F.AMBISONIC);
+    if (feat.effect) Array.append(F.AUDIO_EFFECT);
+    if (feat.distortion) Array.append(F.DISTORTION);
+    if (feat.dynamics) Array.appendSlice(&.{ F.COMPRESSOR, F.GATE, F.EXPANDER });
+    if (feat.eq) Array.append(F.EQUALIZER);
+    if (feat.reverb) Array.append(F.REVERB);
+    if (feat.pitch_shift) Array.append(F.PITCH_SHIFTER);
+    if (feat.mastering) Array.append(F.MASTERING);
+    if (feat.analyzer) Array.append(F.ANALYZER);
+    if (feat.restoration) Array.append(F.RESTORATION);
+    if (feat.instrument) Array.append(F.INSTRUMENT);
+    if (feat.synth) Array.append(F.SYNTHESIZER);
+    if (feat.sampler) Array.append(F.SAMPLER);
+    if (feat.drum) Array.appendSlice(&.{ F.DRUM, F.DRUM_MACHINE });
 
-    try out.append(null);
+    Array.append(null);
 
-    return out;
+    return &Array.buf;
 }
 
 pub fn parseVst2Features(comptime feat: PluginFeatures) vst2.Category {
-    if (feat & features.EFFECT > 0) return .kPlugCategEffect;
-    if (feat & features.SYNTH > 0) return .kPlugCategSynth;
-    if (feat & features.ANALYZER > 0) return .kPlugCategAnalysis;
-    if (feat & features.MASTERING > 0) return .kPlugCategMastering;
-    if (feat & features.REVERB > 0) return .kPlugCategRoomFx;
-    if (feat & features.RESTORATION > 0) return .kPlugCategRestoration;
+    if (feat.effect) return .kPlugCategEffect;
+    if (feat.synth) return .kPlugCategSynth;
+    if (feat.analyzer) return .kPlugCategAnalysis;
+    if (feat.mastering) return .kPlugCategMastering;
+    if (feat.reverb) return .kPlugCategRoomFx;
+    if (feat.restoration) return .kPlugCategRestoration;
 
     return .kPlugCategUnknown;
 }
@@ -280,7 +260,7 @@ pub const Event = union(enum) {
 
 pub const queue_size = 512;
 pub const Queue = struct {
-    const QueueArray = std.BoundedArray(Event, queue_size);
+    const QueueArray = std.ArrayList(Event);
     events: QueueArray,
     mutex: std.Thread.Mutex = .{},
     allocator: Allocator,
@@ -288,48 +268,49 @@ pub const Queue = struct {
     pub fn init(allocator: Allocator) !*Queue {
         const self = try allocator.create(Queue);
         self.* = .{
-            .events = try QueueArray.init(0),
+            .events = try QueueArray.initCapacity(allocator, queue_size),
             .allocator = allocator,
         };
         return self;
     }
 
     pub fn deinit(self: *Queue) void {
+        self.events.deinit(self.allocator);
         self.allocator.destroy(self);
     }
 
     pub fn push_try(self: *Queue, event: Event) !void {
         if (self.mutex.tryLock()) {
             defer self.mutex.unlock();
-            try self.events.append(event);
+            try self.events.appendBounded(event);
         }
     }
 
     pub fn push_wait(self: *Queue, event: Event) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
-        try self.events.append(event);
+        try self.events.appendBounded(event);
     }
 
     pub fn push_no_lock(self: *Queue, event: Event) !void {
-        try self.events.append(event);
+        try self.events.appendBounded(event);
     }
 
     pub fn next_try(self: *Queue) ?Event {
         if (self.mutex.tryLock()) {
             defer self.mutex.unlock();
-            return self.events.popOrNull();
+            return self.events.pop();
         } else return null;
     }
 
     pub fn next_wait(self: *Queue) ?Event {
         self.mutex.lock();
         defer self.mutex.unlock();
-        return self.events.popOrNull();
+        return self.events.pop();
     }
 
     pub fn next_no_lock(self: *Queue) ?Event {
-        return self.events.popOrNull();
+        return self.events.pop();
     }
 };
 
@@ -452,7 +433,7 @@ pub const log = struct {
 };
 
 pub fn cast(comptime DestType: type, ptr: anytype) DestType {
-    return @alignCast(@ptrCast(ptr));
+    return @ptrCast(@alignCast(ptr));
 }
 
 pub fn Vst2VersionInt(comptime version: []const u8) !i32 {

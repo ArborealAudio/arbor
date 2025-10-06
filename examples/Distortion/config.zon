@@ -1,0 +1,19 @@
+.{
+    .description = .{
+        .name = "Example_Distortion",
+        .id = "com.Arbor.ExDist",
+        .company = "Arboreal Audio",
+        .version = "0.1.0",
+        .copyright = "(c) 2024 Arboreal Audio, LLC",
+        .url = "",
+        .manual = "",
+        .contact = "",
+        .description = "Vintage analog warmth",
+    },
+    .features = .{
+        .stereo = true,
+        .effect = true,
+        .distortion = true,
+    },
+    .root_source_file = "plugin.zig",
+}

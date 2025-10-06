@@ -42,7 +42,7 @@ pub fn drawText(
         rect.y;
 
     if (label.flags.background) {
-        draw.olivec_rect(
+        draw.olivec.olivec_rect(
             canvas,
             @intCast(rect.x),
             @intCast(rect.y),
@@ -52,7 +52,7 @@ pub fn drawText(
         );
     }
     if (label.flags.border) {
-        draw.olivec_frame(
+        draw.olivec.olivec_frame(
             canvas,
             @intCast(rect.x),
             @intCast(rect.y),

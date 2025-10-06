@@ -23,9 +23,6 @@ const AtomicBool = std.atomic.Value(bool);
 
 const Gui = @This();
 
-/// User gui init
-pub extern fn gui_init(*Plugin) void;
-
 pub const GuiConfig = struct {
     layout: LayoutType,
     width: u32,
@@ -64,23 +61,23 @@ wants_repaint: AtomicBool = AtomicBool.init(true),
 var arena_impl = std.heap.ArenaAllocator.init(std.heap.c_allocator);
 const arena = arena_impl.allocator();
 
-/// Call this from within your gui_init function to init the GUI backend
-pub fn init(allocator: Allocator, config: GuiConfig) *Gui {
-    _ = allocator;
-    const ptr = arena.create(Gui) catch |e| log.fatal("{!}\n", .{e}, @src());
+/// Call this from within your gui init function to init the GUI backend
+pub fn init(plugin: *Plugin, config: GuiConfig) *Gui {
+    const ptr = arena.create(Gui) catch |e| log.fatal("{}\n", .{e}, @src());
     const bits = arena.alloc(u32, config.width * config.height) catch |e|
-        log.fatal("{!}\n", .{e}, @src());
+        log.fatal("{}\n", .{e}, @src());
     ptr.* = .{
         .allocator = arena,
         .bits = bits,
         .impl = Platform.guiCreate(ptr, bits.ptr, config.width, config.height, config.timer_ms, arbor.plugin_name),
         .interface = config.interface,
         .layout = config.layout,
-        .components = std.ArrayList(Component).init(arena),
-        .in_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
-        .out_events = Queue.init(arena) catch |e| log.fatal("{!}\n", .{e}, @src()),
-        .canvas = draw.olivec_canvas(bits.ptr, config.width, config.height, config.width),
+        .components = .empty,
+        .in_events = Queue.init(arena) catch |e| log.fatal("{}\n", .{e}, @src()),
+        .out_events = Queue.init(arena) catch |e| log.fatal("{}\n", .{e}, @src()),
+        .canvas = draw.olivec.olivec_canvas(bits.ptr, config.width, config.height, config.width),
     };
+    plugin.gui = ptr;
 
     return ptr;
 }
@@ -100,7 +97,7 @@ pub fn requestDraw(self: *Gui) void {
     self.wants_repaint.store(true, .release);
 }
 
-fn render(self: *Gui) callconv(.C) void {
+fn render(self: *Gui) callconv(.c) void {
     // unload event queue
     self.processInEvents();
 
@@ -108,7 +105,7 @@ fn render(self: *Gui) callconv(.C) void {
 
     if (builtin.mode == .Debug) {
         if (debug_mouse_pos) {
-            draw.olivec_circle(
+            draw.olivec.olivec_circle(
                 self.canvas,
                 @intFromFloat(self.state.mouse_pos.x),
                 @intFromFloat(self.state.mouse_pos.y),
@@ -117,7 +114,7 @@ fn render(self: *Gui) callconv(.C) void {
             );
         }
         if (debug_grid) {
-            draw.olivec_line(
+            draw.olivec.olivec_line(
                 self.canvas,
                 @divTrunc(self.getSize().x, 2),
                 0,
@@ -125,7 +122,7 @@ fn render(self: *Gui) callconv(.C) void {
                 self.getSize().y,
                 debug_grid_color.toBits(),
             );
-            draw.olivec_line(
+            draw.olivec.olivec_line(
                 self.canvas,
                 0,
                 @divTrunc(self.getSize().y, 2),
@@ -142,7 +139,7 @@ fn render(self: *Gui) callconv(.C) void {
             self.out_events.push_wait(.{
                 .param_change = .{ .id = i, .value = c.value },
             }) catch |e| {
-                log.err("out_events push failed: {!}\n", .{e}, @src());
+                log.err("out_events push failed: {}\n", .{e}, @src());
                 return;
             };
             c.param_changed = false;
@@ -164,13 +161,13 @@ fn processInEvents(self: *Gui) void {
     }
 }
 
-fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.C) void {
+fn sysInputEvent(self: *Gui, cursor_x: i32, cursor_y: i32, state: GuiState) callconv(.c) void {
     if (self.state.type != state)
         self.state.type = state;
     self.processGesture(
         .{ .x = cursor_x, .y = cursor_y },
     ) catch |e| {
-        log.err("{!}\n", .{e}, @src());
+        log.err("{}\n", .{e}, @src());
         return;
     };
     self.requestDraw();
@@ -183,8 +180,8 @@ pub fn getSize(self: Gui) Vec2 {
 // NOTE: We do expect pointers for now, would prefer not to rely on heap
 // allocation but our "inheritance" model kind of forces that.
 pub fn addComponent(self: *Gui, component: Component) void {
-    self.components.append(component) catch |e|
-        log.err("Component append failed: {!}\n", .{e}, @src());
+    self.components.append(self.allocator, component) catch |e|
+        log.err("Component append failed: {}\n", .{e}, @src());
 }
 
 pub fn getComponent(self: *Gui, id: usize) *Component {
@@ -396,7 +393,7 @@ pub const Slider = struct {
 
     pub fn init(allocator: Allocator, param: *const arbor.Parameter, color: Color) *Slider {
         const self = allocator.create(Slider) catch |e|
-            log.fatal("Slider alloc failed: {!}\n", .{e}, @src());
+            log.fatal("Slider alloc failed: {}\n", .{e}, @src());
         self.* = .{ .param = param, .color = color, .flags = .{} };
         return self;
     }
@@ -412,7 +409,7 @@ pub const Slider = struct {
         const top = self.bounds.y + (height - val_height);
 
         // draw borders
-        draw.olivec_rect(
+        draw.olivec.olivec_rect(
             canvas,
             @intCast(self.bounds.x),
             @intCast(self.bounds.y),
@@ -421,7 +418,7 @@ pub const Slider = struct {
             self.background_color.toBits(),
         );
 
-        draw.olivec_rect(
+        draw.olivec.olivec_rect(
             canvas,
             @intCast(self.bounds.x),
             @intCast(top),
@@ -433,7 +430,7 @@ pub const Slider = struct {
         if (self.label) |l| {
             const text_y: u32 = self.bounds.y + height;
             const text_x: u32 = self.bounds.x;
-            draw.drawText(canvas, l, .{
+            draw.Text.drawText(canvas, l, .{
                 .x = text_x,
                 .y = text_y,
                 .width = self.bounds.width,
@@ -446,7 +443,7 @@ pub const Slider = struct {
             if (slider.param.value_to_text) |func| {
                 const denorm = slider.param.valueFromNormalized(self.value);
                 const len = func(denorm, &buf);
-                draw.drawText(canvas, .{
+                draw.Text.drawText(canvas, .{
                     .text = buf[0..len],
                     .height = 15,
                     .color = Color.WHITE,
@@ -497,7 +494,7 @@ pub const Menu = struct {
         border_thickness: u32,
         highlight_color: Color,
     ) *Menu {
-        const self = allocator.create(Menu) catch |e| log.fatal("Menu init failed: {!}\n", .{e}, @src());
+        const self = allocator.create(Menu) catch |e| log.fatal("Menu init failed: {}\n", .{e}, @src());
         self.* = .{
             .choices = choices,
             .border_color = border_color,
@@ -517,7 +514,7 @@ pub const Menu = struct {
         const label_height = self.bounds.height / 2;
 
         if (menu.open and menu.is_mouse_over) {
-            draw.olivec_rect(
+            draw.olivec.olivec_rect(
                 canvas,
                 @intCast(self.bounds.x),
                 @intCast(self.bounds.y),
@@ -529,7 +526,7 @@ pub const Menu = struct {
             for (menu.choices, 0..) |choice, i| {
                 if (menu.mouse_choice) |mc| {
                     if (i == mc) {
-                        draw.olivec_rect(
+                        draw.olivec.olivec_rect(
                             canvas,
                             @intCast(self.bounds.x),
                             @intCast(self.bounds.y + (choice_h * @as(u32, @intCast(i)))),
@@ -539,7 +536,7 @@ pub const Menu = struct {
                         );
                     }
                 }
-                draw.drawText(canvas, .{
+                draw.Text.drawText(canvas, .{
                     .text = choice,
                     .height = choice_h,
                     .color = Color.WHITE,
@@ -554,7 +551,7 @@ pub const Menu = struct {
         }
 
         if (self.label) |label| {
-            draw.drawText(canvas, label, .{
+            draw.Text.drawText(canvas, label, .{
                 .x = self.bounds.x,
                 .y = self.bounds.y,
                 .width = self.bounds.width,
@@ -564,7 +561,7 @@ pub const Menu = struct {
 
         const menu_y = self.bounds.y + label_height;
 
-        draw.olivec_rect(
+        draw.olivec.olivec_rect(
             canvas,
             @intCast(self.bounds.x),
             @intCast(menu_y),
@@ -572,7 +569,7 @@ pub const Menu = struct {
             @intCast(label_height),
             self.background_color.toBits(),
         );
-        draw.olivec_frame(
+        draw.olivec.olivec_frame(
             canvas,
             @intCast(self.bounds.x),
             @intCast(menu_y),
@@ -586,7 +583,7 @@ pub const Menu = struct {
             @intFromFloat(self.value *
                 (@as(f32, @floatFromInt(menu.choices.len)) - 1))
         ];
-        draw.drawText(canvas, .{
+        draw.Text.drawText(canvas, .{
             .text = current,
             .height = label_height / 2,
             .color = Color.WHITE,
@@ -705,7 +702,7 @@ const debug_grid = false;
 const debug_grid_color = Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
 
 comptime {
-    @export(render, .{ .name = "gui_render", .linkage = .weak });
-    @export(sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
-    @export(Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
+    @export(&render, .{ .name = "gui_render", .linkage = .weak });
+    @export(&sysInputEvent, .{ .name = "sysInputEvent", .linkage = .weak });
+    @export(&Platform.guiTimerCallback, .{ .name = "guiTimerCallback", .linkage = .weak });
 }

@@ -1,11 +1,12 @@
 .{
-    .name = "Example Distortion",
+    .name = .Example_Distortion,
     .version = "0.1.0",
     .dependencies = .{
         .arbor = .{
             .path = "../..",
         },
     },
+    .fingerprint = 0x7bad96d95356b2b3,
     .paths = .{
         "",
     },
