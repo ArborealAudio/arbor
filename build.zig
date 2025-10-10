@@ -71,7 +71,7 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig, formats: []const Format) !v
             .optimize = config.optimize,
         }),
         .use_llvm = true,
-        .use_lld = false,
+        .use_lld = config.target.result.os.tag != .linux,
     });
 
     const arbor_mod = b.addModule("arbor", .{
@@ -188,7 +188,7 @@ fn buildPlugin(
             .strip = false,
         }),
         .use_llvm = true,
-        .use_lld = false,
+        .use_lld = build_config.target.result.os.tag != .linux,
     });
 
     return plug;
