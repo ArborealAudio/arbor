@@ -22,6 +22,7 @@ const Filter = struct {
 // };
 
 const allocator = std.heap.c_allocator;
+const num_channels = 2;
 
 export fn init() *arbor.Plugin {
     const self = allocator.create(Filter) catch |e| {
@@ -30,7 +31,7 @@ export fn init() *arbor.Plugin {
     self.* = .{
         .filter = dsp.Filter.init(
             allocator,
-            2,
+            num_channels,
             .Lowpass,
             default_cutoff,
             default_q,
@@ -40,6 +41,8 @@ export fn init() *arbor.Plugin {
     };
     return arbor.createPlugin(.{
         .allocator = allocator,
+        .num_inputs = num_channels,
+        .num_outputs = num_channels,
         .params = self.params,
         .interface = .{
             .deinit = deinit,
