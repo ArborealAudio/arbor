@@ -19,6 +19,8 @@ const plugin_params = &[_]arbor.Parameter{
 
 export fn init() *arbor.Plugin {
     return arbor.createPlugin(.{
+        .num_inputs = 2,
+        .num_outputs = 2,
         .params = plugin_params,
         .interface = .{
             .deinit = deinit,

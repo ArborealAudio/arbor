@@ -16,8 +16,6 @@ const Parameter = arbor.Parameter;
 const Gui = arbor.Gui;
 const PlatformGui = Gui.Platform;
 
-const allocator = std.heap.c_allocator;
-
 const VstPlugin = @This();
 
 var audio_thread: std.Thread.Id = undefined;
@@ -55,7 +53,7 @@ fn dispatch(
     ptr: ?*anyopaque,
     opt: f32,
 ) callconv(.c) isize {
-    var plugin: *VstPlugin = plugCast(effect);
+    const plugin: *VstPlugin = plugCast(effect);
     const plug = plugin.plugin;
     const code = std.meta.intToEnum(vst2.Opcode, opcode) catch return -1;
     switch (code) {
@@ -86,7 +84,7 @@ fn dispatch(
         },
         // ISSUE: This is kinda bunk right? Since the outer AEffect will end up destroying itself?
         .Close => {
-            plugin.deinit(allocator);
+            plugin.deinit(plug.allocator);
             return 0;
         },
         .GetVendorString => {
@@ -309,7 +307,7 @@ fn dispatch(
         .ProcessEvents => {},
         .GetInputProperties => {
             // TODO: Use `index` to support multiple pins
-            const pin = allocator.create(vst2.PinProperties) catch |e| {
+            const pin = plug.allocator.create(vst2.PinProperties) catch |e| {
                 log.err("{}\n", .{e}, @src());
                 return 1;
             };
@@ -328,7 +326,7 @@ fn dispatch(
         },
         .GetOutputProperties => {
             // TODO: Use `index` to support multiple pins
-            const pin = allocator.create(vst2.PinProperties) catch |e| {
+            const pin = plug.allocator.create(vst2.PinProperties) catch |e| {
                 log.err("{}\n", .{e}, @src());
                 return 1;
             };
@@ -473,18 +471,19 @@ fn getParameter(effect: ?*vst2.AEffect, index: i32) callconv(.c) f32 {
     return 0;
 }
 
-pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.AEffect {
+pub fn init(host_callback: vst2.HostCallback) !*vst2.AEffect {
+    const plugin = Plugin.init();
+    const alloc = plugin.allocator;
     const self = try alloc.create(VstPlugin);
     self.* = .{
         .effect = try alloc.create(vst2.AEffect),
-        .plugin = Plugin.init(),
+        .plugin = plugin,
         .in_events = try arbor.Queue.init(alloc),
         .host_callback = host_callback orelse {
             log.err("host_callback is null\n", .{}, @src());
             return error.InitFailed;
         },
     };
-    self.plugin.num_channels = 2; // TODO: DOn't hardcode
     self.effect.* = .{
         .dispatcher = dispatch,
         .processReplacing = processReplacing,
@@ -493,8 +492,8 @@ pub fn init(alloc: std.mem.Allocator, host_callback: vst2.HostCallback) !*vst2.A
         .getParameter = getParameter,
         .num_programs = 0,
         .num_params = @intCast(self.plugin.param_info.len),
-        .num_inputs = 2,
-        .num_outputs = 2,
+        .num_inputs = @intCast(plugin.num_channels),
+        .num_outputs = @intCast(plugin.num_channels),
         .flags = .{
             .HasStateChunk = true,
             .HasReplacing = true,
@@ -521,5 +520,5 @@ pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
 }
 
 export fn VSTPluginMain(callback: vst2.HostCallback) callconv(.c) ?*anyopaque {
-    return init(allocator, callback) catch return null;
+    return init(callback) catch return null;
 }

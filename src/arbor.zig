@@ -67,7 +67,7 @@ pub const Plugin = struct {
 
     interface: Interface,
 
-    num_channels: u32 = undefined,
+    num_channels: u32,
     sample_rate: f32 = undefined,
     max_frames: u32 = undefined,
 
@@ -122,18 +122,22 @@ pub const Plugin = struct {
 
 pub const InitOptions = struct {
     allocator: ?Allocator = null,
+    num_inputs: u32,
+    num_outputs: u32,
     params: []const Parameter,
     interface: Plugin.Interface,
     user_data: ?*anyopaque = null,
 };
 
 /// Initialize a Plugin. Caller owns the returned pointer and must free it by
-/// calling "deinit".
+/// calling `deinit`.
 pub fn createPlugin(options: InitOptions) *Plugin {
     const allocator = options.allocator orelse std.heap.c_allocator;
-    const plug = allocator.create(Plugin) catch |e| log.fatal("Plugin create failed: {}\n", .{e}, @src());
+    const plug = allocator.create(Plugin) catch |e|
+        log.fatal("Plugin create failed: {}\n", .{e}, @src());
     plug.* = .{
         .interface = options.interface,
+        .num_channels = @max(options.num_inputs, options.num_outputs),
         .param_info = options.params,
         .params = param.createSlice(allocator, options.params),
         .allocator = allocator,

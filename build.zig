@@ -70,6 +70,8 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig, formats: []const Format) !v
             .target = config.target,
             .optimize = config.optimize,
         }),
+        .use_llvm = true,
+        .use_lld = false,
     });
 
     const arbor_mod = b.addModule("arbor", .{
@@ -183,7 +185,10 @@ fn buildPlugin(
             .target = build_config.target,
             .optimize = build_config.optimize,
             .pic = true,
+            .strip = false,
         }),
+        .use_llvm = true,
+        .use_lld = false,
     });
 
     return plug;
