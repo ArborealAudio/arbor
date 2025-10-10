@@ -43,7 +43,6 @@ pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
 
 /// User-defined plugin description, converted to format type
-// pub const plugin_desc: DescType = createFormatDescription();
 pub const plugin_desc = config.description;
 pub const plugin_name = plugin_desc.name;
 
@@ -173,31 +172,6 @@ pub fn createFormatDescription() DescType {
         else => @compileError("Unimplemented format"),
     }
 }
-
-// NOTE: Had to convert from an enum to C-style bit flags, since Zig build options
-// generation seems bugged
-/// Bit-packed list of supported plugin features, which will be converted to format-specific feature list
-pub const PluginFeatures_old = u32;
-pub const features = struct {
-    pub const MONO = 1 << 0;
-    pub const STEREO = 1 << 1;
-    pub const SURROUND = 1 << 2;
-    pub const AMBISONIC = 1 << 3;
-    pub const EFFECT = 1 << 4;
-    pub const DISTORTION = 1 << 5;
-    pub const DYNAMICS = 1 << 6;
-    pub const EQ = 1 << 7;
-    pub const REVERB = 1 << 8;
-    pub const PITCH_SHIFT = 1 << 9;
-    pub const MASTERING = 1 << 10;
-    pub const ANALYZER = 1 << 11;
-    pub const RESTORATION = 1 << 12;
-    pub const INSTRUMENT = 1 << 13;
-    pub const SYNTH = 1 << 14;
-    pub const SAMPLER = 1 << 15;
-    pub const DRUM = 1 << 16;
-    pub const GUI = 1 << 17;
-};
 
 const num_features = std.meta.fields(PluginFeatures).len;
 
@@ -404,6 +378,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
+        if (@import("builtin").mode != .Debug) return;
         std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
     }
 

@@ -2,32 +2,6 @@
 
 ## For the future of plugin development
 
-## Goals
-
-* Dead-simple plugin development. Write <= 100 lines of code and have a runnable
-blank-slate plugin.
-
-* Ideally only require Zig as a toolchain dependency, not as a programming
-language. You should be able to write plugins in C/C++/whatever and easily link
-that code to Arbor via a C API and the Zig build system.
-
-	* Could also have a `get_zig.sh` that will download latest stable Zig if you
-	don't already have it
-
-* Easy cross-compilation. Compile to Mac/Linux/Windows from Mac/Linux/Windows,
-batteries included.
-
-* Cross-platform graphics. A simple software renderer (like Olivec), but also
-native graphics programming, potentially using something like [sokol](https://github.com/floooh/sokol.git), or making a thin wrapper around Direct2D/CoreGraphics for
-cross-platform graphics abstraction, giving the programmer a simple choice with
-little-to-no platform-specific considerations.
-
-* Simple, declarative UI design. Possibly with the option of using a custom
-CSS-like syntax (or [Ziggy](https://github.com/kristoff-it/ziggy.git)) to
-declare, arrange, and style UI widgets at **runtime** or **compile-time**, all
-compiling to native code--not running in some god-forsaken web browser embedded
-in a plugin UI 🤮
-
 ## Have:
 
 * A nice abstraction layer over plugin APIs which should lend itself nicely to
@@ -45,6 +19,33 @@ extending support to other APIs
 
 * Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
 text rendering function with a bitmap font
+
+## Goals
+
+* Dead-simple plugin development. Write <= 100 lines of code and have a runnable
+blank-slate plugin.
+
+* Easy cross-compilation. Compile to Mac/Linux/Windows from Mac/Linux/Windows,
+batteries included.
+
+* Cross-platform graphics. A simple software renderer (like Olivec),
+but also native graphics programming, potentially using something like
+[sokol](https://github.com/floooh/sokol.git), or making a thin wrapper around
+Direct2D/CoreGraphics for cross-platform graphics abstraction (see `direct2d`
+branch for an early in-progress idea of this), giving the programmer a simple
+choice with little-to-no platform-specific considerations.
+
+* Simple, declarative UI design.
+
+	* Currently working on a custom immediate-mode UI library
+	
+	* Further down the road considering the option of using a custom CSS-like
+	syntax to write stylesheets for UI widgets which can be read at **runtime** or
+	**compiled**, all as native code--not running in some god-forsaken web browser
+	embedded in a plugin UI 🤮. However, this may prove to be too great an abstraction, especially
+	if a flexible IMGUI API can provide a lot of this functionality with stylesheets-as-structs. One
+	option could be to read & watch a config file at runtime which fills out stylesheet data & may be
+	updated whenever the file is changed.
 
 ## TODO:
 
@@ -117,7 +118,31 @@ Run `zig init` to create some boilerplate for a Zig project. Or, create a
 The commit SHA is the SHA of the commit you wish to checkout. You can supply
 `master` instead (not recommended) if you want to pull from the repo's head each time, which is less predictable.
 
-In top-level `build.zig`:
+First, create a `config.zon` which will describe some details about your plugin:
+
+```zon
+.{
+    .description = .{
+        .name = "My Evil Plugin",
+        .id = "com.Plug-O.Evil",
+        .company = "Plug-O Corp, Ltd",
+        .version = "0.1.0",
+        .copyright = "(c) 2024 Plug-O Corp, Ltd",
+        .url = "https://plug-o-corp.biz",
+        .manual = "https://plug-o-corp.biz/Evil/manual.pdf",
+        .contact = "contact@plug-o-corp.biz",
+        .description = "Vintage analog warmth",
+    },
+    .features = .{
+        .stereo = true,
+        .effect = true,
+        .eq = true,
+    },
+    .root_source_file = "plugin.zig",
+}
+```
+
+Now make a `build.zig`:
 
 ```zig
 const std = @import("std");
@@ -128,23 +153,11 @@ pub fn build(b: *std.Build) !void {
 	const optimize = b.standardOptimizeOption(.{});
 
 	try arbor.addPlugin(b, .{
-		.description = .{
-			.id = "com.Plug-O.Evil",
-			.name = "My Evil Plugin",
-			.company = "Plug-O Corp, Ltd.",
-			.version = "0.1.0",
-			.url = "https://plug-o-corp.biz",
-			.contact = "contact@plug-o-corp.biz",
-			.manual = "https://plug-o-corp.biz/Evil/manual.pdf",
-			.copyright = "(c) 2100 Plug-O-Corp, Ltd.",
-			.description = "Vintage Analog Warmth",
-		},
-		.features = arbor.features.STEREO | arbor.features.EFFECT |
-			arbor.features.EQ,
-		.root_source_file = "src/plugin.zig",
+		.plugin_config = @import("config.zon"), // imports your config as data which will be used by the build process
+		.plugin_config_path = b.path("config.zon"), // also requires the path for importing the config later
 		.target = target,
 		.optimize = optimize,
-	});
+	}, &.{.CLAP, .VST2}); // an array of plugin formats
 }
 ```
 
@@ -165,9 +178,9 @@ const params = &[_]arbor.Parameter{
 		0.0, // min
 		10.0, // max
 		0.666, // default
-		.{.flags = .{}}, // can provide additional flags
-	);
-	arbor.param.Choice("Mode", Mode.Vintage, .{.flags = .{}});
+		.{.flags = .{}}, // can provide additional flags, such as text-value/value-text conversion func., & other stuff
+	),
+	arbor.param.Choice("Mode", Mode.Vintage, .{.flags = .{}}),
 };
 
 const Plugin = @This();
@@ -177,18 +190,23 @@ const allocator = std.heap.c_allocator;
 
 // initialize plugin 
 export fn init() *arbor.Plugin {
-	const plugin = arbor.init(allocator, params .{
-		.deinit = deinit,
-		.prepare = prepare,
-		.process = process,
-	});
 	const user_plugin = allocator.create(Plugin) catch |err| // catch any allocation errors
 		arbor.log.fatal("Plugin create failed: {!}\n", .{err}, @src());
-
 	user_plugin.* = .{}; // init our plugin to default
-	plugin.user = user_plugin; // set user context pointer
-		
-	return plugin;
+
+	return arbor.createPlugin(.{
+		.allocator = allocator,
+		.params = params,
+		.num_inputs = 2,
+		.num_outputs = 2,
+		.interface = .{
+			.deinit = deinit,
+			.prepare = prepare,
+			.process = process,
+		},
+		.user_data = user_plugin, // give arbor a pointer to our private plugin data
+	});
+
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
@@ -223,13 +241,11 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
 To build:
 
 ```sh
-zig build
-# Add 'copy' to copy plugin to user plugin dir
+zig build copy
+# Adding 'copy' will copy plugin to user plugin dir
+# Optimization modes: -Doptimize=[Debug/ReleaseSmall/ReleaseSafe/ReleaseFast]
 # Eventual compile options:
-# You can add -Dformat=[VST2/VST3/CLAP/AU]
-# Not providing a format will compile all formats available on your platform
 # Cross compile by adding -Dtarget=[aarch64-macos/x86_64-windows/etc...]
-# Build modes: -Doptimize=[Debug/ReleaseSmall/ReleaseSafe/ReleaseFast]
 ```
 
 ## Acknowledgements

@@ -15,39 +15,6 @@ comptime {
 // TODO: Implement a MacOS Universal Binary build mode which will build both archs & lipo
 // TODO: Configure OSX sysroot so we can supply our own SDK
 
-// pub const PluginConfig = struct {
-//     description: Description,
-//     features: arbor.PluginFeatures,
-//     root_source_file: []const u8,
-//     format: []const Format = all_formats,
-
-//     // in-place modification of certain properties
-
-//     pub fn withName(self: PluginConfig, name: [:0]const u8) PluginConfig {
-//         var new = self;
-//         new.description.name = name;
-//         return new;
-//     }
-
-//     pub fn withID(self: PluginConfig, id: [:0]const u8) PluginConfig {
-//         var new = self;
-//         new.description.id = id;
-//         return new;
-//     }
-
-//     pub fn withSource(self: PluginConfig, src: []const u8) PluginConfig {
-//         var new = self;
-//         new.root_source_file = src;
-//         return new;
-//     }
-
-//     pub fn withFeature(self: PluginConfig, feature: arbor.PluginFeatures) PluginConfig {
-//         var new = self;
-//         new.features |= feature;
-//         return new;
-//     }
-// };
-
 pub const BuildConfig = struct {
     plugin_config: PluginConfig,
     plugin_config_path: std.Build.LazyPath,
@@ -428,92 +395,7 @@ const osx_bundle_plist =
     \\
 ;
 
-pub fn build(_: *std.Build) !void {
-    // const target = b.standardTargetOptions(.{});
-    // const optimize = b.standardOptimizeOption(.{});
-
-    // const test_step = b.step("test", "Run library tests");
-
-    // const config = BuildConfig{
-    //     .description = .{
-    //         .name = "Test plugin",
-    //         .id = "com.Arbor.test",
-    //         .company = "Arboreal Audio",
-    //         .version = "0.1.0",
-    //         .copyright = "(c) No One",
-    //         .url = "",
-    //         .contact = "",
-    //         .manual = "",
-    //         .description = "",
-    //     },
-    //     .features = features.STEREO | features.EFFECT | features.GUI,
-    //     .root_source_file = "",
-    //     .target = target,
-    //     .optimize = optimize,
-    // };
-
-    // for (formats) |fmt| {
-    //     const build_options = b.addOptions();
-    //     build_options.addOption(Format, "format", fmt);
-    //     build_options.addOption(arbor.PluginFeatures, "plugin_features", config.features);
-    //     build_options.addOption(arbor.Plugin.Description, "plugin_desc", config.description);
-
-    //     const mod = b.addModule("arbor", .{
-    //         .root_source_file = b.path("src/arbor.zig"),
-    //         .target = target,
-    //         .optimize = optimize,
-    //     });
-    //     mod.addOptions("config", build_options);
-
-    //     switch (target.result.os.tag) {
-    //         .linux => {
-    //             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/" });
-    //             mod.linkSystemLibrary("X11", .{});
-    //             mod.addCSourceFile(.{
-    //                 .file = b.path("src/gui/gui_x11.c"),
-    //                 .flags = &.{"-std=c99"},
-    //             });
-    //         },
-    //         .windows => {
-    //             mod.linkSystemLibrary("gdi32", .{});
-    //             mod.linkSystemLibrary("user32", .{});
-    //             mod.addCSourceFile(.{
-    //                 .file = b.path("src/gui/gui_w32.c"),
-    //                 .flags = &.{"-std=c99"},
-    //             });
-    //         },
-    //         .macos => {
-    //             mod.linkFramework("Cocoa", .{});
-    //             mod.addCSourceFile(.{
-    //                 .file = b.path("src/gui/gui_mac.m"),
-    //                 .flags = &.{"-ObjC"},
-    //             });
-    //         },
-    //         else => @panic("Unimplemented OS\n"),
-    //     }
-    //     mod.addCSourceFile(.{
-    //         .file = b.path("src/gui/olive.c"),
-    //         .flags = &.{"-DOLIVEC_IMPLEMENTATION"},
-    //     });
-
-    //     const tests = b.addTest(.{
-    //         .name = "tests",
-    //         .root_module = b.createModule(.{
-    //             .root_source_file = b.path("src/tests.zig"),
-    //             .target = target,
-    //             .optimize = optimize,
-    //             .link_libc = true,
-    //             .imports = &.{
-    //                 .{ .name = "arbor", .module = mod },
-    //             },
-    //         }),
-    //     });
-    //     tests.root_module.addOptions("config", build_options);
-
-    //     const run_tests = b.addRunArtifact(tests);
-    //     test_step.dependOn(&run_tests.step);
-    // }
-}
+pub fn build(_: *std.Build) void {}
 
 const Dir = std.fs.Dir;
 
