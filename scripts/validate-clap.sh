@@ -15,7 +15,7 @@ else
 	CV=./clap-validator.exe
 fi
 
-EXAMPLES=(Distortion) # Filter example produces a bug in the validator
+EXAMPLES=(Distortion Filter)
 
 for ex in ${EXAMPLES[@]}; do
   $CV validate examples/$ex/zig-out/Example_${ex}.clap

@@ -17,15 +17,18 @@ const plugin_params = &[_]arbor.Parameter{
     param.Choice("Mode", Mode.Vintage, .{ .flags = .{} }), // optionally pass a list of names
 };
 
-const allocator = std.heap.c_allocator;
-
 export fn init() *arbor.Plugin {
-    const plugin = arbor.init(allocator, plugin_params, .{
-        .deinit = deinit,
-        .prepare = prepare,
-        .process = process,
+    return arbor.createPlugin(.{
+        .num_inputs = 2,
+        .num_outputs = 2,
+        .params = plugin_params,
+        .interface = .{
+            .deinit = deinit,
+            .prepare = prepare,
+            .process = process,
+            .createGui = guiInit,
+        },
     });
-    return plugin;
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
@@ -85,39 +88,39 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
 
 fn dbValToText(value: f32, buf: []u8) usize {
     const out = std.fmt.bufPrint(buf, "{d:.2} dB", .{value}) catch |e| {
-        log.err("{!}\n", .{e}, @src());
+        log.err("{}\n", .{e}, @src());
         return 0;
     };
     return out.len;
 }
 
 const draw = arbor.Gui.draw;
+const Color = arbor.Gui.draw.Color;
 
 pub const WIDTH = 500;
 pub const HEIGHT = 600;
-const background_color = draw.Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
+const background_color = Color{ .r = 0, .g = 0x80, .b = 0x80, .a = 0xff };
 
-const slider_dark = draw.Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff };
-const silver = draw.Color.fromBits(0xff_aa_aa_aa);
+const slider_dark = Color{ .r = 0, .g = 0x70, .b = 0x70, .a = 0xff };
+const silver = Color.fromBits(0xff_aa_aa_aa);
 
-const highlight_color = draw.Color{ .r = 0x9f, .g = 0xc4, .b = 0x72, .a = 0xff };
-const border_color = draw.Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
+const highlight_color = Color{ .r = 0x9f, .g = 0xc4, .b = 0x72, .a = 0xff };
+const border_color = Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
 
 const TITLE = "DISTORTION";
 
 // Export an entry to our GUI implementation
-export fn gui_init(plugin: *arbor.Plugin) void {
-    const gui = arbor.Gui.init(plugin.allocator, .{
+fn guiInit(plugin: *arbor.Plugin) void {
+    const gui = arbor.Gui.init(plugin, .{
         .layout = .default,
         .width = WIDTH,
         .height = HEIGHT,
         .timer_ms = 16,
         .interface = .{
-            .deinit = gui_deinit,
-            .render = gui_render,
+            .deinit = guiDeinit,
+            .render = guiRender,
         },
     });
-    plugin.gui = gui;
 
     // we can draw the logo here and just copy its memory to the global canvas
     // in our render function
@@ -134,7 +137,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
     // setup unique properties here
     for (0..plugin.param_info.len) |i| {
         const param_info = plugin.getParamWithId(@intCast(i)) catch |e| {
-            log.err("{!}\n", .{e}, @src());
+            log.err("{}\n", .{e}, @src());
             return;
         };
         if (!std.mem.eql(u8, param_info.name, "Mode")) {
@@ -155,7 +158,7 @@ export fn gui_init(plugin: *arbor.Plugin) void {
                 .label = .{
                     .text = param_info.name,
                     .height = 18,
-                    .color = draw.Color.WHITE,
+                    .color = Color.WHITE,
                     .border = silver,
                     .flags = .{
                         .border = true,
@@ -185,25 +188,25 @@ export fn gui_init(plugin: *arbor.Plugin) void {
                 .label = .{
                     .text = param_info.name,
                     .height = menu_height / 2,
-                    .color = draw.Color.WHITE,
+                    .color = Color.WHITE,
                 },
             });
         }
     }
 }
 
-fn gui_deinit(gui: *arbor.Gui) void {
+fn guiDeinit(gui: *arbor.Gui) void {
     _ = gui;
 }
 
-fn gui_render(gui: *arbor.Gui) void {
+fn guiRender(gui: *arbor.Gui) void {
     // draw our background and frame
-    draw.olivec_fill(gui.canvas, background_color.toBits());
-    draw.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
+    draw.olivec.olivec_fill(gui.canvas, background_color.toBits());
+    draw.olivec.olivec_frame(gui.canvas, 2, 2, WIDTH - 4, HEIGHT - 4, 4, border_color.toBits());
 
     // draw plugin title
     const title_width = WIDTH / 3;
-    draw.drawText(gui.canvas, .{
+    draw.Text.drawText(gui.canvas, .{
         .text = TITLE,
         .height = 25,
         .color = slider_dark,
@@ -222,7 +225,7 @@ fn gui_render(gui: *arbor.Gui) void {
     }
 
     // render logo
-    draw.olivec_sprite_blend(gui.canvas, 6, 6, 64, 64, logo_canvas);
+    draw.olivec.olivec_sprite_blend(gui.canvas, 6, 6, 64, 64, logo_canvas);
 }
 
 // TODO: Write Zig bindings for Olivec so we can run it at comptime
@@ -237,14 +240,14 @@ var logo_canvas: draw.Canvas = .{
 fn drawLogo() void {
     const cx = 15;
     const cy = 15;
-    draw.olivec_fill(logo_canvas, 0);
-    draw.olivec_circle(logo_canvas, cx, cy, 16, silver.toBits());
-    draw.olivec_line(logo_canvas, cx, 0, cx, 32, slider_dark.toBits());
+    draw.olivec.olivec_fill(logo_canvas, 0);
+    draw.olivec.olivec_circle(logo_canvas, cx, cy, 16, silver.toBits());
+    draw.olivec.olivec_line(logo_canvas, cx, 0, cx, 32, slider_dark.toBits());
     var i: u32 = 3;
     while (i < cy + 2) : (i += 3) {
         const w = i * 2;
         const x = 15 - (w / 2);
-        draw.olivec_line(
+        draw.olivec.olivec_line(
             logo_canvas,
             @intCast(x),
             @intCast(i),

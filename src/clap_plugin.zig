@@ -4,7 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arbor = @import("arbor.zig");
-const config = @import("config");
+const config = arbor.config;
 const log = arbor.log;
 const cast = arbor.cast;
 const Slice = arbor.Slice;
@@ -23,6 +23,10 @@ fn plug_cast(ptr: ?*const clap.Plugin) *ClapPlugin {
 
 const ClapPlugin = @This();
 
+// Need this static global bc API wants a pointer, where our backend returns a new struct by value
+// each time. Copy the result of `arbor.createFormatDescription()` to this var.
+var descriptor: clap.PluginDescriptor = undefined;
+
 /// user plugin
 plugin: ?*arbor.Plugin = null,
 
@@ -38,7 +42,7 @@ host_params: ?*const clap.params.HostParams = null,
 host_fd_support: ?*const clap.posix_fd.HostSupport = null,
 
 const AudioPorts = struct {
-    fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.C) u32 {
+    fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.c) u32 {
         _ = is_input;
         _ = plugin;
         return 1;
@@ -49,7 +53,7 @@ const AudioPorts = struct {
         index: u32,
         is_input: bool,
         info: ?*clap.AudioPorts.Info,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         _ = is_input;
         if (index > 1)
             return false;
@@ -76,7 +80,7 @@ const AudioPorts = struct {
 
 // TODO: Implement plugin note ports
 // const NotePorts = struct {
-//     fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.C) u32 {
+//     fn count(plugin: ?*const clap.Plugin, is_input: bool) callconv(.c) u32 {
 //         _ = is_input;
 //         _ = plugin;
 //         // TODO: Query whether there are note ports
@@ -88,15 +92,15 @@ const AudioPorts = struct {
 //         index: u32,
 //         is_input: bool,
 //         info: ?*clap.clap_note_port_info_t,
-//     ) callconv(.C) bool {
+//     ) callconv(.c) bool {
 //         _ = is_input;
 //         _ = plugin;
 //         if (index > 0)
 //             return false;
 //         info.*.id = 0;
 //         std.log.defaultLog(.info, .default, "Note port: {s}", .{info.*.name});
-//         info.*.supported_dialects = clap.CLAP_NOTE_DIALECT_MIDI;
-//         info.*.preferred_dialect = clap.CLAP_NOTE_DIALECT_CLAP;
+//         info.*.supported_dialects = clap.cLAP_NOTE_DIALECT_MIDI;
+//         info.*.preferred_dialect = clap.cLAP_NOTE_DIALECT_CLAP;
 //         return true;
 //     }
 
@@ -107,7 +111,7 @@ const AudioPorts = struct {
 // };
 
 pub const Latency = struct {
-    fn getLatency(plugin: ?*const clap.Plugin) callconv(.C) u32 {
+    fn getLatency(plugin: ?*const clap.Plugin) callconv(.c) u32 {
         if (plug_cast(plugin).plugin) |plug| {
             if (@hasField(@TypeOf(plug.*), "latency"))
                 return plug.latency
@@ -125,7 +129,7 @@ const State = struct {
     pub fn save(
         plugin: ?*const clap.Plugin,
         stream: ?*const clap.OutStream,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             const num_params = plug.params.len;
             // PROBLEM: This crashes the plugin!
@@ -142,7 +146,7 @@ const State = struct {
     pub fn load(
         plugin: ?*const clap.Plugin,
         stream: ?*const clap.InStream,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             const num_params = plug.params.len;
             if (stream) |str|
@@ -162,14 +166,14 @@ const State = struct {
 };
 
 const Params = struct {
-    pub fn count(plugin: ?*const clap.Plugin) callconv(.C) u32 {
+    pub fn count(plugin: ?*const clap.Plugin) callconv(.c) u32 {
         if (plug_cast(plugin).plugin) |plug|
             return @intCast(plug.params.len)
         else
             return 0;
     }
 
-    fn getInfo(plugin: ?*const clap.Plugin, index: u32, info: ?*clap.params.Info) callconv(.C) bool {
+    fn getInfo(plugin: ?*const clap.Plugin, index: u32, info: ?*clap.params.Info) callconv(.c) bool {
         const plug = plug_cast(plugin).plugin orelse {
             log.err("Plugin is null\n", .{}, @src());
             return false;
@@ -201,7 +205,7 @@ const Params = struct {
         return false;
     }
 
-    pub fn getValue(plugin: ?*const clap.Plugin, id: clap.Id, value: ?*f64) callconv(.C) bool {
+    pub fn getValue(plugin: ?*const clap.Plugin, id: clap.Id, value: ?*f64) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             if (id >= plug.params.len) return false;
             const val = if (plug.param_info[id].flags.stepped)
@@ -222,12 +226,14 @@ const Params = struct {
         value: f64,
         display: [*:0]u8,
         size: u32,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             if (id >= plug.params.len) return false;
             const param = plug.param_info[id];
             @memset(display[0..size], 0); // clear display string
             if (param.flags.stepped) {
+                // NOTE: Stepped values may be negative. We need different logic for an enum vs a
+                // regular stepped param
                 const ival: u32 = @intFromFloat(@round(value));
                 if (param.flags.is_enum) {
                     if (param.enum_choices) |choices| {
@@ -241,7 +247,7 @@ const Params = struct {
                     };
                 }
             } else {
-                _ = std.fmt.bufPrintZ(display[0..size], "{d:.2}", .{value}) catch |e| {
+                _ = std.fmt.bufPrintZ(display[0..size], "{d:.4}", .{value}) catch |e| {
                     log.err("{}\n", .{e}, @src());
                     return false;
                 };
@@ -256,15 +262,33 @@ const Params = struct {
         param_id: clap.Id,
         value_text: [*:0]const u8,
         out_value: ?*f64,
-    ) callconv(.C) bool {
-        _ = out_value;
-        _ = value_text;
-        _ = param_id;
-        _ = plugin;
+    ) callconv(.c) bool {
+        if (plug_cast(plugin).plugin) |plug| {
+            if (param_id >= plug.param_info.len)
+                return false;
+            const param_info = plug.param_info[param_id];
+            const text: []const u8 = std.mem.span(value_text);
+            const val: *f64 = out_value orelse return false;
+            if (param_info.flags.is_enum) {
+                if (param_info.enum_choices) |choices| {
+                    for (choices, 0..) |choice, i| {
+                        if (std.mem.eql(u8, choice, text)) {
+                            val.* = @floatFromInt(i);
+                            return true;
+                        }
+                    }
+                }
+            }
+            val.* = std.fmt.parseFloat(f64, text) catch |e| {
+                log.err("{}\n", .{e}, @src());
+                return false;
+            };
+            return true;
+        }
         return false;
     }
 
-    fn flush(plugin: ?*const clap.Plugin, in: ?*const clap.InputEvents, out: ?*const clap.OutputEvents) callconv(.C) void {
+    fn flush(plugin: ?*const clap.Plugin, in: ?*const clap.InputEvents, out: ?*const clap.OutputEvents) callconv(.c) void {
         // TODO: Handle output events
         _ = out;
         const plug = plug_cast(plugin);
@@ -299,7 +323,7 @@ const Gui = struct {
         plugin: ?*const clap.Plugin,
         api: [*:0]const u8,
         is_floating: bool,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         _ = plugin;
         return std.mem.orderZ(u8, api, GUI_API).compare(.eq) and !is_floating;
     }
@@ -308,7 +332,7 @@ const Gui = struct {
         plugin: ?*const clap.Plugin,
         api: ?*[*:0]const u8,
         is_floating: ?*bool,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         _ = plugin;
         if (api) |ptr| ptr.* = GUI_API;
         if (is_floating) |ptr| ptr.* = false;
@@ -319,12 +343,13 @@ const Gui = struct {
         plugin: ?*const clap.Plugin,
         api: [*:0]const u8,
         is_floating: bool,
-    ) callconv(.C) bool {
+    ) callconv(.c) bool {
         if (!isAPISupported(plugin, api, is_floating))
             return false;
         if (plug_cast(plugin).plugin) |plug| {
             std.debug.assert(plug.gui == null);
-            arbor.Gui.gui_init(plug);
+            if (plug.interface.createGui) |func|
+                func(plug);
             if (plug.gui) |gui| {
                 const clap_plug = plug_cast(plugin);
                 if (builtin.os.tag == .linux) {
@@ -338,7 +363,7 @@ const Gui = struct {
         return false;
     }
 
-    fn destroyGui(plugin: ?*const clap.Plugin) callconv(.C) void {
+    fn destroyGui(plugin: ?*const clap.Plugin) callconv(.c) void {
         const clap_plug = plug_cast(plugin);
         if (clap_plug.plugin) |plug| {
             std.debug.assert(plug.gui != null);
@@ -352,13 +377,13 @@ const Gui = struct {
         }
     }
 
-    fn setScale(plugin: ?*const clap.Plugin, scale: f64) callconv(.C) bool {
+    fn setScale(plugin: ?*const clap.Plugin, scale: f64) callconv(.c) bool {
         _ = scale;
         _ = plugin;
         return false;
     }
 
-    fn getSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool {
+    fn getSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             if (plug.gui) |gui| {
                 const size = gui.getSize();
@@ -369,30 +394,30 @@ const Gui = struct {
         return true;
     }
 
-    fn canResize(plugin: ?*const clap.Plugin) callconv(.C) bool {
+    fn canResize(plugin: ?*const clap.Plugin) callconv(.c) bool {
         _ = plugin;
         return false;
     }
 
-    fn getResizeHints(plugin: ?*const clap.Plugin, hints: ?*clap.gui.ResizeHints) callconv(.C) bool {
+    fn getResizeHints(plugin: ?*const clap.Plugin, hints: ?*clap.gui.ResizeHints) callconv(.c) bool {
         _ = hints;
         _ = plugin;
         return false;
     }
 
-    fn adjustSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.C) bool {
+    fn adjustSize(plugin: ?*const clap.Plugin, width: ?*u32, height: ?*u32) callconv(.c) bool {
         return getSize(plugin, width, height);
     }
 
     // TODO: Handle this
-    fn setSize(plugin: ?*const clap.Plugin, width: u32, height: u32) callconv(.C) bool {
+    fn setSize(plugin: ?*const clap.Plugin, width: u32, height: u32) callconv(.c) bool {
         _ = height;
         _ = width;
         _ = plugin;
         return true;
     }
 
-    fn setParent(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.C) bool {
+    fn setParent(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             const window = clap_window orelse {
                 log.err("Window is null\n", .{}, @src());
@@ -416,18 +441,18 @@ const Gui = struct {
         return false;
     }
 
-    fn setTransient(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.C) bool {
+    fn setTransient(plugin: ?*const clap.Plugin, clap_window: ?*const clap.gui.Window) callconv(.c) bool {
         _ = clap_window;
         _ = plugin;
         return false;
     }
 
-    fn suggestTitle(plugin: ?*const clap.Plugin, title: [*:0]const u8) callconv(.C) void {
+    fn suggestTitle(plugin: ?*const clap.Plugin, title: [*:0]const u8) callconv(.c) void {
         _ = title;
         _ = plugin;
     }
 
-    fn show(plugin: ?*const clap.Plugin) callconv(.C) bool {
+    fn show(plugin: ?*const clap.Plugin) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             if (plug.gui) |gui| GuiPlatform.guiSetVisible(gui.impl, true);
             return true;
@@ -435,7 +460,7 @@ const Gui = struct {
         return false;
     }
 
-    fn hide(plugin: ?*const clap.Plugin) callconv(.C) bool {
+    fn hide(plugin: ?*const clap.Plugin) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             if (plug.gui) |gui| GuiPlatform.guiSetVisible(gui.impl, false);
             return true;
@@ -467,7 +492,7 @@ pub const PosixFDSupport = struct {
         plugin: ?*const clap.Plugin,
         fd: i32,
         flags: clap.posix_fd.Flags,
-    ) callconv(.C) void {
+    ) callconv(.c) void {
         _ = fd;
         _ = flags;
         if (plug_cast(plugin).plugin) |plug| {
@@ -480,7 +505,7 @@ pub const PosixFDSupport = struct {
     };
 };
 
-pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
+pub fn init(plugin: ?*const clap.Plugin) callconv(.c) bool {
     const clap_plug = plug_cast(plugin);
 
     // create user plugin
@@ -523,7 +548,7 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.C) bool {
     return true;
 }
 
-pub fn destroy(plugin: ?*const clap.Plugin) callconv(.C) void {
+pub fn destroy(plugin: ?*const clap.Plugin) callconv(.c) void {
     const clap_plug = plug_cast(plugin);
     if (clap_plug.plugin) |plug| {
         plug.interface.deinit(plug);
@@ -537,7 +562,7 @@ pub fn activate(
     sample_rate: f64,
     min_frames_count: u32,
     max_frames_count: u32,
-) callconv(.C) bool {
+) callconv(.c) bool {
     if (plug_cast(plugin).plugin) |plug| {
         plug.interface.prepare(plug, @floatCast(sample_rate), max_frames_count);
         _ = min_frames_count;
@@ -545,16 +570,16 @@ pub fn activate(
     } else return false;
 }
 
-pub fn deactivate(plugin: ?*const clap.Plugin) callconv(.C) void {
+pub fn deactivate(plugin: ?*const clap.Plugin) callconv(.c) void {
     _ = plugin;
 }
-pub fn startProcessing(plugin: ?*const clap.Plugin) callconv(.C) bool {
+pub fn startProcessing(plugin: ?*const clap.Plugin) callconv(.c) bool {
     if (plugin) |_| return true else return false;
 }
-pub fn stopProcessing(plugin: ?*const clap.Plugin) callconv(.C) void {
+pub fn stopProcessing(plugin: ?*const clap.Plugin) callconv(.c) void {
     _ = plugin;
 }
-pub fn reset(plugin: ?*const clap.Plugin) callconv(.C) void {
+pub fn reset(plugin: ?*const clap.Plugin) callconv(.c) void {
     _ = plugin;
 }
 
@@ -570,14 +595,16 @@ pub fn processInEvent(plugin: *ClapPlugin, event: ?*const clap.EventHeader) void
             switch (e.type) {
                 .PARAM_VALUE => {
                     const param_event = cast(*const clap.EventParamValue, e);
-                    plug.params[param_event.param_id] = @floatCast(param_event.value);
+                    const in_val: f32 = @floatCast(param_event.value);
+                    const param_info = plug.param_info[param_event.param_id];
+                    plug.params[param_event.param_id] = std.math.clamp(in_val, param_info.min_value, param_info.max_value);
                     if (plug.gui) |gui| {
                         gui.in_events.push_try(.{ .param_change = .{
                             .id = param_event.param_id,
                             .value = plug.param_info[param_event.param_id]
                                 .getNormalizedValue(@floatCast(param_event.value)),
                         } }) catch |err| {
-                            log.err("in_events push failed: {!}\n", .{err}, @src());
+                            log.err("in_events push failed: {}\n", .{err}, @src());
                             return;
                         };
                         gui.wants_repaint.store(true, .release);
@@ -634,7 +661,7 @@ pub fn processOutEvent(plugin: *ClapPlugin, clap_events: *const clap.OutputEvent
 pub fn process(
     plugin: ?*const clap.Plugin,
     process_info: ?*const clap.Process,
-) callconv(.C) clap.ProcessStatus {
+) callconv(.c) clap.ProcessStatus {
     var clap_plug = plug_cast(plugin);
     const plug = clap_plug.plugin orelse {
         log.err("User plugin is null\n", .{}, @src());
@@ -719,7 +746,7 @@ fn slicePtr(in: [*][*]f32, num_ch: usize, offset: usize, end: usize) [*]Slice(f3
     }
 }
 
-pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C) ?*const anyopaque {
+pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.c) ?*const anyopaque {
     _ = plugin;
     if (std.mem.orderZ(u8, id, clap.EXT_LATENCY).compare(.eq))
         return &Latency.Data;
@@ -732,7 +759,7 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
         return &State.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_PARAMS).compare(.eq))
         return &Params.Data;
-    if (config.plugin_features & arbor.features.GUI > 0)
+    if (config.features.gui)
         if (std.mem.orderZ(u8, id, clap.EXT_GUI).compare(.eq))
             return &Gui.Data;
     if (std.mem.orderZ(u8, id, clap.EXT_POSIX_FD_SUPPORT).compare(.eq))
@@ -740,13 +767,13 @@ pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.C)
     return null;
 }
 
-pub fn onMainThread(plugin: ?*const clap.Plugin) callconv(.C) void {
+pub fn onMainThread(plugin: ?*const clap.Plugin) callconv(.c) void {
     _ = plugin;
 }
 
 // Factory
 const Factory = struct {
-    fn getPluginCount(factory: ?*const clap.PluginFactory) callconv(.C) u32 {
+    fn getPluginCount(factory: ?*const clap.PluginFactory) callconv(.c) u32 {
         _ = factory;
         return 1;
     }
@@ -754,16 +781,17 @@ const Factory = struct {
     fn getPluginDescriptor(
         factory: ?*const clap.PluginFactory,
         index: u32,
-    ) callconv(.C) ?*const clap.PluginDescriptor {
+    ) callconv(.c) ?*const clap.PluginDescriptor {
+        descriptor = arbor.createFormatDescription();
         _ = factory;
-        return if (index == 0) &arbor.plugin_desc else null;
+        return if (index == 0) &descriptor else null;
     }
 
     fn createPlugin(
         factory: ?*const clap.PluginFactory,
         host: ?*const clap.Host,
         plugin_id: [*:0]const u8,
-    ) callconv(.C) ?*const clap.Plugin {
+    ) callconv(.c) ?*const clap.Plugin {
         _ = factory;
         const h = host orelse {
             log.err("Host is null\n", .{}, @src());
@@ -779,7 +807,7 @@ const Factory = struct {
             };
             clap_plug.* = .{
                 .clap_plugin = .{
-                    .desc = &arbor.plugin_desc,
+                    .desc = &descriptor,
                     .plugin_data = clap_plug,
                     .init = init,
                     .destroy = destroy,
@@ -807,15 +835,15 @@ const Factory = struct {
 
 // Entry
 const Entry = struct {
-    fn init(plugin_path: [*:0]const u8) callconv(.C) bool {
+    fn init(plugin_path: [*:0]const u8) callconv(.c) bool {
         _ = plugin_path;
 
         return true;
     }
 
-    fn deinit() callconv(.C) void {}
+    fn deinit() callconv(.c) void {}
 
-    fn get_factory(factory_id: [*:0]const u8) callconv(.C) ?*const anyopaque {
+    fn get_factory(factory_id: [*:0]const u8) callconv(.c) ?*const anyopaque {
         if (std.mem.orderZ(u8, factory_id, clap.PLUGIN_FACTORY_ID).compare(.eq)) {
             return &Factory.Data;
         } else return null;

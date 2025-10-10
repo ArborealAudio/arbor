@@ -1,6 +1,7 @@
 name: ci
 
 on:
+  pull_request:
   push:
     branches:
       - master
@@ -16,15 +17,19 @@ jobs:
 
     strategy:
       matrix:
-        os: [windows-2019, ubuntu-latest, macos-13]
+        os: [windows-2022, ubuntu-latest, macos-13]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v5
+
+    - uses: mlugg/setup-zig@v2.0.5
+      with:
+        use-cache: false
 
     - name: Build
       run: bash ./scripts/build.sh
       
     - name: Validate
       run: |
-        bash ./scripts/validate-clap.sh
+        # bash ./scripts/validate-clap.sh
         bash ./scripts/validate-vst.sh

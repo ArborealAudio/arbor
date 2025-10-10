@@ -44,7 +44,7 @@ pub const Parameter = struct {
 
 pub const Options = struct {
     /// set of flags used for configuring parameter
-    flags: Parameter.Flags,
+    flags: Parameter.Flags = .{},
     /// function to convert text into parameter value
     text_to_value: ?*const fn (text: []const u8) f32 = null,
     /// function to convert parameter value into text
@@ -98,9 +98,9 @@ pub fn Choice(
 ) Parameter {
     const T = @TypeOf(default);
     const info = @typeInfo(T);
-    if (info != .Enum) @compileError("Expected an enum instance");
+    if (info != .@"enum") @compileError("Expected an enum instance");
 
-    const fields = info.Enum.fields;
+    const fields = info.@"enum".fields;
     const choices = options.enum_choices orelse std.meta.fieldNames(T);
 
     var f = options.flags;
