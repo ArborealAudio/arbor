@@ -49,37 +49,36 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
     const in_gain = std.math.pow(f32, 10, in_gain_db * 0.05);
     const out_gain = std.math.pow(f32, 10, out_gain_db * 0.05);
 
-    for (buffer.input, 0..) |ch, ch_idx| {
-        var out = buffer.output[ch_idx];
-        for (ch, 0..) |sample, idx| {
+    for (0..buffer.num_ch) |ch| {
+        const in_ch = buffer.getInputChannel(ch);
+        const out_ch = buffer.getOutputChannel(ch);
+        for (in_ch, out_ch) |in, *y| {
+            var x = in;
             // For performance reasons, you wouldn't want to branch inside
             // this loop, but...example
             switch (mode) {
                 .Modern => {
-                    var x = sample;
                     x *= in_gain;
                     x = @min(1, @max(-1, x));
-                    out[idx] = (5.0 / 4.0) * (x - (x * x * x * x * x) / 5) * out_gain;
+                    y.* = (5.0 / 4.0) * (x - (x * x * x * x * x) / 5) * out_gain;
                 },
                 .Vintage => {
-                    var x = sample;
                     x *= in_gain;
                     if (x < 0) {
                         x = @max(-1, x);
                         x = (3.0 / 2.0) * (x - (x * x * x) / 3.0);
                     } else x = (3.0 / 2.0) * std.math.tanh(x);
                     x *= out_gain;
-                    out[idx] = x;
+                    y.* = x;
                 },
                 .Apocalypse => {
-                    var x = sample;
                     x *= in_gain * 2;
                     x -= @abs(@sin(x / std.math.two_sqrtpi));
                     x += @abs(@sin(x / std.math.pi));
                     x = 2 * @sin(x / std.math.tau);
                     x = @min(1, @max(-1, x));
                     x *= out_gain;
-                    out[idx] = x;
+                    y.* = x;
                 },
             }
         }
@@ -109,7 +108,6 @@ const border_color = Color{ .r = 0x9f, .g = 0xbb, .b = 0x95, .a = 0xff };
 
 const TITLE = "DISTORTION";
 
-// Export an entry to our GUI implementation
 fn guiInit(plugin: *arbor.Plugin) void {
     const gui = arbor.Gui.init(plugin, .{
         .layout = .default,

@@ -12,7 +12,6 @@ const config = arbor.config;
 const vst2 = @import("vst2_api.zig");
 
 const Plugin = arbor.Plugin;
-const plugin_num_ch = Plugin.num_channels;
 
 const Parameter = arbor.Parameter;
 const Gui = arbor.Gui;
@@ -315,7 +314,7 @@ fn dispatch(
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Input";
             @memcpy(pin.label[0..name.len], name);
-            pin.flags = .{ .IsActive = true, .IsStereo = plugin_num_ch > 1 };
+            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
@@ -334,7 +333,7 @@ fn dispatch(
             pin.* = std.mem.zeroes(vst2.PinProperties);
             const name = "Output";
             @memcpy(pin.label[0..name.len], name);
-            pin.flags = .{ .IsActive = true, .IsStereo = plugin_num_ch > 1 };
+            pin.flags = .{ .IsActive = true, .IsStereo = plug.num_channels > 1 };
             @memcpy(pin.shortLabel[0..name.len], name);
 
             if (ptr) |p| {
@@ -418,26 +417,12 @@ fn processReplacing(
 
     const uframes: usize = @intCast(frames);
     const num_ch: usize = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs));
-    const buffer: arbor.AudioBuffer(f32) = .{
-        .input = make: {
-            var buf: [plugin_num_ch][]f32 = undefined;
-            for (0..num_ch) |ch| {
-                buf[ch] = inputs[ch][0..uframes];
-            }
-            break :make buf[0..num_ch];
-        },
-        .output = make: {
-            var buf: [plugin_num_ch][]f32 = undefined;
-            for (0..num_ch) |ch| {
-                buf[ch] = outputs[ch][0..uframes];
-            }
-            break :make buf[0..num_ch];
-        },
+    plugin.interface.process(plugin, arbor.AudioBuffer(f32){
+        .input = inputs,
+        .output = outputs,
         .frames = uframes,
         .num_ch = num_ch,
-        // TODO: Handle unequal in/out pairs
-    };
-    plugin.interface.process(plugin, buffer);
+    });
 }
 fn processDoubleReplacing(
     effect: ?*vst2.AEffect,

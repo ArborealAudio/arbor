@@ -55,16 +55,19 @@ const AudioPorts = struct {
         info: ?*clap.AudioPorts.Info,
     ) callconv(.c) bool {
         _ = is_input;
+        const plug = plug_cast(plugin).plugin orelse {
+            log.err("Plugin is null\n", .{}, @src());
+            return false;
+        };
         if (index > 1)
             return false;
         if (info) |ptr| {
-            const stereo: bool = arbor.Plugin.num_channels > 1;
             ptr.* = .{
                 .id = 0,
                 .name = undefined,
-                .channel_count = if (stereo) 2 else 1,
+                .channel_count = plug.num_channels,
                 .flags = clap.AudioPorts.Flags{ .IS_MAIN = true },
-                .port_type = if (stereo) clap.AudioPorts.STEREO else clap.AudioPorts.MONO,
+                .port_type = if (plug.num_channels > 1) clap.AudioPorts.STEREO else clap.AudioPorts.MONO,
                 .in_place_pair = clap.INVALID_ID,
             };
             return true;
@@ -715,26 +718,14 @@ pub fn process(
 
         while (i < next_event_frame) {
             const frames_to_process = next_event_frame - i;
+            if (frames_to_process == 0) break;
             // // TODO: Determine whether f64 is wanted
             const num_ch = @min(audio_in[0].channel_count, audio_out[0].channel_count);
-            if (frames_to_process == 0) break;
-            plug.interface.process(plug, .{
-                .input = make: {
-                    var buf: [arbor.Plugin.num_channels][]f32 = undefined;
-                    for (0..num_ch) |ch| {
-                        buf[ch] = audio_in[0].data32[ch][i..next_event_frame];
-                    }
-                    break :make buf[0..num_ch];
-                },
-                .output = make: {
-                    var buf: [arbor.Plugin.num_channels][]f32 = undefined;
-                    for (0..num_ch) |ch| {
-                        buf[ch] = audio_out[0].data32[ch][i..next_event_frame];
-                    }
-                    break :make buf[0..num_ch];
-                },
-                .num_ch = num_ch,
+            plug.interface.process(plug, arbor.AudioBuffer(f32){
+                .input = audio_in[0].data32,
+                .output = audio_out[0].data32,
                 .frames = frames_to_process,
+                .num_ch = num_ch,
             });
             i += frames_to_process;
         }

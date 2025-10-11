@@ -5,6 +5,7 @@
 //! "Matched One-Pole Digital Shelving Filters" (2019) by Martin Vicanek
 
 const std = @import("std");
+const arbor = @import("../arbor.zig");
 
 const Filter = @This();
 
@@ -200,10 +201,12 @@ fn setCoeffs(self: *Filter, sr: f32) void {
     };
 }
 
-pub fn process(self: *Filter, in: []const []const f32, out: []const []f32) void {
-    for (in, 0..) |ch, ch_idx| {
-        for (ch, 0..) |samp, i| {
-            out[ch_idx][i] = self.processSample(ch_idx, samp);
+pub fn process(self: *Filter, buffer: arbor.AudioBuffer(f32)) void {
+    for (0..buffer.num_ch) |ch| {
+        const in_ch = buffer.getInputChannel(ch);
+        const out_ch = buffer.getOutputChannel(ch);
+        for (in_ch, out_ch) |in, *y| {
+            y.* = self.processSample(ch, in);
         }
     }
 }

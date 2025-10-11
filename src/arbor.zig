@@ -183,7 +183,7 @@ pub fn parseClapFeatures(comptime feat: PluginFeatures) []const ?[*:0]const u8 {
     const F = clap.PluginFeatures;
     const Array = struct {
         var idx: usize = 0;
-        var buf: [num_features]?[*:0]const u8 = undefined;
+        var buf: [num_features + 1]?[*:0]const u8 = undefined;
         pub fn append(comptime opt: ?[*:0]const u8) void {
             buf[idx] = opt;
             idx += 1;
@@ -194,6 +194,10 @@ pub fn parseClapFeatures(comptime feat: PluginFeatures) []const ?[*:0]const u8 {
             }
         }
     };
+
+    // we have to reset index since it is static and may overrun if there are multiple
+    // plugin instances
+    Array.idx = 0;
 
     if (!feat.instrument and !feat.effect and !feat.analyzer)
         @compileError("Must have one main CLAP feature: 'instrument', 'audio-effect', 'note-effect', or 'analyzer' ");
@@ -299,10 +303,20 @@ pub const Queue = struct {
 /// Generic audio buffer
 pub fn AudioBuffer(comptime FloatType: type) type {
     return struct {
-        input: []const []const FloatType,
-        output: []const []FloatType,
+        input: [*]const [*]const FloatType,
+        output: [*]const [*]FloatType,
         num_ch: usize,
         frames: usize,
+
+        pub fn getInputChannel(self: @This(), ch: usize) []const f32 {
+            assert(ch < self.num_ch);
+            return self.input[ch][0..self.frames];
+        }
+
+        pub fn getOutputChannel(self: @This(), ch: usize) []f32 {
+            assert(ch < self.num_ch);
+            return self.output[ch][0..self.frames];
+        }
     };
 }
 
@@ -372,6 +386,25 @@ pub fn Slice(comptime T: type) type {
     };
 }
 
+/// Like `Slice`, but read-only
+pub fn ConstSlice(comptime T: type) type {
+    return extern struct {
+        ptr: [*]const T,
+        len: usize,
+
+        pub fn make(ptr: [*]const T, len: usize) ConstSlice(T) {
+            return ConstSlice(T){
+                .ptr = ptr,
+                .len = len,
+            };
+        }
+
+        pub fn slice(self: @This()) []const T {
+            return self.ptr[0..self.len];
+        }
+    };
+}
+
 pub const log = struct {
     const format_str = @tagName(format);
     const pre = plugin_name ++ " " ++ format_str ++ ": " ++
@@ -383,7 +416,7 @@ pub const log = struct {
         comptime src: std.builtin.SourceLocation,
     ) void {
         if (@import("builtin").mode != .Debug) return;
-        std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.debug.print(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default info
