@@ -4,8 +4,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-const cc: std.builtin.CallingConvention = if (builtin.os.tag == .windows and
-    builtin.cpu.arch == .x86) .Stdcall else .C;
+const arbor = @import("arbor.zig");
+const log = arbor.log;
+
+pub const cc: std.builtin.CallingConvention = if (builtin.os.tag == .windows and
+    builtin.cpu.arch == .x86) .Stdcall else .c;
 
 // definitions & helpers
 
@@ -43,10 +46,9 @@ pub fn uidCmp(a: *const Uid, b: *const Uid) bool {
     return std.mem.eql(u8, a, b);
 }
 
-const uid_table = std.ComptimeStringMap(Uid, genInterfaceMap());
-
-fn genInterfaceMap() []struct { []const u8, Uid } {
-    const decls = @typeInfo(Interface).Struct.decls;
+// const uid_table = std.ComptimeStringMap(Uid, genInterfaceMap());
+const uid_table = std.StaticStringMap(Uid).initComptime(make: {
+    const decls = @typeInfo(Interface).@"struct".decls;
     // len + 2 for extra factory UIDs
     var table: [decls.len + 2]struct { []const u8, Uid } = undefined;
     for (decls, table[0..decls.len]) |iface, *t| {
@@ -54,14 +56,15 @@ fn genInterfaceMap() []struct { []const u8, Uid } {
     }
     table[table.len - 2] = .{ "Factory2", Interface.Factory.UID2 };
     table[table.len - 1] = .{ "Factory3", Interface.Factory.UID3 };
-    return &table;
-}
+    break :make &table;
+});
 
 /// Query a UID against known interface IDs
+/// TODO can we do something faster than looping over the table liek this?
 pub fn uidToStr(uid: *const Uid) []const u8 {
-    inline for (uid_table.kvs) |iface| {
-        if (uidCmp(uid, &iface.value)) {
-            return iface.key;
+    for (uid_table.values(), 0..) |iface, i| {
+        if (uidCmp(uid, &iface)) {
+            return uid_table.keys()[i];
         }
     }
     return "UnknownInterface";
@@ -71,11 +74,11 @@ pub fn uidToStr(uid: *const Uid) []const u8 {
 pub fn getInterface(comptime Iface: type, iface: ?*?*Iface) !*Iface {
     if (iface) |outer| {
         if (outer.*) |vtbl| return vtbl else {
-            std.log.err("Inner {s} vtable is null\n", .{@typeName(Iface)});
+            log.err("Inner {s} vtable is null\n", .{@typeName(Iface)}, @src());
             return error.NoInterface;
         }
     } else {
-        std.log.err("Ptr to {s} vtable null\n", .{@typeName(Iface)});
+        log.err("Ptr to {s} vtable null\n", .{@typeName(Iface)}, @src());
         return error.NoInterface;
     }
 }
@@ -466,7 +469,7 @@ pub const Interface = struct {
 
     pub const HostApplication = extern struct {
         base: Base,
-        getName: *const fn (this: ?*anyopaque, name: [128]u16) callconv(cc) Result,
+        getName: *const fn (this: ?*anyopaque, name: *[128]u16) callconv(cc) Result,
         createInstance: *const fn (this: ?*anyopaque, cid: [*:0]const u8, iid: [*:0]const u8, obj: ?*?*anyopaque) callconv(cc) Result,
 
         pub const UID = uidCreate(0x58E595CC, 0xDB2D4969, 0x8B6AAF8C, 0x36A664E5);
