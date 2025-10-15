@@ -7,5 +7,5 @@ pub fn build(b: *std.Build) !void {
         .plugin_config_path = b.path("config.zon"),
         .target = b.standardTargetOptions(.{}),
         .optimize = b.standardOptimizeOption(.{}),
-    }, &.{ .CLAP, .VST2 });
+    }, &.{ .CLAP, .VST2, .VST3 });
 }

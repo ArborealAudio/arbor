@@ -82,5 +82,5 @@ fn process(plugin: *arbor.Plugin, buffer: arbor.AudioBuffer(f32)) void {
         self.last_q = q;
     }
 
-    self.filter.process(buffer.input, buffer.output);
+    self.filter.process(buffer);
 }

@@ -12,6 +12,7 @@ const config = arbor.config;
 const vst2 = @import("vst2_api.zig");
 
 const Plugin = arbor.Plugin;
+
 const Parameter = arbor.Parameter;
 const Gui = arbor.Gui;
 const PlatformGui = Gui.Platform;
@@ -266,7 +267,6 @@ fn dispatch(
             // Close GUI
             if (plug.gui) |gui| {
                 gui.deinit();
-                plug.gui = null;
             } else {
                 log.err("{s}: GUI is null\n", .{@tagName(code)}, @src());
                 assert(false);
@@ -416,20 +416,13 @@ fn processReplacing(
     processInEvents(vst);
 
     const uframes: usize = @intCast(frames);
-    const buffer: arbor.AudioBuffer(f32) = .{
-        .input = &.{
-            inputs[0][0..uframes],
-            inputs[1][0..uframes],
-        },
-        .output = &.{
-            outputs[0][0..uframes],
-            outputs[1][0..uframes],
-        },
+    const num_ch: usize = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs));
+    plugin.interface.process(plugin, arbor.AudioBuffer(f32){
+        .input = inputs,
+        .output = outputs,
         .frames = uframes,
-        .num_ch = @intCast(@min(vst.effect.num_inputs, vst.effect.num_outputs)),
-        // TODO: Handle unequal in/out pairs
-    };
-    plugin.interface.process(plugin, buffer);
+        .num_ch = num_ch,
+    });
 }
 fn processDoubleReplacing(
     effect: ?*vst2.AEffect,
@@ -512,7 +505,6 @@ pub fn init(host_callback: vst2.HostCallback) !*vst2.AEffect {
 
 pub fn deinit(self: *VstPlugin, alloc: std.mem.Allocator) void {
     const plug = self.plugin;
-    plug.interface.deinit(plug);
     plug.deinit();
     self.in_events.deinit();
     alloc.destroy(self.effect);

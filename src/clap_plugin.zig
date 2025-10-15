@@ -3,11 +3,11 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+
 const arbor = @import("arbor.zig");
 const config = arbor.config;
 const log = arbor.log;
 const cast = arbor.cast;
-const Slice = arbor.Slice;
 const clap = arbor.clap;
 
 // TODO: Can we inherit the allocator decalred in user plugin somehow?
@@ -55,19 +55,21 @@ const AudioPorts = struct {
         info: ?*clap.AudioPorts.Info,
     ) callconv(.c) bool {
         _ = is_input;
+        const plug = plug_cast(plugin).plugin orelse {
+            log.err("Plugin is null\n", .{}, @src());
+            return false;
+        };
         if (index > 1)
             return false;
         if (info) |ptr| {
             ptr.* = .{
                 .id = 0,
                 .name = undefined,
-                .channel_count = 2,
+                .channel_count = plug.num_channels,
                 .flags = clap.AudioPorts.Flags{ .IS_MAIN = true },
-                .port_type = clap.AudioPorts.STEREO,
+                .port_type = if (plug.num_channels > 1) clap.AudioPorts.STEREO else clap.AudioPorts.MONO,
                 .in_place_pair = clap.INVALID_ID,
             };
-            if (plug_cast(plugin).plugin) |plug|
-                plug.num_channels = ptr.channel_count;
             return true;
         } else return false;
     }
@@ -132,10 +134,9 @@ const State = struct {
     ) callconv(.c) bool {
         if (plug_cast(plugin).plugin) |plug| {
             const num_params = plug.params.len;
-            // PROBLEM: This crashes the plugin!
             if (stream) |str|
                 return @sizeOf(f32) * num_params == str.write(
-                    stream,
+                    str,
                     plug.params.ptr,
                     @sizeOf(f32) * num_params,
                 );
@@ -357,8 +358,8 @@ const Gui = struct {
                         _ = host_fd.register_fd(clap_plug.host, gui.impl.fd, .{ .FD_READ = true });
                     }
                 }
-                return true;
-            } else return false; // No GUI supplied
+            }
+            return true;
         }
         return false;
     }
@@ -373,7 +374,6 @@ const Gui = struct {
                 }
             }
             plug.gui.?.deinit();
-            plug.gui = null;
         }
     }
 
@@ -551,7 +551,6 @@ pub fn init(plugin: ?*const clap.Plugin) callconv(.c) bool {
 pub fn destroy(plugin: ?*const clap.Plugin) callconv(.c) void {
     const clap_plug = plug_cast(plugin);
     if (clap_plug.plugin) |plug| {
-        plug.interface.deinit(plug);
         plug.deinit();
     }
     allocator.destroy(clap_plug);
@@ -652,7 +651,9 @@ pub fn processOutEvent(plugin: *ClapPlugin, clap_events: *const clap.OutputEvent
                     .key = -1,
                     .value = @floatCast(plug.params[change.id]),
                 };
-                _ = clap_events.try_push(clap_events, &out_event.header);
+                if (!clap_events.try_push(clap_events, &out_event.header)) {
+                    log.err("Out event push failed\n", .{}, @src());
+                }
             },
         }
     }
@@ -717,33 +718,19 @@ pub fn process(
 
         while (i < next_event_frame) {
             const frames_to_process = next_event_frame - i;
+            if (frames_to_process == 0) break;
             // // TODO: Determine whether f64 is wanted
             const num_ch = @min(audio_in[0].channel_count, audio_out[0].channel_count);
-            if (frames_to_process == 0) break;
-            plug.interface.process(plug, .{
-                .input = &.{
-                    audio_in[0].data32[0][i..next_event_frame],
-                    audio_in[0].data32[1][i..next_event_frame],
-                },
-                .output = &.{
-                    audio_out[0].data32[0][i..next_event_frame],
-                    audio_out[0].data32[1][i..next_event_frame],
-                },
-                .num_ch = num_ch,
+            plug.interface.process(plug, arbor.AudioBuffer(f32){
+                .input = audio_in[0].data32,
+                .output = audio_out[0].data32,
                 .frames = frames_to_process,
+                .num_ch = num_ch,
             });
             i += frames_to_process;
         }
     }
     return .PROCESS_CONTINUE;
-}
-
-// TODO: Figure out how to do this properly and pass proper slices to the user's process()
-fn slicePtr(in: [*][*]f32, num_ch: usize, offset: usize, end: usize) [*]Slice(f32) {
-    var out = Slice([*]f32){ .ptr = in, .len = num_ch };
-    for (out.slice(), 0..) |_, ch_idx| {
-        out.slice()[ch_idx] = in[ch_idx][offset..end];
-    }
 }
 
 pub fn getExtension(plugin: ?*const clap.Plugin, id: [*:0]const u8) callconv(.c) ?*const anyopaque {

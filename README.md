@@ -4,18 +4,28 @@
 
 ## Have:
 
+### Framework
+
 * A nice abstraction layer over plugin APIs which should lend itself nicely to
 extending support to other APIs
 
 * Easy comptime parameter generation
 
-* Basic CLAP audio plugin supporting different types of parameters, sample-accurate automation
+### Plugin Formats
 
-* A janky VST2 implementation that works in Reaper and mostly works in other DAWs
+* CLAP: basic audio plugin supporting different types of parameters, sample-accurate automation
+
+* VST3: via ANV API (A.N.V. == **A**NV's **N**ot **V**ST3)
+
+* VST2: still kind of janky implementation that works in Reaper and mostly works in other DAWs
+
+### DSP
 
 * A basic delay module
 
 * "Vicanek" IIR Filters which **don't cramp at Nyquist** [^1][^2][^3]
+
+### UI
 
 * Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
 text rendering function with a bitmap font
@@ -49,8 +59,8 @@ choice with little-to-no platform-specific considerations.
 
 ## TODO:
 
-- [ ] Figure out if we can write a binding for VST3 API without getting a lawyer
-
+- [ ] Make a basic VST3-compatible plugin with audio parameters & UI
+ 
 - [ ] AUv2 API
 
 - [ ] Improve VST2 format
@@ -101,6 +111,17 @@ choice with little-to-no platform-specific considerations.
 - [ ] Make GUI optional (should allow cross-compiling)
 
 	- [x] Semi-working by handling user leaving gui null after `gui_init`
+
+## Dependencies
+
+Requires Zig 0.12 stable -- not tracking Zig master branch
+
+* **MacOS**: Xcode Command Line Tools
+
+* **Windows**: Can compile with just Zig, but it's unclear whether the binaries
+will work when cross-compiled from another OS.
+
+* **Linux**: X11
 
 ## Usage
 
@@ -210,8 +231,8 @@ export fn init() *arbor.Plugin {
 }
 
 fn deinit(plugin: *arbor.Plugin) void {
-	const plugin: plugin.getUser(Plugin);
-	plugin.allocator.destroy(plugin);
+	const user = plugin.getUser(Plugin);
+	plugin.allocator.destroy(user);
 }
 
 fn prepare(plugin: *arbor.Plugin, sample_rate: f32, max_num_frames: u32) void {
@@ -264,3 +285,6 @@ was a great starting point to understand how to write Zig while working with a C
 [^2]: ["Matched One-Pole Digital Shelving Filters" by Martin Vicanek (2019)](https://vicanek.de/articles/ShelvingFits.pdf)
 
 [^3]: ["Matched Two-Pole Digital Shelving Filters" by Martin Vicanek (2024)](https://vicanek.de/articles/2poleShelvingFits.pdf)
+
+Additionally, [CPLUG by Tremus](https://github.com/Tremus/CPLUG) was a great help
+in figuring out the VST3 format and its...mysteries

@@ -10,5 +10,5 @@ pub fn build(b: *std.Build) !void {
         .plugin_config_path = b.path("config.zon"),
         .target = target,
         .optimize = optimize,
-    }, &.{ .CLAP, .VST2 });
+    }, &.{ .CLAP, .VST2, .VST3 });
 }

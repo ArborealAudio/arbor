@@ -41,6 +41,7 @@ pub const dsp = @import("dsp/dsp.zig");
 
 pub const clap = @import("clap_api.zig");
 pub const vst2 = @import("vst2_api.zig");
+pub const anv = @import("anv_api.zig");
 
 /// User-defined plugin description, converted to format type
 pub const plugin_desc = config.description;
@@ -49,7 +50,7 @@ pub const plugin_name = plugin_desc.name;
 pub const Plugin = struct {
     pub const Interface = struct {
         deinit: *const fn (*Plugin) void,
-        prepare: *const fn (*Plugin, f32, u32) void,
+        prepare: *const fn (*Plugin, sample_rate: f32, max_frames: u32) void,
         process: *const fn (*Plugin, AudioBuffer(f32)) void,
         createGui: ?*const fn (*Plugin) void = null,
         // TODO: processDouble: *const fn (*Plugin, AudioBuffer(f64)) void,
@@ -58,8 +59,9 @@ pub const Plugin = struct {
     /// User-provided initialization function
     pub extern fn init() *Plugin;
 
-    /// Deinit a Plugin using the allocator passed to it in init().
+    /// Deinit plugin, also calling user deinit function
     pub fn deinit(plugin: *Plugin) void {
+        plugin.interface.deinit(plugin);
         plugin.allocator.free(plugin.params);
         plugin.allocator.destroy(plugin);
     }
@@ -67,6 +69,7 @@ pub const Plugin = struct {
     interface: Interface,
 
     num_channels: u32,
+    // NOTE: Setting these to default values feels dumb, so does undefined
     sample_rate: f32 = undefined,
     max_frames: u32 = undefined,
 
@@ -75,11 +78,11 @@ pub const Plugin = struct {
     user: ?*anyopaque = null,
     gui: ?*Gui = null,
 
-    mutex: std.Thread.Mutex = .{},
-
     allocator: Allocator,
 
     // functions for dealing with a plugin's parameters
+    // NOTE: Why are these not methods within a parameter data type?
+    // With the exception of getParamValue(), they don't need plugin data
 
     pub fn getParamValue(plugin: Plugin, comptime BaseType: type, name: [:0]const u8) BaseType {
         for (plugin.param_info, 0..) |p, i| {
@@ -148,6 +151,7 @@ pub fn createPlugin(options: InitOptions) *Plugin {
 const DescType = switch (format) {
     .CLAP => clap.PluginDescriptor,
     .VST2 => Description,
+    .VST3 => {},
 };
 
 /// Create a description that satisfies the requirements of the format being compiled for.
@@ -179,7 +183,7 @@ pub fn parseClapFeatures(comptime feat: PluginFeatures) []const ?[*:0]const u8 {
     const F = clap.PluginFeatures;
     const Array = struct {
         var idx: usize = 0;
-        var buf: [num_features]?[*:0]const u8 = undefined;
+        var buf: [num_features + 1]?[*:0]const u8 = undefined;
         pub fn append(comptime opt: ?[*:0]const u8) void {
             buf[idx] = opt;
             idx += 1;
@@ -190,6 +194,10 @@ pub fn parseClapFeatures(comptime feat: PluginFeatures) []const ?[*:0]const u8 {
             }
         }
     };
+
+    // we have to reset index since it is static and may overrun if there are multiple
+    // plugin instances
+    Array.idx = 0;
 
     if (!feat.instrument and !feat.effect and !feat.analyzer)
         @compileError("Must have one main CLAP feature: 'instrument', 'audio-effect', 'note-effect', or 'analyzer' ");
@@ -295,10 +303,20 @@ pub const Queue = struct {
 /// Generic audio buffer
 pub fn AudioBuffer(comptime FloatType: type) type {
     return struct {
-        input: []const []const FloatType,
-        output: []const []FloatType,
+        input: [*]const [*]const FloatType,
+        output: [*]const [*]FloatType,
         num_ch: usize,
         frames: usize,
+
+        pub fn getInputChannel(self: @This(), ch: usize) []const f32 {
+            assert(ch < self.num_ch);
+            return self.input[ch][0..self.frames];
+        }
+
+        pub fn getOutputChannel(self: @This(), ch: usize) []f32 {
+            assert(ch < self.num_ch);
+            return self.output[ch][0..self.frames];
+        }
     };
 }
 
@@ -368,10 +386,29 @@ pub fn Slice(comptime T: type) type {
     };
 }
 
+/// Like `Slice`, but read-only
+pub fn ConstSlice(comptime T: type) type {
+    return extern struct {
+        ptr: [*]const T,
+        len: usize,
+
+        pub fn make(ptr: [*]const T, len: usize) ConstSlice(T) {
+            return ConstSlice(T){
+                .ptr = ptr,
+                .len = len,
+            };
+        }
+
+        pub fn slice(self: @This()) []const T {
+            return self.ptr[0..self.len];
+        }
+    };
+}
+
 pub const log = struct {
     const format_str = @tagName(format);
     const pre = plugin_name ++ " " ++ format_str ++ ": " ++
-        "{s}:{s}:{d}: ";
+        "{s}:{d}:{s}: ";
     /// debug logger which gets compiled out in release modes
     pub fn debug(
         comptime fmt: []const u8,
@@ -379,7 +416,7 @@ pub const log = struct {
         comptime src: std.builtin.SourceLocation,
     ) void {
         if (@import("builtin").mode != .Debug) return;
-        std.debug.print(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.debug.print(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default info
@@ -388,7 +425,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.log.info(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.info(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default nonfatal error
@@ -397,7 +434,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) void {
-        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.err(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
     }
 
     /// default fatal error
@@ -406,7 +443,7 @@ pub const log = struct {
         args: anytype,
         comptime src: std.builtin.SourceLocation,
     ) noreturn {
-        std.log.err(pre ++ fmt, .{ src.file, src.fn_name, src.line } ++ args);
+        std.log.err(pre ++ fmt, .{ src.file, src.line, src.fn_name } ++ args);
         std.process.exit(1);
     }
 };
