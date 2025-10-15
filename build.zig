@@ -73,7 +73,6 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig, formats: []const Format) !v
             b,
             fmt,
             plugin_config,
-            config.target.result.os,
             plug,
         );
         bundle_step.step.dependOn(&b.addInstallArtifact(plug, .{}).step);
@@ -83,7 +82,6 @@ pub fn addPlugin(b: *std.Build, config: BuildConfig, formats: []const Format) !v
         copy_cmd.step.dependOn(b.getInstallStep());
         copy_step.dependOn(&copy_cmd.step);
     }
-    // }
 }
 
 fn buildGUI(
@@ -167,7 +165,6 @@ pub const BundleStep = struct {
     step: Step,
     format: Format,
     config: PluginConfig,
-    target_os: std.Target.Os,
     build_dep: *Step.Compile,
     bundle_name: ?[]const u8 = null,
     /// path to the generated bundle (which may be just a file)
@@ -179,7 +176,6 @@ pub const BundleStep = struct {
         b: *std.Build,
         format: Format,
         config: PluginConfig,
-        target_os: std.Target.Os,
         build_dep: *Step.Compile,
     ) !*BundleStep {
         const self = try b.allocator.create(BundleStep);
@@ -192,7 +188,6 @@ pub const BundleStep = struct {
             }),
             .format = format,
             .config = config,
-            .target_os = target_os,
             .build_dep = build_dep,
         };
         return self;
@@ -202,7 +197,8 @@ pub const BundleStep = struct {
         const self: *BundleStep = @fieldParentPtr("step", step);
         const b = self.step.owner;
         const dest = b.install_path;
-        const target_os = self.target_os.tag;
+        const target_os = self.build_dep.rootModuleTarget().os.tag;
+        const target_arch = self.build_dep.rootModuleTarget().cpu.arch;
 
         const format_extensions = make: {
             const Array = std.EnumArray(Format, []const u8);
@@ -268,13 +264,25 @@ pub const BundleStep = struct {
                     else
                         out_file;
                     const bundle = b.pathJoin(&.{ out_file, "Contents" });
-                    const os_name = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag);
+                    const os_name = switch (target_os) {
+                        .linux => try std.mem.concat(b.allocator, u8, &.{ @tagName(target_arch), "-", @tagName(target_os) }),
+                        .windows => try std.mem.concat(b.allocator, u8, &.{ @tagName(target_arch), "-win" }),
+                        else => @panic("This should literally be impossible\n"),
+                    };
                     var bundle_dir = try std.fs.cwd().makeOpenPath(b.pathJoin(&.{ dest, bundle }), .{});
                     defer bundle_dir.close();
-                    _ = try std.fs.cwd().updateFile(gen_file, bundle_dir, b.pathJoin(&.{
+                    const bundle_dest_path = b.pathJoin(&.{
                         os_name,
                         bin_filename,
-                    }), .{});
+                    });
+                    _ = try std.fs.cwd().updateFile(gen_file, bundle_dir, bundle_dest_path, .{});
+                    if (self.pdb) |pdb| {
+                        const pdb_dest_path = b.pathJoin(&.{
+                            os_name,
+                            try std.mem.concat(b.allocator, u8, &.{ bin_filename, ".pdb" }),
+                        });
+                        _ = try std.fs.cwd().updateFile(pdb, bundle_dir, pdb_dest_path, .{});
+                    }
                 }
             },
             else => @panic("Unsupported OS"),
