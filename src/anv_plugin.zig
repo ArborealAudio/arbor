@@ -725,8 +725,9 @@ const Controller = extern struct {
         return .InvalidArgument;
     }
 
-    fn createView(this: ?*anyopaque, name: [*:0]const u8) callconv(cc) ?**const anv.Interface.View {
-        log.debug("View name: {s}\n", .{name}, @src());
+    fn createView(this: ?*anyopaque, name_cptr: ?[*:0]const u8) callconv(cc) ?**const anv.Interface.View {
+        if (name_cptr) |name|
+            log.debug("View name: {s}\n", .{name}, @src());
         const self: *Controller = ptrFromInterface(@This(), this);
         const plugin: *Vst3Plugin = @fieldParentPtr("controller", self);
         const plug = plugin.user;
