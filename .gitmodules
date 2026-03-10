@@ -1,0 +1,3 @@
+[submodule "cbase"]
+	path = cbase
+	url = git@codeberg.org:abriccio/cbase

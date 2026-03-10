@@ -1,44 +1,21 @@
 # arbor
 
 ## For the future of plugin development
-
-## Have:
-
-* A nice abstraction layer over plugin APIs which should lend itself nicely to
-extending support to other APIs
-
-* Easy comptime parameter generation
-
-* Basic CLAP audio plugin supporting different types of parameters, sample-accurate automation
-
-* A janky VST2 implementation that works in Reaper and mostly works in other DAWs
-
-* A basic delay module
-
-* "Vicanek" IIR Filters which **don't cramp at Nyquist** [^1][^2][^3]
-
-* Simple, portable software rendering using [Olivec](https://github.com/tsoding/olive.c) and a custom
-text rendering function with a bitmap font
+## ⚠️ PRE-ALPHA SOFTWARE | YOU WON'T FIND THE FEATURES YOU WANT ⚠️
 
 ## Goals
 
 * Dead-simple plugin development. Write <= 100 lines of code and have a runnable
 blank-slate plugin.
 
-* Easy cross-compilation. Compile to Mac/Linux/Windows from Mac/Linux/Windows,
-batteries included.
+* Code-generation for certain aspects of plugin configuration, making development more streamlined
+and less reliant on preprocessor stuff
 
-* Cross-platform graphics. A simple software renderer (like Olivec),
-but also native graphics programming, potentially using something like
-[sokol](https://github.com/floooh/sokol.git), or making a thin wrapper around
-Direct2D/CoreGraphics for cross-platform graphics abstraction (see `direct2d`
-branch for an early in-progress idea of this), giving the programmer a simple
-choice with little-to-no platform-specific considerations.
+* Cross-platform graphics API. Possibly using software rendering which will cover much of the needs
+for plugin UIs while being highly portable.
 
-* Simple, declarative UI design.
+* Declarative UI design, immediate-mode layout
 
-	* Currently working on a custom immediate-mode UI library
-	
 	* Further down the road considering the option of using a custom CSS-like
 	syntax to write stylesheets for UI widgets which can be read at **runtime** or
 	**compiled**, all as native code--not running in some god-forsaken web browser
@@ -48,8 +25,6 @@ choice with little-to-no platform-specific considerations.
 	updated whenever the file is changed.
 
 ## TODO:
-
-- [ ] Figure out if we can write a binding for VST3 API without getting a lawyer
 
 - [ ] AUv2 API
 
