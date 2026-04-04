@@ -6,8 +6,6 @@
 
 #include "../cbase/cbase.h"
 
-typedef struct Plugin Plugin;
-
 typedef struct {
     const char *name;
     const char *id;
@@ -53,8 +51,8 @@ typedef enum {
 
 typedef struct Parameter Parameter;
 
-typedef void(*ParameterValueToText)(Parameter *p, f32 value, char *buf, u32 buf_size);
-typedef float(*ParameterTextToValue)(Parameter *p, const char *text);
+typedef void(*ParameterValueToText)(const Parameter *p, f32 value, char *buf, u32 buf_size);
+typedef float(*ParameterTextToValue)(const Parameter *p, const char *text);
 
 struct Parameter {
     String name;
@@ -84,13 +82,13 @@ typedef struct {
 } PluginConfig;
 
 typedef struct {
-    f32 **data;    
+    f32 **data;
     u32 num_frames;
     u32 num_ch;
 } AudioBuffer32;
 
 typedef struct {
-    f64 **data;    
+    f64 **data;
     u32 num_frames;
     u32 num_ch;
 } AudioBuffer64;
@@ -116,11 +114,16 @@ typedef struct {
     uint length;
 } MidiBuffer;
 
+#ifndef MIDI_BUFFER_CAP
+#define MIDI_BUFFER_CAP 512
+#endif
+
+typedef struct Plugin Plugin;
+
 typedef void (*InitFn)(Plugin *);
 typedef void (*DeinitFn)(Plugin *);
-typedef void (*PrepareFn)(Plugin *, f64 sample_rate, u32 max_frames, u32 num_ch);
+typedef void (*PrepareFn)(Plugin *, f64 sample_rate, u32 max_frames);
 typedef void (*ProcessFn)(Plugin *, const AudioBuffer32 in, AudioBuffer32 out, MidiBuffer midi);
-
 typedef struct {
     void *user;
     InitFn init_cb;
@@ -129,8 +132,58 @@ typedef struct {
     ProcessFn process_cb;
 } PluginInterface;
 
-f32 get_parameter(Plugin *p, u32 param_id);
+typedef struct PluginParameterData PluginParameterData;
+
+struct Plugin {
+    u32 audio_input_count;
+    u32 audio_output_count;
+    u32 note_input_count;
+    u32 note_output_count;
+
+    u32 min_frames;
+    u32 max_frames;
+    f64 sample_rate;
+    u32 latency;
+
+    Arena main_arena;
+
+    struct {
+        MidiEvent buffer[MIDI_BUFFER_CAP]; // TODO What's a reasonable max size for MIDI
+        uint head;
+    } midi;
+
+    // format-specific plugin type, e.g. clap_plugin_t
+    void *plugin_wrapper;
+    const void *host;
+
+    void *user;
+    PluginInterface user_iface;
+
+    // TODO: Rename this type to ParameterInfo & field to parameter_info
+    Parameter *parameters;
+    PluginParameterData *params;
+};
+
+Allocator *plugin_allocator(Plugin *p);
+
+#define plugin_push_struct(p, T) (T*)arena_alloc(&p->main_arena, sizeof(T))
+
+// User code
+extern PluginInterface plugin_create();
+extern PluginConfig plugin_config;
+
 f64 get_sample_rate(Plugin *p);
+// [Audio Thread] Get a parameter value
+f32 get_parameter(Plugin *p, u32 param_id);
+// [Main Thread] Get a parameter value
+f32 get_parameter_main(Plugin *p, u32 param_id);
+// [Audio Thread] Set a parameter value
+void set_parameter(Plugin *p, u32 param_id, float value);
+// [Main Thread] Set a parameter value
+void set_parameter_main(Plugin *p, u32 param_id, float value);
+const Parameter *get_parameter_info(Plugin *p, u32 param_id);
+f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value);
+f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)

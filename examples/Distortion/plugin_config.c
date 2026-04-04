@@ -15,13 +15,13 @@ typedef enum {
     ModesCount,
 } Mode;
 
-String mode_names[ModesCount] = {
+static String mode_names[ModesCount] = {
     STR_LIT("Vintage"),
     STR_LIT("Modern"),
     STR_LIT("Apocalypse"),
 };
 
-static void db_param_print(Parameter *p, f32 value, char *buf, u32 buf_size) {
+static void db_param_print(const Parameter *p, f32 value, char *buf, u32 buf_size) {
     string_print_buf(buf, buf_size, "%.2f dB", value);
 }
 

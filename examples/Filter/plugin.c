@@ -19,7 +19,7 @@ static void deinit(Plugin *plugin) {
     dbg();
 }
 
-static void prepare(Plugin *plugin, f64 sample_rate, u32 max_frames, u32 num_ch) {
+static void prepare(Plugin *plugin, f64 sample_rate, u32 max_frames) {
     filter_set_sample_rate(&g.filter[0], sample_rate);
     filter_set_sample_rate(&g.filter[1], sample_rate);
 }

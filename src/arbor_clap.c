@@ -1,4 +1,5 @@
 #include "../clap/clap.h"
+#include "arbor.h"
 
 static const char *const *get_clap_features() {
     PluginFeatures plugin_features = plugin_config.features;

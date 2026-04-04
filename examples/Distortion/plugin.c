@@ -9,6 +9,8 @@ static void deinit(Plugin *plugin) {
     dbg();
 }
 
+static void prepare(Plugin *plugin, f64 sample_rate, u32 max_frames) {}
+
 static void process(Plugin *plugin, const AudioBuffer32 in_buf, AudioBuffer32 out_buf, MidiBuffer midi_buffer) {
     const float gain = powf(10.f, get_parameter(plugin, Param_Gain) / 20.f);
     const float out_gain = powf(10.f, get_parameter(plugin, Param_Out) / 20.f);
@@ -59,6 +61,7 @@ PluginInterface plugin_create() {
     return (PluginInterface){
         .init_cb = init,
         .deinit_cb = deinit,
+        .prepare_cb = prepare,
         .process_cb = process,
     };
 }

@@ -20,7 +20,7 @@ static String type_names[Type_Count] = {
     STR_LIT("Bandpass"),
 };
 
-static void freq_param_print(Parameter *p, f32 value, char *buf, u32 buf_size) {
+static void freq_param_print(const Parameter *p, f32 value, char *buf, u32 buf_size) {
     string_print_buf(buf, buf_size, "%$.2fHz", value);
 }
 

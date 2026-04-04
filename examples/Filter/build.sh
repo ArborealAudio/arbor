@@ -3,12 +3,13 @@
 set -e
 
 NAME="Example_Filter"
-OUT="${NAME}.clap"
-BUNDLE="${HOME}/.clap/${OUT}"
+FMT="ARBOR_VST3"
+EXT="vst3"
+OUT="${NAME}.${EXT}"
+BUNDLE="${HOME}/.${EXT}/${OUT}"
 BUNDLE_CONTENTS="${BUNDLE}/Contents"
 BUNDLE_BIN="${BUNDLE_CONTENTS}/MacOS"
 CC=clang
-FMT="ARBOR_CLAP"
 USER_CODE="plugin.c"
 USER_CONFIG="plugin_config.c"
 INCLUDE=("-I." "-I../../src")
@@ -22,4 +23,4 @@ cp Info.plist "${BUNDLE_CONTENTS}/Info.plist"
 codesign -f -s - $BUNDLE
 
 [ -d "${BUNDLE}.dSYM" ] && rm -r "${BUNDLE}.dSYM"
-cp -r $OUT.dSYM ~/.clap/
+cp -r $OUT.dSYM "${HOME}/.${EXT}/"
