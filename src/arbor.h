@@ -78,7 +78,6 @@ typedef struct {
         int outputs;
     } note_ports;
     PluginFeatures features;
-    Parameter *parameter_layout;
 } PluginConfig;
 
 typedef struct {
@@ -169,8 +168,7 @@ Allocator *plugin_allocator(Plugin *p);
 #define plugin_push_struct(p, T) (T*)arena_alloc(&p->main_arena, sizeof(T))
 
 // User code
-extern PluginInterface plugin_create();
-extern PluginConfig plugin_config;
+PluginInterface plugin_create();
 
 f64 get_sample_rate(Plugin *p);
 // [Audio Thread] Get a parameter value

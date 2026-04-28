@@ -1,0 +1,28 @@
+Gain {
+    type Float
+    default 0
+    min 0
+    max 48
+}
+
+Out {
+    type Float
+    default 0
+    min -24
+    max 24
+}
+
+SatMode {
+    type Choice
+    choices [
+        Vintage
+        Modern
+        Apocalypse
+    ]
+    default Vintage
+}
+
+Mondo {
+    type Bool
+    default false
+}

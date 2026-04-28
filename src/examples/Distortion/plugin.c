@@ -1,4 +1,3 @@
-#include <arbor.h>
 #include "math.h"
 
 static void init(Plugin *plugin) {
@@ -12,10 +11,10 @@ static void deinit(Plugin *plugin) {
 static void prepare(Plugin *plugin, f64 sample_rate, u32 max_frames) {}
 
 static void process(Plugin *plugin, const AudioBuffer32 in_buf, AudioBuffer32 out_buf, MidiBuffer midi_buffer) {
-    const float gain = powf(10.f, get_parameter(plugin, Param_Gain) / 20.f);
-    const float out_gain = powf(10.f, get_parameter(plugin, Param_Out) / 20.f);
+    const float gain = db2linf(get_parameter(plugin, Param_Gain));
+    const float out_gain = db2linf(get_parameter(plugin, Param_Out));
     const float ceil = (bool32)get_parameter(plugin, Param_Mondo) ? 0.05f : 1.f;
-    const Mode sat_mode = (Mode)get_parameter(plugin, Param_SatMode);
+    const SatMode sat_mode = (SatMode)get_parameter(plugin, Param_SatMode);
 
     u32 num_ch = in_buf.num_ch;
     u32 num_frames = in_buf.num_frames;
@@ -30,7 +29,6 @@ static void process(Plugin *plugin, const AudioBuffer32 in_buf, AudioBuffer32 ou
                 y = ceil;
             if (y < -ceil)
                 y = -ceil;
-            y /= ceil;
             switch (sat_mode) {
             case Vintage:
                 if (y < 0) {

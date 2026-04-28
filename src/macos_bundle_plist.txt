@@ -5,33 +5,32 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>English</string>
   <key>CFBundleExecutable</key>
-  <string>Example_Filter</string>
+  <string>%s</string>
   <key>CFBundleGetInfoString</key>
   <string></string>
   <key>CFBundleIconFile</key>
   <string></string>
   <key>CFBundleIdentifier</key>
-  <string>com.ArborealAudio.ExFilt</string>
+  <string>%s</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Example_Filter</string>
+  <string>%s</string>
   <key>CFBundleDisplayName</key>
-  <string>Example_Filter</string>
+  <string>%s</string>
   <key>CFBundlePackageType</key>
   <string>BNDL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
+  <string>%s</string>
   <key>CFBundleSignature</key>
   <string>????</string>
   <key>CFBundleVersion</key>
-  <string>1.0.0</string>
+  <string>%s</string>
   <key>CSResourcesFileMapped</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
-  <string>(c) 2026 Arboreal Audio, LLC</string>
+  <string>%s</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>
 </plist>
-

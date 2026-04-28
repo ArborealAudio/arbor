@@ -1,0 +1,23 @@
+Freq {
+	default  1500
+	type Float
+	min  200
+	max  20000
+}
+
+Reso {
+	type Float
+	default 0.707
+	min 0.02
+	max 32
+}
+
+FilterType {
+    type Choice
+    choices [
+        Lowpass
+        Highpass
+        Bandpass
+    ]
+    default Lowpass
+}

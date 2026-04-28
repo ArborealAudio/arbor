@@ -35,11 +35,7 @@ static void default_bool_print(const Parameter *p, f32 value, char *buf, u32 buf
     }
 }
 
-#ifdef USER_CONFIG
-#include STR(USER_CONFIG)
-#else
-#error Please define USER_CONFIG with the path to your plugin configuration file
-#endif
+#include <user_code.c>
 
 struct PluginParameterData {
     // TODO replace these with a generated struct that just contains fields named after parameters,
@@ -76,6 +72,7 @@ f32 get_parameter_main(Plugin *p, u32 param_id) {
 }
 
 void set_parameter(Plugin *p, u32 param_id, float value) {
+    dbg("%d: %.2f", param_id, value);
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return;
@@ -112,12 +109,6 @@ f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value) {
     return value * (param->max_value - param->min_value) + param->min_value;
 }
 
-#ifdef USER_CODE
-#include STR(USER_CODE)
-#else
-#error Please define USER_CODE with the path to your main plugin C file
-#endif
-
 // Internal functions
 
 static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
@@ -128,7 +119,7 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         .note_input_count = plugin_config.note_ports.inputs,
         .main_arena = arena_init(KB(64)),
         .plugin_wrapper = wrapper_ptr,
-        .parameters = plugin_config.parameter_layout,
+        .parameters = parameter_layout,
         .user_iface = plugin_create(),
         .params = new(PluginParameterData),
     };
@@ -174,9 +165,10 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         p->params->audio[i] = p->params->main[i] = param->default_value;
     }
 
-cleanup:
-    if (!ok) {
-        arena_deinit(&p->main_arena);
+    cleanup: {
+        if (!ok) {
+            arena_deinit(&p->main_arena);
+        }
     }
 
     return ok;
@@ -201,9 +193,11 @@ static void _clear_midi(Plugin *p) {
 }
 
 // Plugin wrapper impl
-#if ARBOR_CLAP
+#if defined(ARBOR_CLAP)
+#pragma message "Building Arbor CLAP"
 #include "arbor_clap.c"
-#elif ARBOR_VST3
+#elif defined(ARBOR_VST3)
+#pragma message "Building Arbor VST3"
 #include "arbor_vst3.c"
 #endif
 

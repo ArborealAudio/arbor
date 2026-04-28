@@ -1,6 +1,5 @@
-#define APP_NAME "config-gen"
 #include "../cbase/cbase.h"
-#include "../cbase/cbase.c"
+#include "arbor.h"
 
 /*
 TODO refactor to generate a struct like this:
@@ -13,6 +12,11 @@ struct Parameters {
 And embed this in the main plugin struct. This could involve defining something like `Parameters`
 as an opaque type in arbor.h, putting a `parameters` field in the Plugin, then defining that
 struct in the generated config file.
+
+other ideas just spitballin':
+    This struct should be read only and purely user-facing, it's data that gets "cooked" or "prepared" for the user during plugin wrapper param changes.
+
+    Provide an API for getting smoothed param changes
 */
 
 static Arena arena;
@@ -20,6 +24,8 @@ static Arena arena;
 typedef enum {
     Token_Invalid,
     Token_Identifier,
+    Token_True,
+    Token_False,
     Token_Number,
     Token_Equal,
     Token_OpenBrace,
@@ -147,6 +153,7 @@ static Node nodes[MAX_NODES] = {
 	[0] = (Node){},
 };
 
+// State to handle conversion of tokens into parsed data fields
 static struct {
 	enum {
 		Parse_Init, // Intial state / finished a param expression
@@ -208,20 +215,22 @@ static void parser_push_node(NodeType node_type, u32 token_id) {
 	node.parent = parent;
 	switch (node_type) {
 	case Node_ParamDecl: {
-		Node *ptr = get_node_incl_root(parent);
-		Node *last = get_node(ptr->last);
+        Node *last = get_node(get_node_incl_root(parent)->last);
 		if (last) {
 			last->next = id; // link ourselves to previous sibling
 		}
 		parser_push_parent(id);
 	} break;
-	case Node_ParamProperty: 
+    case Node_ParamProperty: {
+	    Node *last = get_node(get_node_incl_root(parent)->last);
+		if (last) {
+		    last->next = id;
+		}
 		parser_push_parent(id);
-		break;
+    } break;
 	case Node_ParamPropertyValue: break;
 	case Node_ListItem: {
-		Node *ptr = get_node_incl_root(parent);
-		Node *last = get_node(ptr->last);
+        Node *last = get_node(get_node_incl_root(parent)->last);
 		if (last) {
 			last->next = id; // link ourselves to previous sibling
 		}
@@ -274,35 +283,111 @@ static String get_identifier(const u8 *token_start) {
 	return (String){.data = (char*)token_start, .len = len};
 }
 
+static String node_get_identifier(Node *n, const u8 *config_data) {
+    return get_identifier(config_data + tokens[n->token_id].offset);
+}
+
 static String node_get_parameter_name(Node *n, const u8 *config_data) {
-	if (n->param_field == ParamField_Name)
-		return get_identifier(config_data + tokens[n->token_id].offset);
+    if (n->type == Node_ParamDecl || n->param_field == ParamField_Name)
+        return node_get_identifier(n, config_data);
 
 	// search siblings
-	// ISSUE what if we're in the middle of the list of siblings? We just wont' search previous siblings
-	for (Node *node = get_node(n->next); node != NULL; node = get_node(node->next)) {
-		if (n->param_field == ParamField_Name)
-			return get_identifier(config_data + tokens[node->token_id].offset);
+	Node *parent = get_node_incl_root(n->parent);
+	Node *first_child = get_node(parent->first);
+	for (Node *node = first_child; node != NULL; node = get_node(node->next)) {
+		if (n->type == Node_ParamDecl || n->param_field == ParamField_Name)
+			return node_get_identifier(node, config_data);
 	}
+
+	// Check parent
+    while (parent) {
+    	if (parent->type == Node_ParamDecl || parent->param_field == ParamField_Name) {
+    	    return node_get_identifier(parent, config_data);
+    	}
+        parent = get_node(parent->parent);
+    }
 
 	return (String){0};
 }
 
-// ISSUE we're not getting all fields for some reason
+static ParamType node_get_parameter_type(Node *n) {
+    assert(n->type == Node_ParamDecl);
+    for (Node *child = get_node(n->first); child != 0; child = get_node(child->next)) {
+        if (child->type == Node_ParamProperty && child->param_field == ParamField_Type) {
+            return get_node(child->first)->param_type;
+        }
+    }
+
+    return ParamType_None;
+}
+
+// Given a param declaration node, get the property node which holds choices, if it exists
+static Node *node_get_choices(Node *n) {
+    assert(n->type == Node_ParamDecl);
+    for (Node *node = get_node(n->first); node != NULL; node = get_node(node->next)) {
+        if (node->type == Node_ParamProperty && node->param_field == ParamField_Choices) {
+            return node;
+        }
+    }
+
+    return NULL;
+}
+
+// Checks whether node has a child or sibling which provides a parameter name
+static bool node_has_field(Node *node, ParamField field) {
+    if (node->param_field == field)
+        return true;
+    // Search siblings
+    Node *parent = get_node_incl_root(node->parent);
+    for (Node *child = get_node(parent->first); child != NULL; child = get_node(child->next)) {
+        if (child->param_field == field)
+            return true;
+    }
+
+    for (Node *child = get_node(node->first); child != NULL; child = get_node(child->next)) {
+        if (child->param_field == field)
+            return true;
+    }
+
+    return false;
+}
+
 static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
                                         const u8 *config_data) {
-	String data = get_identifier(config_data + tokens[root->token_id].offset);
-	print("Printing node data: ");
-	string_println(data);
+	String data = node_get_identifier(root, config_data);
+	dbg("Printing node data: %.*s", data.len, data.data);
 	switch (root->type) {
 	case Node_ParamDecl:
-		file_printf(f, alloc, "\t[%.*s] = {\n", data.len, data.data);
+		file_printf(f, alloc, "\t[Param_%.*s] = {\n", data.len, data.data);
+		if (!node_has_field(root, ParamField_Name)) {
+		    file_printf(f, alloc, "\t\t.name = STR_LIT(\"%.*s\"),\n", data.len, data.data);
+		}
+		if (!node_has_field(root, ParamField_Min)) {
+		    if (node_get_parameter_type(root) == ParamType_Bool) {
+				file_write_string(f, STR_LIT("\t\t.min_value = false,\n"));
+			} else {
+    			Node *choices = node_get_choices(root);
+    			Node *min = get_node(choices->first);
+    			String min_value = node_get_identifier(min, config_data);
+    			file_printf(f, alloc, "\t\t.min_value = %.*s,\n", min_value.len, min_value.data);
+			}
+		}
+		if (!node_has_field(root, ParamField_Max)) {
+    		if (node_get_parameter_type(root) == ParamType_Bool) {
+				file_write_string(f, STR_LIT("\t\t.max_value = true,\n"));
+			} else {
+    			Node *choices = node_get_choices(root);
+    			Node *max = get_node(choices->last);
+    			String max_value = node_get_identifier(max, config_data);
+    			file_printf(f, alloc, "\t\t.max_value = %.*s,\n", max_value.len, max_value.data);
+			}
+		}
 		break;
 	case Node_ParamProperty: {
 		ParamField field_type = root->param_field;
 		switch (field_type) {
 		case ParamField_Min: {
-			String field = STR_LIT("\t\t.min_value = ");
+            String field = STR_LIT("\t\t.min_value = ");
 			file_write_string(f, field);
 		} break;
 		case ParamField_Max: {
@@ -312,6 +397,11 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 		case ParamField_Default: {
 			String field = STR_LIT("\t\t.default_value = ");
 			file_write_string(f, field);
+		} break;
+		case ParamField_Choices: {
+		    String param_name = node_get_parameter_name(root, config_data);
+			file_printf(f, alloc, "\t\t.choices = (StringArray){%.*s_names, %.*s_Count},\n", param_name.len,
+    			param_name.data, param_name.len, param_name.data);
 		} break;
 		default:
 			file_printf(f, alloc, "\t\t.%.*s = ", data.len, data.data);
@@ -329,11 +419,7 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 		case ParamField_Name:
 			file_printf(f, alloc, "STR_LIT(\"%.*s\"),\n", data.len, data.data);
 			break;
-		case ParamField_Choices:
-			// need name of choice parameter
-			// is there a way we can take an arbitrary node and look up its associated parameter name?
-			// file_printf(f, alloc, "(StringArray){%s_Names, %s_Count},\n");
-			break;
+       	case ParamField_Choices: break;
 		default:
 			file_printf(f, alloc, "%.*s,\n", data.len, data.data);
 			break;
@@ -352,32 +438,64 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 	}
 }
 
-static void config_build(const char *config_path) {
-    arena = arena_init(KB(1));
+static void config_build(PluginBuild *build) {
+    const char *config_path = build->config_file;
+    arena = arena_init(page_size());
     Allocator *alloc = &arena.allocator;
     File user_config_fd = file_open(config_path, FileOpen_ReadOnly);
-    const u8 *const data = file_read_full_alloc(user_config_fd, &arena.allocator);
+    const u8 *const data = file_read_full_alloc(user_config_fd, alloc);
     file_close(user_config_fd);
+
+    struct {
+        enum {
+            TokenState_Normal,
+            TokenState_Number,
+        } state;
+    } ts = {.state = TokenState_Normal};
 
 	#define push_token(Type) tokens[token_head++] = (Token){(Type), i}
 
-    for (u32 i = 0; i < user_config_fd.size; ++i) {
+	//
+	// TOKENIZATION
+	//
+	for (u32 i = 0; i < user_config_fd.size; ++i) {
         while (is_whitespace(data[i])) {
             i++;
         }
         u8 c = data[i];
         if (is_numeric(c)) {
-            push_token(Token_Number);
+            if (ts.state != TokenState_Number) {
+                ts.state = TokenState_Number;
+                push_token(Token_Number);
+            }
             // consume remaining number
         	while (is_numeric(c))
         		c = data[++i];
         } else if (is_alpha(c)) {
-            push_token(Token_Identifier);
+            if (string_match(STR_LIT("true"), (String){data + i, 4})) {
+                push_token(Token_True);
+            } else if (string_match(STR_LIT("false"), (String){data + i, 5})) {
+                push_token(Token_False);
+            } else {
+                push_token(Token_Identifier);
+            }
             // consume remaining identifier
         	while (is_alpha(c))
         		c = data[++i];
         }
         switch (c) {
+        case '.': {
+            if (ts.state != TokenState_Number)
+                push_token(Token_Invalid);
+        } break;
+        case '-': {
+            if (is_numeric(data[i + 1])) {
+                push_token(Token_Number);
+                ts.state = TokenState_Number;
+            } else {
+                push_token(Token_Invalid);
+            }
+        } break;
         case '=': {
             push_token(Token_Equal);
         } break;
@@ -404,20 +522,24 @@ static void config_build(const char *config_path) {
 			i = j;
 		} break;
         case '\n': {
+            if (ts.state == TokenState_Number)
+                ts.state = TokenState_Normal;
         	push_token(Token_Newline);
     	} break;
         }
     }
 
-    #if 1
+    #if !defined(NDEBUG)
     for (u32 i = 0; i < token_head; ++i) {
 		Token *t = &tokens[i];
-    	print("%s @ %d: ", token_type_names[t->type], t->offset);
+    	dbg("%s @ %d: ", token_type_names[t->type], t->offset);
     	string_println(get_identifier(data + t->offset));
     }
     #endif
 
-    // Build syntax tree
+    //
+    // PARSING
+    //
 	#define eat_token() t++
 	#define check_token(Type) (t->type == (Type))
 
@@ -463,6 +585,18 @@ static void config_build(const char *config_path) {
 			default: break;
 			}
 			break;
+		case Token_True:
+		case Token_False:
+		    if (parser.state == Parse_ParameterProperty) {
+				parser_push_node(Node_ParamPropertyValue, i);
+				if (eat_token(), check_token(Token_Newline)) {
+				    parser.state = Parse_Parameter;
+					parser_pop_parent();
+				} else {
+				    parser.state = Parse_Error;
+				}
+			}
+		    break;
 		case Token_Number:
 			if (parser.state == Parse_ParameterProperty) {
 				parser_push_node(Node_ParamPropertyValue, i);
@@ -500,7 +634,7 @@ static void config_build(const char *config_path) {
 	for (u32 i = 1; i < parser.head; ++i) {
 		Node *n = get_node(i);
 		String content = get_identifier(data + tokens[n->token_id].offset);
-		print("Node %d: (%s) ^%d >%d | ", i, node_type_names[n->type], n->parent, n->next);
+		dbg("Node %d: (%s) ^%d >%d | ", i, node_type_names[n->type], n->parent, n->next);
 		string_println(content);
 		switch (n->type) {
 		case Node_ParamProperty: {
@@ -518,21 +652,33 @@ static void config_build(const char *config_path) {
 		}
 	}
 
-	#if 1
-	// Generate C code
-	File config_fd = file_open("config.gen.c", 0);
+	//
+	// CODE GEN
+	//
+	// NOTE: This will only print the first field in any given parameter
+	if (!dir_exists(STR_LIT("generated/"))) {
+        if (!make_dir(STR_LIT("generated/"))) {
+            err("Failed to make generated dir\n");
+            arena_deinit(&arena);
+            return;
+        }
+	}
+	File config_fd = file_open("generated/user_code.c", 0);
+	if (!config_fd.fd) {
+        arena_deinit(&arena);
+        return;
+	}
+	file_write_string(config_fd, STR_LIT("//\n// Generated code, do not edit\n//\n\n"));
 	// Iterate all top-level parameter nodes & generate enum & param names table
-	Node *first_param = NULL;
 	// Params enum
 	{
 		String header = STR_LIT("typedef enum {\n");
 		file_write_string(config_fd, header);
 		Node *root = get_node_incl_root(0);
 		for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
-			first_param = node;
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
-			file_printf(config_fd, &arena.allocator, "\t%.*s,\n", name.len, name.data);
+			file_printf(config_fd, &arena.allocator, "\tParam_%.*s,\n", name.len, name.data);
 		}
 		String param_count = STR_LIT("\tParam_Count,\n");
 		file_write_string(config_fd, param_count);
@@ -541,39 +687,110 @@ static void config_build(const char *config_path) {
 	}
 	// Param names array
 	{
-		String header = STR_LIT("static const char *param_names[] = {\n");
+		String header = STR_LIT("static String param_names[Param_Count] = {\n");
 		file_write_string(config_fd, header);
 		Node *root = &nodes[0];
 		for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
-			file_printf(config_fd, &arena.allocator, "\t\"%.*s\",\n", name.len, name.data);
+			file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", name.len, name.data);
 		}
 		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
 	}
 	// Find any enum parameters & generate enums & names
-	{}
+	{
+		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
+		    if (node->type == Node_ParamDecl) {
+				String param_name = node_get_parameter_name(node, data);
+    			Node *choices = node_get_choices(node);
+                if (!choices)
+                    continue;
+                STACK_ALLOC_BEGIN(KB(1));
+                // Print enum
+                file_printf(config_fd, alloc, "typedef enum {\n");
+                Array(String) names;
+                array_init_capacity(STACK_ALLOC, &names, 16);
+                // iterate each choice
+                for (Node *choice = get_node(choices->first); choice != NULL; choice = get_node(choice->next)) {
+                    String identifier = node_get_identifier(choice, data);
+                    array_append(STACK_ALLOC, &names, identifier);
+                    file_printf(config_fd, alloc, "\t%.*s,\n", identifier.len, identifier.data);
+                }
+                file_printf(config_fd, alloc, "\t%.*s_Count,\n", param_name.len, param_name.data);
+                file_printf(config_fd, alloc, "} %.*s;\n\n", param_name.len, param_name.data);
+
+                // Print names array
+                file_printf(config_fd, alloc, "static String %.*s_names[%.*s_Count] = {\n",
+                    param_name.len, param_name.data, param_name.len, param_name.data);
+                for (int i = 0; i < names.len; ++i) {
+                    file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", names.items[i].len, names.items[i].data);
+                }
+                file_printf(config_fd, alloc, "};\n\n");
+			}
+		}
+	}
 	// Iterate tree & write out its fields
 	{
-		String header = STR_LIT("static const Parameter parameter_layout[Param_Count] = {\n");
+		String header = STR_LIT("static Parameter parameter_layout[Param_Count] = {\n");
 		file_write_string(config_fd, header);
 		Node *root = get_node_incl_root(0);
 		for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
-			print_node_fields_recursive(config_fd, &arena.allocator, node, data);
+			print_node_fields_recursive(config_fd, alloc, node, data);
 		}
-		String footer = STR_LIT("};\n");
+		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
 	}
+
+	// Write plugin config struct
+	{
+    	PluginConfig plugin_config = build->config;
+        file_write_string(config_fd, STR_LIT("static PluginConfig plugin_config = {\n\t.desc = {\n"));
+        if (plugin_config.desc.name) {
+            file_printf(config_fd, alloc, "\t\t.name = \"%s\",\n", plugin_config.desc.name);
+        }
+        if (plugin_config.desc.id) {
+            file_printf(config_fd, alloc, "\t\t.id = \"%s\",\n", plugin_config.desc.id);
+        }
+        if (plugin_config.desc.company) {
+            file_printf(config_fd, alloc, "\t\t.company = \"%s\",\n", plugin_config.desc.company);
+        }
+        if (plugin_config.desc.version) {
+            file_printf(config_fd, alloc, "\t\t.version = \"%s\",\n", plugin_config.desc.version);
+        }
+        if (plugin_config.desc.copyright) {
+            file_printf(config_fd, alloc, "\t\t.copyright = \"%s\",\n", plugin_config.desc.copyright);
+        }
+        if (plugin_config.desc.url) {
+            file_printf(config_fd, alloc, "\t\t.url = \"%s\",\n", plugin_config.desc.url);
+        }
+        if (plugin_config.desc.contact) {
+            file_printf(config_fd, alloc, "\t\t.contact = \"%s\",\n", plugin_config.desc.contact);
+        }
+        if (plugin_config.desc.manual) {
+            file_printf(config_fd, alloc, "\t\t.manual = \"%s\",\n", plugin_config.desc.manual);
+        }
+        if (plugin_config.desc.description) {
+            file_printf(config_fd, alloc, "\t\t.description = \"%s\",\n", plugin_config.desc.description);
+        }
+        file_write_string(config_fd, STR_LIT("\t},\n")); // } desc
+        file_write_string(config_fd, STR_LIT("\t.audio_ports = {\n"));
+        file_printf(config_fd, alloc, "\t\t.inputs = %d,\n", plugin_config.audio_ports.inputs);
+        file_printf(config_fd, alloc, "\t\t.outputs = %d,\n", plugin_config.audio_ports.outputs);
+        file_write_string(config_fd, STR_LIT("\t},\n")); // } audio ports
+        file_write_string(config_fd, STR_LIT("\t.note_ports = {\n"));
+        file_printf(config_fd, alloc, "\t\t.inputs = %d,\n", plugin_config.note_ports.inputs);
+        file_printf(config_fd, alloc, "\t\t.outputs = %d,\n", plugin_config.note_ports.outputs);
+        file_write_string(config_fd, STR_LIT("\t},\n")); // } audio ports
+        file_printf(config_fd, alloc, "\t.features = 0x%x,\n", plugin_config.features);
+        file_write_string(config_fd, STR_LIT("};\n\n"));
+	}
+
+	file_printf(config_fd, alloc, "#include \"../%s\"\n", build->src_file);
+
 	file_close(config_fd);
-	#endif
 
 	usize mem_used = arena_query_capacity(&arena);
 	println("Arena mem used: %zuB", mem_used);
     arena_deinit(&arena);
-}
-
-
-int main() {
-	config_build("example_config.txt");
 }

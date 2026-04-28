@@ -1,14 +1,13 @@
-#include <arbor.h>
 
 struct {
     float last_freq;
     float last_reso;
     int last_type;
-    Filter filter[2];
+    IIR_Filter filter[2];
 } g = {0};
 
 static void init(Plugin *plugin) {
-    g.filter[0] = g.filter[1] = (Filter){
+    g.filter[0] = g.filter[1] = (IIR_Filter){
         .cutoff = parameter_layout[Param_Freq].default_value,
         .reso = parameter_layout[Param_Reso].default_value,
     };
@@ -40,10 +39,10 @@ static void process(Plugin *plugin, const AudioBuffer32 in_buf, AudioBuffer32 ou
         filter_set_reso(&g.filter[1], reso);
         g.last_reso = reso;
     }
-    Type type = (Type)get_parameter(plugin, Param_FilterType);
+    FilterType_Kind type = (FilterType_Kind)get_parameter(plugin, Param_FilterType);
     if (type != g.last_type) {
-        filter_set_type(&g.filter[0], (FilterType)type);
-        filter_set_type(&g.filter[1], (FilterType)type);
+        filter_set_type(&g.filter[0], (IIR_FilterType)type);
+        filter_set_type(&g.filter[1], (IIR_FilterType)type);
         g.last_type = type;
     }
 

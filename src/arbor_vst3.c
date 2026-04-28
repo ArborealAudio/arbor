@@ -1,6 +1,5 @@
 #include "../vst3/vst3.h"
 #include "arbor.h"
-#include <stdlib.h>
 
 static inline bool tuid_match(const Steinberg_TUID a, const Steinberg_TUID b) {
     return memcmp(a, b, sizeof(Steinberg_TUID)) == 0;
@@ -182,11 +181,13 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
             int offset;
             double value;
             if (queue->lpVtbl->getPoint(queue, p, &offset, &value) == Steinberg_kResultOk) {
+                f32 normalized = get_parameter_from_normalized(plugin, id, (f32)value);
+                dbg("normalized: %d = %.2f", id, normalized);
                 vst3->param_changes[vst3->param_change_head] = (ParamChange){
                     .valid = true,
                     .id = id,
                     .offset = offset,
-                    .value = get_parameter_from_normalized(plugin, id, (f32)value),
+                    .value = normalized,
                 };
                 vst3->param_change_head++;
             }
@@ -801,9 +802,9 @@ static Steinberg_tresult factory_create_instance (void* thisInterface, Steinberg
                                            Steinberg_FIDString iid, void** obj) {
     dbg("cid: %s | iid %s\n", cid, iid);
     if (tuid_match(cid, class_tuid) &&
-        tuid_match(iid, Steinberg_FUnknown_iid) ||
+        (tuid_match(iid, Steinberg_FUnknown_iid) ||
         tuid_match(iid, Steinberg_IPluginBase_iid) ||
-        tuid_match(iid, Steinberg_Vst_IComponent_iid)) {
+        tuid_match(iid, Steinberg_Vst_IComponent_iid))) {
         if (obj) {
             dbg("Factory: query Component OK\n");
             Vst3Plugin *plugin = vst3_plugin_create();
