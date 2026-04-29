@@ -1,7 +1,6 @@
 #ifndef DSP_H
 #define DSP_H
 
-#include "../cbase/cbase.h"
 #include <math.h>
 
 #define PI M_PI

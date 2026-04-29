@@ -202,5 +202,5 @@ static void _clear_midi(Plugin *p) {
 #endif
 
 // Other required impl
-#include "dsp.c"
+#include "dsp/dsp.c"
 #include "../cbase/cbase.c"

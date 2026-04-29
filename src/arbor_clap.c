@@ -1,4 +1,4 @@
-#include "../clap/clap.h"
+#include "clap/clap.h"
 #include "arbor.h"
 
 static const char *const *get_clap_features() {
@@ -86,7 +86,7 @@ static bool clap_note_port_get(const clap_plugin_t *plugin, u32 index, bool is_i
     };
     const char port_name[] = "Note Input";
     memcpy(info->name, port_name, sizeof(port_name));
-    
+
     return true;
 }
 
@@ -479,4 +479,3 @@ CLAP_EXPORT const clap_plugin_entry_t clap_entry = (clap_plugin_entry_t){
     .deinit = entry_deinit,
     .get_factory = get_factory,
 };
-

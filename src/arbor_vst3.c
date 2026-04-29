@@ -1,4 +1,4 @@
-#include "../vst3/vst3.h"
+#include "vst3/vst3.h"
 #include "arbor.h"
 
 static inline bool tuid_match(const Steinberg_TUID a, const Steinberg_TUID b) {
@@ -522,15 +522,16 @@ static Steinberg_tresult controller_get_parameter_info (void* thisInterface, Ste
         .id = paramIndex,
         .defaultNormalizedValue = get_parameter_normalized(plugin, paramIndex, param->default_value),
     };
+    info->flags = Steinberg_Vst_ParameterInfo_ParameterFlags_kCanAutomate;
     switch (param->type) {
     case ParameterType_Float:
-    case ParameterType_Int:
     case ParameterType_Bool:
-        info->flags = Steinberg_Vst_ParameterInfo_ParameterFlags_kCanAutomate;
+        info->stepCount = 1;
         break;
     case ParameterType_Choice:
-        info->flags = Steinberg_Vst_ParameterInfo_ParameterFlags_kCanAutomate |
-                      Steinberg_Vst_ParameterInfo_ParameterFlags_kIsList;
+        info->flags |= Steinberg_Vst_ParameterInfo_ParameterFlags_kIsList;
+    case ParameterType_Int:
+        info->stepCount = (int)param->max_value - (int)param->min_value;
         break;
     }
 

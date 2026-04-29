@@ -186,6 +186,6 @@ f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
 
-#include "dsp.h"
+#include "dsp/dsp.h"
 
 #endif
