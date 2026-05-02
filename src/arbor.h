@@ -167,8 +167,10 @@ Allocator *plugin_allocator(Plugin *p);
 
 #define plugin_alloc(p, T) (T*)arena_alloc(&p->main_arena, sizeof(T))
 
-// User code
+// A user-defined function which provides a `PluginInterface` to call the user's functions and
+// provide a reference to user-allocated data
 PluginInterface plugin_create(Allocator *);
+// Get the user data provided in the `PluginInterface`
 void *plugin_get_user(Plugin *p);
 
 f64 get_sample_rate(Plugin *p);

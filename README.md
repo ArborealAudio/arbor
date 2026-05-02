@@ -1,7 +1,7 @@
 # arbor
 
 ## For the future of plugin development
-## ⚠️ PRE-ALPHA SOFTWARE | YOU WON'T FIND FEATURES YOU WANT ⚠️
+## ⚠️ PRE-ALPHA SOFTWARE | BUGGY | YOU WON'T FIND FEATURES YOU WANT ⚠️
 
 ## Goals
 
@@ -32,6 +32,7 @@ for plugin UIs while being highly portable.
 * Some basic implementations of CLAP & VST3 plugins
 * Custom build system where you configure your build in a C source file
 * Generate parameter information using pre-build code generation
+* IIR Filters which don't cramp at Nyquist[^1][^2][^3]
 
 ## TODO:
 
@@ -55,6 +56,7 @@ for plugin UIs while being highly portable.
 	- [ ] If possible, create an events system which is format-agnostic
 
 - [ ] Make GUI optional (should allow cross-compiling)
+- [ ] Provide APIs in the build system for linking libraries & cetera
 
 ## Usage
 
