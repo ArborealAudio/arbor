@@ -5,23 +5,16 @@ static inline bool tuid_match(const Steinberg_TUID a, const Steinberg_TUID b) {
     return memcmp(a, b, sizeof(Steinberg_TUID)) == 0;
 }
 
-static const Steinberg_TUID class_tuid = SMTG_INLINE_UID('C' ^ 'A', 'l' ^ 'F', 'a' ^ 'V', 's' ^ '3');
-static const Steinberg_TUID component_tuid = SMTG_INLINE_UID('C' ^ 'A', 'o' ^ 'F', 'm' ^ 'V', 'p' ^ '3');
+static const Steinberg_TUID class_tuid_base = SMTG_INLINE_UID('C' ^ 'A', 'l' ^ 'F', 'a' ^ 'V', 's' ^ '3');
+static const Steinberg_TUID component_tuid_base = SMTG_INLINE_UID('C' ^ 'A', 'o' ^ 'F', 'm' ^ 'V', 'p' ^ '3');
 static const Steinberg_TUID controller_tuid = SMTG_INLINE_UID('C' ^ 'A', 't' ^ 'F', 'r' ^ 'V', 'l' ^ '3');
+
+static const Steinberg_TUID vst3_class_id = SMTG_INLINE_UID(class_tuid_base[0] | PLUGIN_ID_HASH, class_tuid_base[1] | PLUGIN_ID_HASH, class_tuid_base[2] | PLUGIN_ID_HASH, class_tuid_base[3] | PLUGIN_ID_HASH);
+static const Steinberg_TUID vst3_comp_id = SMTG_INLINE_UID(component_tuid_base[0] | PLUGIN_ID_HASH, component_tuid_base[1] | PLUGIN_ID_HASH, component_tuid_base[2] | PLUGIN_ID_HASH, component_tuid_base[3] | PLUGIN_ID_HASH);
 
 // WTF is this crap?
 static const char audio_class_info_category[] = "Audio Module Class";
-static const char component_class_info_category[] = "Component Module Class";
-
-static u32 hash_plugin_id() {
-    u32 hash = 0x311311;
-    int len = string_len(plugin_config.desc.id);
-    for (int i = 0; i < len; ++i) {
-        hash = (hash ^ plugin_config.desc.id[i]) * 0x01000193;
-    }
-
-    return hash;
-}
+static const char component_class_info_category[] = "Component Controller Class";
 
 typedef volatile int RefCount;
 
@@ -170,26 +163,28 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     u32 num_frames = data->numSamples;
     u32 next_event_frame = num_frames;
 
-    int param_change_count = data->inputParameterChanges->lpVtbl->getParameterCount(data->inputParameterChanges);
-    memset(vst3->param_changes, 0, sizeof(vst3->param_changes));
-    vst3->param_change_head = 0;
-    for (int i = 0; i < param_change_count; ++i) {
-        struct Steinberg_Vst_IParamValueQueue *queue = data->inputParameterChanges->lpVtbl->getParameterData(data->inputParameterChanges, i);
-        u32 id = queue->lpVtbl->getParameterId(queue);
-        int point_count = queue->lpVtbl->getPointCount(queue);
-        for (int p = 0; p < point_count; ++p) {
-            int offset;
-            double value;
-            if (queue->lpVtbl->getPoint(queue, p, &offset, &value) == Steinberg_kResultOk) {
-                f32 normalized = get_parameter_from_normalized(plugin, id, (f32)value);
-                dbg("normalized: %d = %.2f", id, normalized);
-                vst3->param_changes[vst3->param_change_head] = (ParamChange){
-                    .valid = true,
-                    .id = id,
-                    .offset = offset,
-                    .value = normalized,
-                };
-                vst3->param_change_head++;
+    int param_change_count = 0;
+    if (data->inputParameterChanges) {
+        param_change_count = data->inputParameterChanges->lpVtbl->getParameterCount(data->inputParameterChanges);
+        memset(vst3->param_changes, 0, sizeof(vst3->param_changes));
+        vst3->param_change_head = 0;
+        for (int i = 0; i < param_change_count; ++i) {
+            struct Steinberg_Vst_IParamValueQueue *queue = data->inputParameterChanges->lpVtbl->getParameterData(data->inputParameterChanges, i);
+            u32 id = queue->lpVtbl->getParameterId(queue);
+            int point_count = queue->lpVtbl->getPointCount(queue);
+            for (int p = 0; p < point_count; ++p) {
+                int offset;
+                double value;
+                if (queue->lpVtbl->getPoint(queue, p, &offset, &value) == Steinberg_kResultOk) {
+                    f32 normalized = get_parameter_from_normalized(plugin, id, (f32)value);
+                    vst3->param_changes[vst3->param_change_head] = (ParamChange){
+                        .valid = true,
+                        .id = id,
+                        .offset = offset,
+                        .value = normalized,
+                    };
+                    vst3->param_change_head++;
+                }
             }
         }
     }
@@ -350,7 +345,7 @@ static Steinberg_tresult component_terminate (void* thisInterface) {
 
 static Steinberg_tresult component_get_controller_id (void* thisInterface, Steinberg_TUID classId) {
     dbg();
-    memcpy(classId, controller_tuid, sizeof(Steinberg_TUID));
+    memcpy(classId, vst3_comp_id, sizeof(Steinberg_TUID));
     return Steinberg_kResultOk;
 }
 
@@ -524,7 +519,7 @@ static Steinberg_tresult controller_get_parameter_info (void* thisInterface, Ste
     };
     info->flags = Steinberg_Vst_ParameterInfo_ParameterFlags_kCanAutomate;
     switch (param->type) {
-    case ParameterType_Float:
+    case ParameterType_Float: break;
     case ParameterType_Bool:
         info->stepCount = 1;
         break;
@@ -785,15 +780,15 @@ static Steinberg_tresult factory_get_class_info (void* thisInterface, Steinberg_
                                           struct Steinberg_PClassInfo* info) {
     dbg();
     if (info) {
+        memset(info, 0, sizeof(*info));
         info->cardinality = Steinberg_PClassInfo_ClassCardinality_kManyInstances;
         memcpy(info->name, plugin_config.desc.name, string_len(plugin_config.desc.name));
-        // if (index == 0) {
-            memcpy(info->cid, class_tuid, sizeof(Steinberg_TUID));
-            memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
-        // } else {
-        //     memcpy(info->cid, component_tuid, sizeof(Steinberg_TUID));
-        //     memcpy(info->category, component_class_info_category, sizeof(component_class_info_category));
-        // }
+        if (index == 0) {
+            memcpy(info->cid, vst3_class_id, sizeof(Steinberg_TUID));
+        } else {
+            memcpy(info->cid, vst3_comp_id, sizeof(Steinberg_TUID));
+        }
+        memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
         return Steinberg_kResultOk;
     }
     return Steinberg_kInvalidArgument;
@@ -802,7 +797,7 @@ static Steinberg_tresult factory_get_class_info (void* thisInterface, Steinberg_
 static Steinberg_tresult factory_create_instance (void* thisInterface, Steinberg_FIDString cid,
                                            Steinberg_FIDString iid, void** obj) {
     dbg("cid: %s | iid %s\n", cid, iid);
-    if (tuid_match(cid, class_tuid) &&
+    if (tuid_match(cid, vst3_class_id) &&
         (tuid_match(iid, Steinberg_FUnknown_iid) ||
         tuid_match(iid, Steinberg_IPluginBase_iid) ||
         tuid_match(iid, Steinberg_Vst_IComponent_iid))) {
@@ -828,6 +823,7 @@ static Steinberg_tresult factory_get_class_info2 (void* thisInterface, Steinberg
                                            struct Steinberg_PClassInfo2* info) {
     dbg();
     if (info) {
+        memset(info, 0, sizeof(*info));
         info->cardinality = Steinberg_PClassInfo_ClassCardinality_kManyInstances;
         info->classFlags = Steinberg_PFactoryInfo_FactoryFlags_kUnicode;
         memcpy(info->name, plugin_config.desc.name, string_len(plugin_config.desc.name));
@@ -841,13 +837,12 @@ static Steinberg_tresult factory_get_class_info2 (void* thisInterface, Steinberg
             memcpy(info->subCategories, category, sizeof(category));
         }
         memcpy(info->sdkVersion, Steinberg_Vst_SDKVersionString, string_len(Steinberg_Vst_SDKVersionString));
-        // if (index == 0) {
-            memcpy(info->cid, class_tuid, sizeof(Steinberg_TUID));
-            memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
-        // } else {
-        //     memcpy(info->cid, component_tuid, sizeof(Steinberg_TUID));
-        //     memcpy(info->category, component_class_info_category, sizeof(component_class_info_category));
-        // }
+        if (index == 0) {
+            memcpy(info->cid, vst3_class_id, sizeof(Steinberg_TUID));
+        } else {
+            memcpy(info->cid, vst3_comp_id, sizeof(Steinberg_TUID));
+        }
+        memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
         return Steinberg_kResultOk;
     }
     return Steinberg_kInvalidArgument;
@@ -857,6 +852,7 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
                                                   struct Steinberg_PClassInfoW* info) {
     dbg();
     if (info) {
+        memset(info, 0, sizeof(*info));
         info->cardinality = Steinberg_PClassInfo_ClassCardinality_kManyInstances;
         info->classFlags = Steinberg_PFactoryInfo_FactoryFlags_kUnicode;
         String16 name = string16_from_utf8(&global_arena.allocator, plugin_config.desc.name);
@@ -866,15 +862,22 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
         String16 vendor = string16_from_utf8(&global_arena.allocator, plugin_config.desc.company);
         memcpy(info->vendor, vendor.data, vendor.len * sizeof(u16));
 
+        if (plugin_config.features & Feature_Effect) {
+            const char category[] = "Fx";
+            memcpy(info->subCategories, category, sizeof(category));
+        } else if ((plugin_config.features & Feature_Instrument) || (plugin_config.features & Feature_Synth)) {
+            const char category[] = "Instrument";
+            memcpy(info->subCategories, category, sizeof(category));
+        }
+
         String16 sdk_version = string16_from_utf8(&global_arena.allocator, Steinberg_Vst_SDKVersionString);
         memcpy(info->sdkVersion, sdk_version.data, sdk_version.len * sizeof(u16));
-        // if (index == 0) {
-            memcpy(info->cid, class_tuid, sizeof(Steinberg_TUID));
-            memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
-        // } else {
-        //     memcpy(info->cid, component_tuid, sizeof(Steinberg_TUID));
-        //     memcpy(info->category, component_class_info_category, sizeof(component_class_info_category));
-        // }
+        if (index == 0) {
+            memcpy(info->cid, vst3_class_id, sizeof(Steinberg_TUID));
+        } else {
+            memcpy(info->cid, vst3_comp_id, sizeof(Steinberg_TUID));
+        }
+        memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
 
         return Steinberg_kResultOk;
     }
@@ -922,7 +925,7 @@ void *GetPluginFactory() {
 
 bool bundleEntry(void *ctx) {
     dbg();
-    global_arena = arena_init(4096);
+    global_arena = arena_init(page_size());
     return true;
 }
 

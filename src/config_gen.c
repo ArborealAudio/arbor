@@ -438,6 +438,16 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 	}
 }
 
+static u32 hash_plugin_id(char *plugin_id) {
+    u32 hash = 0x311311;
+    int len = string_len(plugin_id);
+    for (int i = 0; i < len; ++i) {
+        hash = (hash ^ plugin_id[i]) * 0x01000193;
+    }
+
+    return hash;
+}
+
 static void config_build(PluginBuild *build) {
     const char *config_path = build->config_file;
     arena = arena_init(page_size());
@@ -655,7 +665,6 @@ static void config_build(PluginBuild *build) {
 	//
 	// CODE GEN
 	//
-	// NOTE: This will only print the first field in any given parameter
 	if (!dir_exists(STR_LIT("generated/"))) {
         if (!make_dir(STR_LIT("generated/"))) {
             err("Failed to make generated dir\n");
@@ -784,6 +793,9 @@ static void config_build(PluginBuild *build) {
         file_write_string(config_fd, STR_LIT("\t},\n")); // } audio ports
         file_printf(config_fd, alloc, "\t.features = 0x%x,\n", plugin_config.features);
         file_write_string(config_fd, STR_LIT("};\n\n"));
+
+        u32 plugin_id_hash = hash_plugin_id(plugin_config.desc.id);
+        file_printf(config_fd, alloc, "#define PLUGIN_ID_HASH 0x%x\n\n", plugin_id_hash);
 	}
 
 	file_printf(config_fd, alloc, "#include \"../%s\"\n", build->src_file);

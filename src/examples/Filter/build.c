@@ -23,10 +23,10 @@ int main(int argc, char *argv[]) {
         .config_file = "config.txt",
         .config = plugin_config,
         .arbor_path = "../..",
-        .format = BuildFormat_VST3,
+        .format = BuildFormat_VST3 | BuildFormat_CLAP,
         .debug = true,
+        .install = true,
     };
 
     build_plugin(&pb);
-    install_plugin(&pb);
 }

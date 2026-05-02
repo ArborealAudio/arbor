@@ -165,10 +165,11 @@ struct Plugin {
 
 Allocator *plugin_allocator(Plugin *p);
 
-#define plugin_push_struct(p, T) (T*)arena_alloc(&p->main_arena, sizeof(T))
+#define plugin_alloc(p, T) (T*)arena_alloc(&p->main_arena, sizeof(T))
 
 // User code
-PluginInterface plugin_create();
+PluginInterface plugin_create(Allocator *);
+void *plugin_get_user(Plugin *p);
 
 f64 get_sample_rate(Plugin *p);
 // [Audio Thread] Get a parameter value
@@ -182,6 +183,7 @@ void set_parameter_main(Plugin *p, u32 param_id, float value);
 const Parameter *get_parameter_info(Plugin *p, u32 param_id);
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
+f32 get_parameter_default(Plugin *p, u32 param_id);
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)

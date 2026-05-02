@@ -8,10 +8,10 @@ typedef enum {
 } OptimizeMode;
 
 enum {
-    BuildFormat_All,
-    BuildFormat_CLAP,
-    BuildFormat_VST3,
-    BuildFormat_AU,
+    BuildFormat_All = 0,
+    BuildFormat_CLAP = 1 << 0,
+    BuildFormat_VST3 = 1 << 1,
+    BuildFormat_AU = 1 << 2,
 };
 typedef u32 BuildFormat;
 
@@ -23,7 +23,7 @@ typedef struct {
     BuildFormat format;
     bool debug;
     OptimizeMode optimize_mode;
+    bool install;
 } PluginBuild;
 
 static void build_plugin(PluginBuild *);
-static void install_plugin(PluginBuild *);

@@ -6,16 +6,11 @@
 
 #include "stdlib.h"
 
-static struct {
-    String output_path;
-} _post_build;
-
 static Arena _arena = {0};
 
 #define check_rebuild() _check_rebuild(argv[0], __FILE__)
 
 static void _check_rebuild(const char *bin, const char *src) {
-    // NOTE We also need to check if user config file has changed, since that drives codegen
     if (file_mtime(bin) < file_mtime(src)) {
         // self-rebuild
         println("Recompiling build runner");
@@ -39,48 +34,6 @@ static void _check_rebuild(const char *bin, const char *src) {
     }
 }
 
-static void build_plugin(PluginBuild *build) {
-    _arena = arena_init(page_size());
-    STACK_ALLOC_BEGIN(KB(16));
-    config_build(build);
-
-    PluginDescription plugin_desc = build->config.desc;
-
-    // build plugin
-    char *base_args [] = {"-shared", "-Werror", "-I./generated"};
-    StringArray args = string_array_from_cstrs(STACK_ALLOC, base_args, array_len(base_args), 16);
-
-    if (build->debug) {
-        string_array_append(STACK_ALLOC, &args, STR_LIT("-g"));
-    }
-
-    String out_path = {0};
-    if (build->format & BuildFormat_VST3) {
-        string_array_append(STACK_ALLOC, &args, STR_LIT("-DARBOR_VST3"));
-        out_path = string_printf(STACK_ALLOC, ".build/%s.vst3/Contents/MacOS/%s",
-            plugin_desc.name, plugin_desc.name);
-    }
-    _post_build.output_path = string_clone(&_arena.allocator, out_path);
-    if (make_dir(out_path)) {
-        println("Created directory: %.*s", out_path.len, out_path.data);
-    }
-    String out_arg = string_concat(STACK_ALLOC, (String[]){STR_LIT("-o"), out_path}, 2);
-    string_array_append(STACK_ALLOC, &args, out_arg);
-
-    String args_str = string_array_flatten(STACK_ALLOC, &args);
-    char cmd[512] = {0};
-    string_print_buf(cmd, sizeof(cmd), "cc %.*s %s/arbor.c", args_str.len, args_str.data,
-        build->arbor_path);
-
-    dbg("Executing command: %s", cmd);
-
-    int result = system(cmd);
-    println("Command exited with code %d", result);
-    if (result != 0) {
-        err("Build command failed with code %d\n", result);
-    }
-}
-
 static String _format_plist(PluginBuild *build) {
     STACK_ALLOC_BEGIN(512);
     String plist_path = path_join(STACK_ALLOC, (String[]){
@@ -95,21 +48,11 @@ static String _format_plist(PluginBuild *build) {
 
     return string_printf(&_arena.allocator, fmt, desc.name, desc.id, desc.name, desc.name, desc.version,
         desc.version, desc.copyright);
-
 }
 
-static void install_plugin(PluginBuild *build) {
+static void install_plugin(PluginBuild *build, String output_path) {
     STACK_ALLOC_BEGIN(KB(16));
-    String output_path = _post_build.output_path;
-    String bundle_stem = {0};
-    // chop .build dir
-    for (int i = 0; i < output_path.len; ++i) {
-        if (output_path.data[i] == '/') {
-            bundle_stem.data = output_path.data + i + 1;
-            bundle_stem.len = output_path.len - i;
-            break;
-        }
-    }
+    String bundle_stem = string_split_after(output_path, '/');
     // Get system plugin dir
     char *home = getenv("HOME");
     String user_plugin_dir = {0};
@@ -120,6 +63,11 @@ static void install_plugin(PluginBuild *build) {
             string(home), STR_LIT("Library/Audio/Plug-Ins/VST3")
         }, 2);
         plugin_ext = STR_LIT(".vst3");
+    } else if (build->format & BuildFormat_CLAP) {
+        user_plugin_dir = path_join(STACK_ALLOC, (String[]){
+            string(home), STR_LIT("Library/Audio/Plug-Ins/CLAP")
+        }, 2);
+        plugin_ext = STR_LIT(".clap");
     }
     plugin_dest = path_join(STACK_ALLOC, (String[]){
         user_plugin_dir, bundle_stem
@@ -142,11 +90,11 @@ static void install_plugin(PluginBuild *build) {
 
     // Update plugin binary
     println("Installing plugin file @ %.*s", plugin_dest.len, plugin_dest.data);
-    File src = file_open(string_to_cstring(STACK_ALLOC, _post_build.output_path), FileOpen_ReadOnly);
-    File dest = file_open(string_to_cstring(STACK_ALLOC, plugin_dest), 0);
-    file_copy(&_arena.allocator, src, dest);
-    file_close(src);
-    file_close(dest);
+    // File src = file_open(string_to_cstring(STACK_ALLOC, output_path), FileOpen_ReadOnly);
+    // File dest = file_open(string_to_cstring(STACK_ALLOC, plugin_dest), 0);
+    file_copy(output_path, plugin_dest);
+    // file_close(src);
+    // file_close(dest);
 
     // Update plugin plist
     {
@@ -181,11 +129,86 @@ static void install_plugin(PluginBuild *build) {
     }
 
     // Copy debug contents
-    char copy_cmd[256] = {0};
-    sprintf(copy_cmd, "cp -r %.*s.dSYM ~/.%.*s/", output_path.len, output_path.data,
-        plugin_ext.len, plugin_ext.data);
-    if (system(copy_cmd) != 0) {
-        err("Copy debug info failed: %s", strerror(errno));
+    String dbg_src = string_concat(STACK_ALLOC, (String[]){output_path, STR_LIT(".dSYM")}, 2);
+    String dbg_dst = string_concat(STACK_ALLOC, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
+    if (!file_copy_recursive(dbg_src, dbg_dst)) {
+        err("Copy debug info failed\n");
+    }
+
+    // char copy_cmd[256] = {0};
+    // sprintf(copy_cmd, "cp -r %.*s.dSYM %.*s.dSYM", output_path.len, output_path.data,
+    //     plugin_dest.len, plugin_dest.data);
+    // if (system(copy_cmd) != 0) {
+    //     err("Copy debug info failed: %s", strerror(errno));
+    // }
+
+}
+
+static void build_plugin(PluginBuild *build) {
+    _arena = arena_init(page_size());
+
+    if (file_exists("generated/user_code.c")) {
+        if (file_mtime(build->config_file) > file_mtime("generated/user_code.c")) {
+            config_build(build);
+        }
+    } else {
+        config_build(build);
+    }
+
+    PluginDescription plugin_desc = build->config.desc;
+
+    STACK_ALLOC_BEGIN(KB(16));
+
+    while (build->format != 0) {
+        STACK_ALLOC_RESET;
+        // build plugin
+        char *base_args [] = {"-shared", "-Werror", "-I./generated"};
+        StringArray args = string_array_from_cstrs(STACK_ALLOC, base_args, array_len(base_args), 16);
+
+        if (build->debug) {
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-g"));
+        }
+
+        String out_path = {0};
+        if (build->format & BuildFormat_VST3) {
+            println("Building VST3");
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-DARBOR_VST3"));
+            out_path = string_printf(STACK_ALLOC, ".build/%s.vst3/Contents/MacOS/%s",
+                plugin_desc.name, plugin_desc.name);
+        } else if (build->format & BuildFormat_CLAP) {
+            println("Building CLAP");
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-DARBOR_CLAP"));
+            out_path = string_printf(STACK_ALLOC, ".build/%s.clap/Contents/MacOS/%s",
+                plugin_desc.name, plugin_desc.name);
+        }
+        if (make_dir(out_path)) {
+            println("Created directory: %.*s", out_path.len, out_path.data);
+        }
+        String out_arg = string_concat(STACK_ALLOC, (String[]){STR_LIT("-o"), out_path}, 2);
+        string_array_append(STACK_ALLOC, &args, out_arg);
+
+        String args_str = string_array_flatten(STACK_ALLOC, &args);
+        char cmd[512] = {0};
+        string_print_buf(cmd, sizeof(cmd), "cc %.*s %s/arbor.c", args_str.len, args_str.data,
+            build->arbor_path);
+
+        dbg("Executing command: %s", cmd);
+
+        int result = system(cmd);
+        println("Command exited with code %d", result);
+        if (result != 0) {
+            err("Build command failed with code %d\n", result);
+        }
+
+        if (build->install)
+            install_plugin(build, out_path);
+
+
+        if (build->format & BuildFormat_VST3) {
+            build->format ^= BuildFormat_VST3;
+        } else if (build->format & BuildFormat_CLAP) {
+            build->format ^= BuildFormat_CLAP;
+        }
     }
 
     arena_deinit(&_arena);

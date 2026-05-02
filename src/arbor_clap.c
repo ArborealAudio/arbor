@@ -110,7 +110,7 @@ static clap_plugin_latency_t plugin_latency = {
 static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
     dbg();
     Plugin *p = plugin->plugin_data;
-    const float *param_state = p->params_main;
+    const float *param_state = p->params->main;
     u64 size = sizeof(float) * Param_Count;
     u64 written = stream->write(stream, param_state, size);
     return size == written;
@@ -119,7 +119,7 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
 static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     dbg();
     Plugin *p = plugin->plugin_data;
-    float *param_state = p->params_main;
+    float *param_state = p->params->main;
     u64 size = sizeof(float) * Param_Count;
     u64 read = stream->read(stream, param_state, size);
     return size == read;
@@ -173,7 +173,7 @@ static bool param_get_value(const clap_plugin_t *plugin, clap_id id, double *out
         return false;
 
     Plugin *p = plugin->plugin_data;
-    *out_value = (f64)p->params_main[id];
+    *out_value = (f64)p->params->main[id];
     return true;
 }
 
@@ -215,7 +215,7 @@ static void param_flush(const clap_plugin_t *plugin, const clap_input_events_t *
             switch (hdr->type) {
             case CLAP_EVENT_PARAM_VALUE: {
                 clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
-                p->params_main[event->param_id] = (float)event->value;
+                set_parameter_main(p, event->param_id, (f32)event->value);
             } break;
             }
         }
@@ -256,7 +256,7 @@ static bool plugin_activate(const clap_plugin_t *plugin, f64 sample_rate, u32 mi
     p->sample_rate = sample_rate;
     p->min_frames = min_frames;
     p->max_frames = max_frames;
-    p->user_iface.prepare_cb(p, sample_rate, max_frames, p->audio_input_count);
+    p->user_iface.prepare_cb(p, sample_rate, max_frames);
     return true;
 }
 
@@ -268,7 +268,7 @@ static bool plugin_start_processing(const clap_plugin_t *plugin) {
     dbg();
     Plugin *p = plugin->plugin_data;
     // ensure main & audio params are synced
-    memcpy(p->params_audio, p->params_main, sizeof(p->params_audio));
+    memcpy(p->params->audio, p->params->main, sizeof(p->params->audio));
     return true;
 }
 
@@ -301,12 +301,14 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                 case CLAP_EVENT_PARAM_VALUE: {
                     clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
                     dbg("Param value event: %d = %.2f", event->param_id, event->value);
-                    p->params_audio[event->param_id] = (float)event->value;
+                    // p->params_audio[event->param_id] = (float)event->value;
+                    set_parameter(p, event->param_id, (float)event->value);
                 } break;
                 case CLAP_EVENT_PARAM_MOD: {
                     clap_event_param_mod_t *event = (clap_event_param_mod_t*)hdr;
                     dbg("Param mod: %d += %.2f", event->param_id, event->amount);
-                    p->params_audio[event->param_id] += (float)event->amount;
+                    f32 current = get_parameter(p, event->param_id);
+                    set_parameter(p, event->param_id, current + (float)event->amount);
                 } break;
                 case CLAP_EVENT_NOTE_ON:
                 case CLAP_EVENT_NOTE_OFF: {
@@ -370,7 +372,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         i += frames_to_process;
     }
     // Sync main params to audio params
-    memcpy(p->params_main, p->params_audio, sizeof(p->params_audio));
+    memcpy(p->params->main, p->params->audio, sizeof(p->params->audio));
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -422,7 +424,7 @@ static const clap_plugin_t *create_plugin(const struct clap_plugin_factory *fact
         return NULL;
     }
     if (const_string_match(const_string(plugin_id), const_string(clap_desc.id))) {
-        Plugin *plugin = new_plugin();
+        Plugin *plugin = new(Plugin);
         clap_plugin_t *clap = new(clap_plugin_t);
         _plugin_init(plugin, clap, host);
         *clap = (clap_plugin_t){

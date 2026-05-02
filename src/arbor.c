@@ -13,6 +13,8 @@ Allocator *plugin_allocator(Plugin *p) {
     return &p->main_arena.allocator;
 }
 
+void *plugin_get_user(Plugin *p) { return p->user; }
+
 static void default_float_print(const Parameter *p, f32 value, char *buf, u32 buf_size) {
     string_print_buf(buf, buf_size, "%.3f", value);
 }
@@ -109,20 +111,32 @@ f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value) {
     return value * (param->max_value - param->min_value) + param->min_value;
 }
 
+f32 get_parameter_default(Plugin *p, u32 param_id) {
+    Parameter *param = &p->parameters[param_id];
+    if (!param) {
+        err("Invalid param ID\n");
+        return 0;
+    }
+    return param->default_value;
+}
+
 // Internal functions
 
 static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
     bool ok = true;
+    Arena arena = arena_init(KB(64));
     *p = (Plugin){
         .audio_input_count = plugin_config.audio_ports.inputs * 2, // TODO Don't assume stereo
         .audio_output_count = plugin_config.audio_ports.outputs * 2,
         .note_input_count = plugin_config.note_ports.inputs,
-        .main_arena = arena_init(KB(64)),
+        .main_arena = arena,
         .plugin_wrapper = wrapper_ptr,
         .parameters = parameter_layout,
-        .user_iface = plugin_create(),
-        .params = new(PluginParameterData),
+        .user_iface = plugin_create(&arena.allocator),
+        .params = arena_alloc(&arena, sizeof(PluginParameterData)),
     };
+    // Copy user pointer "up" one level for quicker access
+    p->user = p->user_iface.user;
 
     // check for user errors in provided interface
     if (!p->user_iface.init_cb) {
@@ -143,10 +157,6 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
 
     for (int i = 0; i < Param_Count; ++i) {
         Parameter *param = &p->parameters[i];
-        if (param->type == ParameterType_Bool) {
-            param->min_value = FALSE;
-            param->max_value = TRUE;
-        }
 
         if (!param->value_to_text) {
             switch (param->type) {
@@ -194,10 +204,8 @@ static void _clear_midi(Plugin *p) {
 
 // Plugin wrapper impl
 #if defined(ARBOR_CLAP)
-#pragma message "Building Arbor CLAP"
 #include "arbor_clap.c"
 #elif defined(ARBOR_VST3)
-#pragma message "Building Arbor VST3"
 #include "arbor_vst3.c"
 #endif
 
