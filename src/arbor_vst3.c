@@ -709,6 +709,8 @@ static Vst3Plugin *vst3_plugin_create() {
     if (!_plugin_init(vst3->plugin, vst3, NULL))
         return NULL;
 
+    vst3->plugin->user_iface.init_cb(vst3->plugin);
+
     return vst3;
 }
 
