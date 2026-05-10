@@ -37,11 +37,11 @@ static void _check_rebuild(const char *bin, const char *src) {
 static String _format_plist(PluginBuild *build) {
     STACK_ALLOC_BEGIN(512);
     String plist_path = path_join(STACK_ALLOC, (String[]){
-        string(build->arbor_path),
+        string(build->arbor_src_path),
         STR_LIT("macos_bundle_plist.txt"),
     }, 2);
-    File fd = file_open(string_to_cstring(STACK_ALLOC, plist_path), FileOpen_ReadOnly);
-    const u8 *fmt = file_read_full_alloc(fd, &_arena.allocator);
+    File fd = file_open(plist_path, FileOpen_ReadOnly);
+    const char *fmt = file_read_full_alloc(fd, &_arena.allocator);
     file_close(fd);
 
     PluginDescription desc = build->config.desc;
@@ -90,22 +90,18 @@ static void install_plugin(PluginBuild *build, String output_path) {
 
     // Update plugin binary
     println("Installing plugin file @ %.*s", plugin_dest.len, plugin_dest.data);
-    // File src = file_open(string_to_cstring(STACK_ALLOC, output_path), FileOpen_ReadOnly);
-    // File dest = file_open(string_to_cstring(STACK_ALLOC, plugin_dest), 0);
     file_copy(output_path, plugin_dest);
-    // file_close(src);
-    // file_close(dest);
 
     // Update plugin plist
     {
-        File plist_fd = file_open(string_to_cstring(STACK_ALLOC, plist_path), 0);
+        File plist_fd = file_open(plist_path, 0);
         String plist = _format_plist(build);
         file_write_string(plist_fd, plist);
         file_close(plist_fd);
     }
     // Update plugin PkgInfo file
     {
-        File pkginfo_fd = file_open(string_to_cstring(STACK_ALLOC, pkginfo_path), 0);
+        File pkginfo_fd = file_open(pkginfo_path, 0);
         file_write_string(pkginfo_fd, STR_LIT("BNDL????"));
         file_close(pkginfo_fd);
     }
@@ -121,7 +117,6 @@ static void install_plugin(PluginBuild *build, String output_path) {
         // String cmd = string_printf(STACK_ALLOC, "codesign -f -s - %.*s", bundle_dir.len, bundle_dir.data);
         char *cmd = STACK_ALLOC->alloc(STACK_ALLOC, bundle_dir.len * 2);
         sprintf(cmd, "codesign -f -s - %.*s", bundle_dir.len, bundle_dir.data);
-        // char *cstr = string_to_cstring(STACK_ALLOC, cmd);
         println("Codesigning bundle: %s", cmd);
         if (system(cmd) != 0) {
             err("Codesign failed: %s", strerror(errno));
@@ -131,23 +126,19 @@ static void install_plugin(PluginBuild *build, String output_path) {
     // Copy debug contents
     String dbg_src = string_concat(STACK_ALLOC, (String[]){output_path, STR_LIT(".dSYM")}, 2);
     String dbg_dst = string_concat(STACK_ALLOC, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
+    if (dir_exists(dbg_dst)) {
+        file_delete(dbg_dst);
+    }
     if (!file_copy_recursive(dbg_src, dbg_dst)) {
         err("Copy debug info failed\n");
     }
-
-    // char copy_cmd[256] = {0};
-    // sprintf(copy_cmd, "cp -r %.*s.dSYM %.*s.dSYM", output_path.len, output_path.data,
-    //     plugin_dest.len, plugin_dest.data);
-    // if (system(copy_cmd) != 0) {
-    //     err("Copy debug info failed: %s", strerror(errno));
-    // }
 
 }
 
 static void build_plugin(PluginBuild *build) {
     _arena = arena_init(page_size());
 
-    if (file_exists("generated/user_code.c")) {
+    if (file_exists(STR_LIT("generated/user_code.c"))) {
         if (file_mtime(build->config_file) > file_mtime("generated/user_code.c")) {
             config_build(build);
         }
@@ -167,6 +158,19 @@ static void build_plugin(PluginBuild *build) {
 
         if (build->debug) {
             string_array_append(STACK_ALLOC, &args, STR_LIT("-g"));
+        }
+
+        switch (build->optimize_mode) {
+        case Optimize_Regular:
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-O2"));
+            break;
+        case Optimize_Fast:
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-O3"));
+            break;
+        case Optimize_Size:
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-Os"));
+            break;
+        default: break;
         }
 
         String out_path = {0};
@@ -190,7 +194,7 @@ static void build_plugin(PluginBuild *build) {
         String args_str = string_array_flatten(STACK_ALLOC, &args);
         char cmd[512] = {0};
         string_print_buf(cmd, sizeof(cmd), "cc %.*s %s/arbor.c", args_str.len, args_str.data,
-            build->arbor_path);
+            build->arbor_src_path);
 
         dbg("Executing command: %s", cmd);
 

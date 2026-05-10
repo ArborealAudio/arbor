@@ -7,15 +7,15 @@
 #include "../cbase/cbase.h"
 
 typedef struct {
-    const char *name;
-    const char *id;
-    const char *company;
-    const char *version;
-    const char *copyright;
-    const char *url;
-    const char *contact;
-    const char *manual;
-    const char *description;
+    char *name;
+    char *id;
+    char *company;
+    char *version;
+    char *copyright;
+    char *url;
+    char *contact;
+    char *manual;
+    char *description;
 } PluginDescription;
 
 typedef u32 PluginFeatures;
@@ -186,6 +186,45 @@ const Parameter *get_parameter_info(Plugin *p, u32 param_id);
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_default(Plugin *p, u32 param_id);
+
+AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
+    AudioBuffer32 buf = {
+        .num_frames = num_frames,
+        .num_ch = num_ch,
+    };
+
+    buf.data = alloc->alloc(alloc, num_ch * sizeof(f32*));
+    for (u32 ch = 0; ch < num_ch; ++ch) {
+        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f32));
+    }
+
+    return buf;
+}
+
+AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
+    AudioBuffer64 buf = {
+        .num_frames = num_frames,
+        .num_ch = num_ch,
+    };
+
+    buf.data = alloc->alloc(alloc, num_ch * sizeof(f64*));
+    for (u32 ch = 0; ch < num_ch; ++ch) {
+        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f64));
+    }
+
+    return buf;
+}
+
+void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
+    assert(dst.num_ch == src.num_ch);
+    assert(dst.num_frames == src.num_frames);
+
+    for (u32 ch = 0; ch < src.num_ch; ++ch) {
+        for (u32 i = 0; i < src.num_frames; ++i) {
+            dst.data[ch][i] = (f64)src.data[ch][i];
+        }
+    }
+}
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)

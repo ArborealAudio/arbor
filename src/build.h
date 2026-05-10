@@ -18,7 +18,7 @@ typedef u32 BuildFormat;
 typedef struct {
     char *src_file;
     char *config_file;
-    char *arbor_path;
+    char *arbor_src_path;
     PluginConfig config;
     BuildFormat format;
     bool debug;

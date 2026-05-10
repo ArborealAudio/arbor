@@ -270,7 +270,7 @@ static bool is_alpha(const u8 c) {
 
 // TODO Support printing string literals i.e. stuff w/ spaces in it
 // may necessitate a new kind of token that includes the quotes as its data, is treated a little differently
-static String get_identifier(const u8 *token_start) {
+static String get_identifier(const char *token_start) {
 	u32 len = 0, i = 0;
 	while (true) {
 		const u8 c = token_start[i];
@@ -283,11 +283,11 @@ static String get_identifier(const u8 *token_start) {
 	return (String){.data = (char*)token_start, .len = len};
 }
 
-static String node_get_identifier(Node *n, const u8 *config_data) {
+static String node_get_identifier(Node *n, const char *config_data) {
     return get_identifier(config_data + tokens[n->token_id].offset);
 }
 
-static String node_get_parameter_name(Node *n, const u8 *config_data) {
+static String node_get_parameter_name(Node *n, const char *config_data) {
     if (n->type == Node_ParamDecl || n->param_field == ParamField_Name)
         return node_get_identifier(n, config_data);
 
@@ -353,7 +353,7 @@ static bool node_has_field(Node *node, ParamField field) {
 }
 
 static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
-                                        const u8 *config_data) {
+                                        const char *config_data) {
 	String data = node_get_identifier(root, config_data);
 	dbg("Printing node data: %.*s", data.len, data.data);
 	switch (root->type) {
@@ -449,11 +449,10 @@ static u32 hash_plugin_id(char *plugin_id) {
 }
 
 static void config_build(PluginBuild *build) {
-    const char *config_path = build->config_file;
     arena = arena_init(page_size());
     Allocator *alloc = &arena.allocator;
-    File user_config_fd = file_open(config_path, FileOpen_ReadOnly);
-    const u8 *const data = file_read_full_alloc(user_config_fd, alloc);
+    File user_config_fd = file_open(string(build->config_file), FileOpen_ReadOnly);
+    char *const data = file_read_full_alloc(user_config_fd, alloc);
     file_close(user_config_fd);
 
     struct {
@@ -672,7 +671,7 @@ static void config_build(PluginBuild *build) {
             return;
         }
 	}
-	File config_fd = file_open("generated/user_code.c", 0);
+	File config_fd = file_open(STR_LIT("generated/user_code.c"), 0);
 	if (!config_fd.fd) {
         arena_deinit(&arena);
         return;
