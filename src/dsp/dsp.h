@@ -24,6 +24,16 @@ static inline f32 lin2dbf(f32 x) {
     return 20.f * logf(x);
 }
 
+static inline f32 mapf(f32 x, f32 min, f32 max) {
+    return (x * (max - min)) + min;
+}
+
+static inline f32 mapLogf(f32 x, f32 min, f32 max) {
+    f32 lmax = log10f(max);
+    f32 lmin = log10f(min);
+    return powf(10.f, x * (lmax - lmin) + lmin);
+}
+
 //
 // IIR FILTER
 //
@@ -36,6 +46,8 @@ typedef enum {
     IIR_Filter_FirstOrderHighpass,
     IIR_Filter_FirstOrderLowshelf,
     IIR_Filter_FirstOrderHighshelf,
+    // TODO Replaced with "Vicanek" matched biquad filter
+    IIR_Filter_Peak,
     IIR_Filter_Type_Count,
 } IIR_FilterType;
 
@@ -62,9 +74,12 @@ static void filter_reset(IIR_Filter *f);
 static void filter_set_coeffs(IIR_Filter *f);
 static void filter_set_cutoff(IIR_Filter *f, f32 cutoff);
 static void filter_set_reso(IIR_Filter *f, f32 reso);
+static void filter_set_gain(IIR_Filter *f, f32 gain);
 static void filter_set_type(IIR_Filter *f, IIR_FilterType type);
 static void filter_set_sample_rate(IIR_Filter *f, f64 sample_rate);
 static f32 filter_process_sample(IIR_Filter *f, f32 sample);
 static void filter_process(IIR_Filter *f, const f32 *in, f32 *out, u32 num_frames);
+
+#include "lr_filter.h"
 
 #endif

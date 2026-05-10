@@ -96,6 +96,25 @@ static void filter_set_coeffs(IIR_Filter *f) {
         f->a2 = 0;
         f->b2 = 0;
     } break;
+    case IIR_Filter_Peak: {
+        const f64 k = tan(PI * f->cutoff / sr);
+        const f64 k2 = k * k;
+        if (f->gain >= 0) {
+            const f64 norm = 1 / (1 + 1 / f->reso * k + k2);
+            f->b0 = (1 + f->gain / f->reso * k + k2) * norm;
+            f->b1 = 2 * (k2 - 1) * norm;
+            f->b2 = (1 - f->gain / f->reso * k + k2) * norm;
+            f->a1 = f->b1;
+            f->a2 = (1 - 1 / f->reso * k + k2) * norm;
+        } else {
+            const f64 norm = 1 / (1 + f->gain / f->reso * k + k2);
+            f->b0 = (1 + 1 / f->reso * k + k2) * norm;
+            f->b1 = 2 * (k2 - 1) * norm;
+            f->b2 = (1 - 1 / f->reso * k + k2) * norm;
+            f->a1 = f->b1;
+            f->b2 = (1 - f->gain / f->reso * k + k2) * norm;
+        }
+    } break;
     default: break;
     }
 }
@@ -107,6 +126,11 @@ static void filter_set_cutoff(IIR_Filter *f, f32 cutoff) {
 
 static void filter_set_reso(IIR_Filter *f, f32 reso) {
     f->reso = reso;
+    filter_set_coeffs(f);
+}
+
+static void filter_set_gain(IIR_Filter *f, f32 gain) {
+    f->gain = gain;
     filter_set_coeffs(f);
 }
 
@@ -136,3 +160,5 @@ static void filter_process(IIR_Filter *f, const f32 *in, f32 *out, u32 num_frame
         out[i] = filter_process_sample(f, in[i]);
     }
 }
+
+#include "lr_filter.c"
