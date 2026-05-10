@@ -5,7 +5,7 @@ static void filter_reset(IIR_Filter *f) {
 }
 
 static void filter_set_coeffs(IIR_Filter *f) {
-    if (f->type < IIR_Filter_FirstOrderLowpass && f->reso == 0) {
+    if ((f->type < IIR_Filter_FirstOrderLowpass || f->type == IIR_Filter_Peak) && f->reso == 0) {
         err("2nd-order Filter cannot have reso of 0\n");
         f->reso = SQRT1_2;
     }
@@ -66,7 +66,7 @@ static void filter_set_coeffs(IIR_Filter *f) {
     } break;
     case IIR_Filter_FirstOrderHighpass: {
         const f64 fc = f->cutoff / sr;
-        f->a1 = exp(-fc * TWO_PI);
+        f->a1 = -exp(-fc * TWO_PI);
         const f64 gain_nyq = sqrt(0.25 / (0.25 + fc * fc));
         f->b0 = 0.5 * gain_nyq * (1 - f->a1);
         f->b1 = -f->b0;
