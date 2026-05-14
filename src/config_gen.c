@@ -136,6 +136,14 @@ static ParamType match_param_type(String identifier) {
 	return ParamType_None;
 }
 
+typedef enum {
+    ParseError_None,
+    ParseError_InvalidToken,
+    ParseError_ExpectedNewline,
+    ParseError_MaxNodesReached,
+    ParseError_FilesystemError,
+} ParseError;
+
 typedef struct {
 	NodeType type;
 	u32 token_id;
@@ -144,13 +152,16 @@ typedef struct {
 	u32 last;
 	u32 next;
 
+	// If the node is corresponds to a parameter field declaration, this should be non-zero
 	ParamField param_field;
+	// If the node is corresponds to a parameter type declaration, this should be non-zero.
+	// `param_field` should be set to ParamField_Type
 	ParamType param_type;
 } Node;
 
 #define MAX_NODES 512
 static Node nodes[MAX_NODES] = {
-	[0] = (Node){},
+	[0] = {0},
 };
 
 // State to handle conversion of tokens into parsed data fields
@@ -168,6 +179,9 @@ static struct {
 	u32 parent_stack_head;
 } parser = {0};
 
+// Global reference to user config data
+static char *config_data;
+
 static Node *get_node(u32 id) {
 	if (id >= parser.head || id == 0)
 		return NULL;
@@ -175,6 +189,7 @@ static Node *get_node(u32 id) {
 	return &nodes[id];
 }
 
+__attribute__((deprecated("Don't use this! Refactor around not using 0 as root ID")))
 static Node *get_node_incl_root(u32 id) {
 	if (id == 0)
 		return &nodes[0];
@@ -205,7 +220,21 @@ static void parser_pop_parent() {
 	parser.parent_stack[parser.parent_stack_head--] = 0;
 }
 
-static void parser_push_node(NodeType node_type, u32 token_id) {
+static Node *parser_get_last_param_decl() {
+    if (!parser.head)
+        return NULL;
+    u32 i = parser.head - 1;
+    while (i > 0) {
+        Node *node = get_node(i);
+        if (node->type == Node_ParamDecl)
+            return node;
+        i = node->parent;
+    }
+
+    return NULL;
+}
+
+static ParseError parser_push_node(NodeType node_type, u32 token_id) {
 	const u32 id = parser.head;
 	Node node = (Node){
 		.type = node_type,
@@ -215,45 +244,54 @@ static void parser_push_node(NodeType node_type, u32 token_id) {
 	node.parent = parent;
 	switch (node_type) {
 	case Node_ParamDecl: {
-        Node *last = get_node(get_node_incl_root(parent)->last);
-		if (last) {
-			last->next = id; // link ourselves to previous sibling
-		}
-		parser_push_parent(id);
+	    assert(!parent);
+		// Get last param decl, if there is one
+		Node *last_param_decl = parser_get_last_param_decl();
+  		if (last_param_decl) {
+ 			last_param_decl->next = id; // link ourselves to previous sibling
+  		}
+  		parser_push_parent(id);
 	} break;
     case Node_ParamProperty: {
-	    Node *last = get_node(get_node_incl_root(parent)->last);
-		if (last) {
-		    last->next = id;
-		}
-		parser_push_parent(id);
+        if (parent) {
+    	    u32 last = get_node(parent)->last;
+    		if (last) {
+    		    get_node(last)->next = id;
+    		}
+    		parser_push_parent(id);
+        }
     } break;
 	case Node_ParamPropertyValue: break;
 	case Node_ListItem: {
-        Node *last = get_node(get_node_incl_root(parent)->last);
-		if (last) {
-			last->next = id; // link ourselves to previous sibling
+	    if (parent) {
+       	    u32 last = get_node(parent)->last;
+    		if (last) {
+    			get_node(last)->next = id; // link ourselves to previous sibling
+    		}
 		}
 	} break;
 	case Node_Invalid: {
 		Token t = tokens[node.token_id];
+		// TODO Improve error messages
 		println("Error: invalid node @ byte %d", t.offset);
+		return ParseError_InvalidToken;
 	} break;
 	}
 	if (id >= MAX_NODES) {
-		err("Max node count reached\n");
-		return;
+		return ParseError_MaxNodesReached;
 	}
 
 	// Link ourselves to parent
-	{
-		Node *ptr = get_node_incl_root(parent);
+	if (parent) {
+		Node *ptr = get_node(parent);
 		if (!ptr->first)
 			ptr->first = id;
 		ptr->last = id;
 	}
 	nodes[parser.head] = node;
 	parser.head += 1;
+
+	return ParseError_None;
 }
 
 static bool is_whitespace(const u8 c) {
@@ -283,28 +321,31 @@ static String get_identifier(const char *token_start) {
 	return (String){.data = (char*)token_start, .len = len};
 }
 
-static String node_get_identifier(Node *n, const char *config_data) {
+static String node_get_identifier(Node *n) {
     return get_identifier(config_data + tokens[n->token_id].offset);
 }
 
-static String node_get_parameter_name(Node *n, const char *config_data) {
+static String node_get_parameter_name(Node *n) {
     if (n->type == Node_ParamDecl || n->param_field == ParamField_Name)
-        return node_get_identifier(n, config_data);
+        return node_get_identifier(n);
 
 	// search siblings
-	Node *parent = get_node_incl_root(n->parent);
-	Node *first_child = get_node(parent->first);
-	for (Node *node = first_child; node != NULL; node = get_node(node->next)) {
-		if (n->type == Node_ParamDecl || n->param_field == ParamField_Name)
-			return node_get_identifier(node, config_data);
+	u32 parent = n->parent;
+	if (parent) {
+    	Node *first_child = get_node(get_node(parent)->first);
+    	for (Node *node = first_child; node != NULL; node = get_node(node->next)) {
+    		if (n->type == Node_ParamDecl || n->param_field == ParamField_Name)
+    			return node_get_identifier(node);
+    	}
 	}
 
 	// Check parent
     while (parent) {
-    	if (parent->type == Node_ParamDecl || parent->param_field == ParamField_Name) {
-    	    return node_get_identifier(parent, config_data);
+        Node *ptr = get_node(parent);
+    	if (ptr->type == Node_ParamDecl || ptr->param_field == ParamField_Name) {
+    	    return node_get_identifier(ptr);
     	}
-        parent = get_node(parent->parent);
+        parent = ptr->parent;
     }
 
 	return (String){0};
@@ -312,7 +353,7 @@ static String node_get_parameter_name(Node *n, const char *config_data) {
 
 static ParamType node_get_parameter_type(Node *n) {
     assert(n->type == Node_ParamDecl);
-    for (Node *child = get_node(n->first); child != 0; child = get_node(child->next)) {
+    for (Node *child = get_node(n->first); child != NULL; child = get_node(child->next)) {
         if (child->type == Node_ParamProperty && child->param_field == ParamField_Type) {
             return get_node(child->first)->param_type;
         }
@@ -338,10 +379,12 @@ static bool node_has_field(Node *node, ParamField field) {
     if (node->param_field == field)
         return true;
     // Search siblings
-    Node *parent = get_node_incl_root(node->parent);
-    for (Node *child = get_node(parent->first); child != NULL; child = get_node(child->next)) {
-        if (child->param_field == field)
-            return true;
+    u32 parent = node->parent;
+    if (parent) {
+        for (Node *child = get_node(get_node(parent)->first); child != NULL; child = get_node(child->next)) {
+            if (child->param_field == field)
+                return true;
+        }
     }
 
     for (Node *child = get_node(node->first); child != NULL; child = get_node(child->next)) {
@@ -352,9 +395,8 @@ static bool node_has_field(Node *node, ParamField field) {
     return false;
 }
 
-static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
-                                        const char *config_data) {
-	String data = node_get_identifier(root, config_data);
+static void print_node_fields_recursive(File f, Allocator *alloc, Node *root) {
+	String data = node_get_identifier(root);
 	dbg("Printing node data: %.*s", data.len, data.data);
 	switch (root->type) {
 	case Node_ParamDecl:
@@ -368,7 +410,7 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 			} else {
     			Node *choices = node_get_choices(root);
     			Node *min = get_node(choices->first);
-    			String min_value = node_get_identifier(min, config_data);
+    			String min_value = node_get_identifier(min);
     			file_printf(f, alloc, "\t\t.min_value = %.*s,\n", min_value.len, min_value.data);
 			}
 		}
@@ -378,7 +420,7 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 			} else {
     			Node *choices = node_get_choices(root);
     			Node *max = get_node(choices->last);
-    			String max_value = node_get_identifier(max, config_data);
+    			String max_value = node_get_identifier(max);
     			file_printf(f, alloc, "\t\t.max_value = %.*s,\n", max_value.len, max_value.data);
 			}
 		}
@@ -399,7 +441,7 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 			file_write_string(f, field);
 		} break;
 		case ParamField_Choices: {
-		    String param_name = node_get_parameter_name(root, config_data);
+		    String param_name = node_get_parameter_name(root);
 			file_printf(f, alloc, "\t\t.choices = (StringArray){%.*s_names, %.*s_Count},\n", param_name.len,
     			param_name.data, param_name.len, param_name.data);
 		} break;
@@ -429,7 +471,7 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root,
 	}
 
 	for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
-		print_node_fields_recursive(f, alloc, node, config_data);
+		print_node_fields_recursive(f, alloc, node);
 	}
 
 	if (root->type == Node_ParamDecl) {
@@ -448,12 +490,15 @@ static u32 hash_plugin_id(char *plugin_id) {
     return hash;
 }
 
-static void config_build(PluginBuild *build) {
+static ParseError config_build(PluginBuild *build) {
     arena = arena_init(page_size());
     Allocator *alloc = &arena.allocator;
     File user_config_fd = file_open(string(build->config_file), FileOpen_ReadOnly);
     char *const data = file_read_full_alloc(user_config_fd, alloc);
+    config_data = data;
     file_close(user_config_fd);
+
+    ParseError result = ParseError_None;
 
     struct {
         enum {
@@ -556,9 +601,9 @@ static void config_build(PluginBuild *build) {
 	Token *t = &tokens[0];
 	for (u32 i = 0; i < token_head; ++i) {
 		if (parser.state == Parse_Error) {
-			print("Parse error:");
+			print("Parse error: %d", result);
 			string_println(get_identifier(data + t->offset));
-			break;
+			goto cleanup;
 		}
 		t = &tokens[i];
 		switch (t->type) {
@@ -582,12 +627,14 @@ static void config_build(PluginBuild *build) {
 					parser.state = Parse_Parameter;
 					parser_pop_parent();
 				} else {
+				    result = ParseError_ExpectedNewline;
 					parser.state = Parse_Error;
 				}
 				break;
 			case Parse_ListItem:
 				parser_push_node(Node_ListItem, i);
 				if (eat_token(), !check_token(Token_Newline)) {
+                    result = ParseError_ExpectedNewline;
 					parser.state = Parse_Error;
 				}
 				break;
@@ -602,6 +649,7 @@ static void config_build(PluginBuild *build) {
 				    parser.state = Parse_Parameter;
 					parser_pop_parent();
 				} else {
+                    result = ParseError_ExpectedNewline;
 				    parser.state = Parse_Error;
 				}
 			}
@@ -613,6 +661,7 @@ static void config_build(PluginBuild *build) {
 					parser.state = Parse_Parameter;
 					parser_pop_parent();
 				} else {
+                    result = ParseError_ExpectedNewline;
 					parser.state = Parse_Error;
 				}
 			} else {
@@ -623,6 +672,7 @@ static void config_build(PluginBuild *build) {
 			if (parser.state == Parse_ParameterProperty) {
 				parser.state = Parse_ListItem;
 			} else {
+			    result = ParseError_InvalidToken;
 				parser.state = Parse_Error;
 			}
 			break;
@@ -642,18 +692,18 @@ static void config_build(PluginBuild *build) {
 	// Assign relevant type information to nodes
 	for (u32 i = 1; i < parser.head; ++i) {
 		Node *n = get_node(i);
-		String content = get_identifier(data + tokens[n->token_id].offset);
+		String content = node_get_identifier(n);
 		dbg("Node %d: (%s) ^%d >%d | ", i, node_type_names[n->type], n->parent, n->next);
 		string_println(content);
 		switch (n->type) {
 		case Node_ParamProperty: {
-			String identifier = get_identifier(data + tokens[n->token_id].offset);
+			String identifier = node_get_identifier(n);
 			n->param_field = match_param_field(identifier);
 		} break;
 		case Node_ParamPropertyValue: {
 			Node *parent = get_node(n->parent);
 			if (parent->param_field == ParamField_Type) {
-				String identifier = get_identifier(data + tokens[n->token_id].offset);
+				String identifier = node_get_identifier(n);
 				n->param_type = match_param_type(identifier);
 			}
 		} break;
@@ -668,13 +718,15 @@ static void config_build(PluginBuild *build) {
         if (!make_dir(STR_LIT("generated/"))) {
             err("Failed to make generated dir\n");
             arena_deinit(&arena);
-            return;
+            result = ParseError_FilesystemError;
+            goto cleanup;
         }
 	}
 	File config_fd = file_open(STR_LIT("generated/user_code.c"), 0);
 	if (!config_fd.fd) {
         arena_deinit(&arena);
-        return;
+        result = ParseError_FilesystemError;
+        goto cleanup;
 	}
 	file_write_string(config_fd, STR_LIT("//\n// Generated code, do not edit\n//\n\n"));
 	// Iterate all top-level parameter nodes & generate enum & param names table
@@ -682,8 +734,7 @@ static void config_build(PluginBuild *build) {
 	{
 		String header = STR_LIT("typedef enum {\n");
 		file_write_string(config_fd, header);
-		Node *root = get_node_incl_root(0);
-		for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
+		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
 			file_printf(config_fd, &arena.allocator, "\tParam_%.*s,\n", name.len, name.data);
@@ -697,8 +748,7 @@ static void config_build(PluginBuild *build) {
 	{
 		String header = STR_LIT("static String param_names[Param_Count] = {\n");
 		file_write_string(config_fd, header);
-		Node *root = &nodes[0];
-		for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
+		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
 			file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", name.len, name.data);
@@ -710,7 +760,7 @@ static void config_build(PluginBuild *build) {
 	{
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
 		    if (node->type == Node_ParamDecl) {
-				String param_name = node_get_parameter_name(node, data);
+				String param_name = node_get_parameter_name(node);
     			Node *choices = node_get_choices(node);
                 if (!choices)
                     continue;
@@ -721,7 +771,7 @@ static void config_build(PluginBuild *build) {
                 array_init_capacity(STACK_ALLOC, &names, 16);
                 // iterate each choice
                 for (Node *choice = get_node(choices->first); choice != NULL; choice = get_node(choice->next)) {
-                    String identifier = node_get_identifier(choice, data);
+                    String identifier = node_get_identifier(choice);
                     array_append(STACK_ALLOC, &names, identifier);
                     file_printf(config_fd, alloc, "\t%.*s,\n", identifier.len, identifier.data);
                 }
@@ -742,9 +792,8 @@ static void config_build(PluginBuild *build) {
 	{
 		String header = STR_LIT("static Parameter parameter_layout[Param_Count] = {\n");
 		file_write_string(config_fd, header);
-		Node *root = get_node_incl_root(0);
-		for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
-			print_node_fields_recursive(config_fd, alloc, node, data);
+		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
+			print_node_fields_recursive(config_fd, alloc, node);
 		}
 		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
@@ -802,6 +851,10 @@ static void config_build(PluginBuild *build) {
 	file_close(config_fd);
 
 	usize mem_used = arena_query_capacity(&arena);
-	println("Arena mem used: %zuB", mem_used);
+cleanup:
+    println("Config generation complete");
+    println("Arena mem: %.2fkB", (float)mem_used / 1024);
     arena_deinit(&arena);
+
+    return result;
 }

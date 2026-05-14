@@ -15,12 +15,15 @@ static void _check_rebuild(const char *bin, const char *src) {
         // self-rebuild
         println("Recompiling build runner");
 
-        char cmd[512] = {0};
-        sprintf(cmd, "cc -o %s %s", bin, src);
+        // char cmd[512] = {0};
+        // sprintf(cmd, "cc -o %s %s", bin, src);
+        STACK_ALLOC_BEGIN(512);
+        String cmd = string_printf(STACK_ALLOC, "cc -o %s %s", bin, src);
+        char *cstr = cstring_from_string(STACK_ALLOC, cmd);
 
-        println("Executing self-build: %s", cmd);
+        println("Executing self-build: %.*s", cmd.len, cmd.data);
 
-        if (system(cmd) != 0) {
+        if (system(cstr) != 0) {
             err("Self-build failed\n");
             exit(1);
         }
@@ -140,10 +143,16 @@ static void build_plugin(PluginBuild *build) {
 
     if (file_exists(STR_LIT("generated/user_code.c"))) {
         if (file_mtime(build->config_file) > file_mtime("generated/user_code.c")) {
-            config_build(build);
+            if (config_build(build) != ParseError_None) {
+                err("Config parse failed\n");
+                goto cleanup;
+            }
         }
     } else {
-        config_build(build);
+        if (config_build(build) != ParseError_None) {
+            err("Config parse failed\n");
+            goto cleanup;
+        }
     }
 
     PluginDescription plugin_desc = build->config.desc;
@@ -202,6 +211,7 @@ static void build_plugin(PluginBuild *build) {
         println("Command exited with code %d", result);
         if (result != 0) {
             err("Build command failed with code %d\n", result);
+            goto cleanup;
         }
 
         if (build->install)
@@ -215,5 +225,10 @@ static void build_plugin(PluginBuild *build) {
         }
     }
 
+    usize arena_mem = arena_query_capacity(&_arena);
+    usize stack_mem = _sa.head;
+cleanup:
+    println("Build process finished");
+    println("Arena mem: %.2fkB | Stack mem: %.2fkB", (float)arena_mem / 1024, (float)stack_mem / 1024);
     arena_deinit(&_arena);
 }
