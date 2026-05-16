@@ -49,12 +49,12 @@ typedef enum {
     ParameterType_Bool,
 } ParameterType;
 
-typedef struct Parameter Parameter;
+typedef struct ParameterInfo ParameterInfo;
 
-typedef void(*ParameterValueToText)(const Parameter *p, f32 value, char *buf, u32 buf_size);
-typedef float(*ParameterTextToValue)(const Parameter *p, const char *text);
+typedef void(*ParameterValueToText)(const ParameterInfo *p, f32 value, char *buf, u32 buf_size);
+typedef float(*ParameterTextToValue)(const ParameterInfo *p, const char *text);
 
-struct Parameter {
+struct ParameterInfo {
     String name;
     StringArray choices;
     ParameterType type;
@@ -131,7 +131,8 @@ typedef struct {
     ProcessFn process_cb;
 } PluginInterface;
 
-typedef struct PluginParameterData PluginParameterData;
+typedef struct ParameterData ParameterData;
+typedef struct InternalParameters InternalParameters;
 
 struct Plugin {
     u32 audio_input_count;
@@ -155,12 +156,14 @@ struct Plugin {
     void *plugin_wrapper;
     const void *host;
 
-    void *user;
     PluginInterface user_iface;
 
-    // TODO: Rename this type to ParameterInfo & field to parameter_info
-    Parameter *parameters;
-    PluginParameterData *params;
+    // WE don't really need this?
+    // ParameterInfo *parameters;
+
+    InternalParameters *params;
+
+    // TODO u64 param_change_mask;
 };
 
 Allocator *plugin_allocator(Plugin *p);
@@ -174,18 +177,31 @@ PluginInterface plugin_create(Allocator *);
 void *plugin_get_user(Plugin *p);
 
 f64 get_sample_rate(Plugin *p);
+// Get a struct representing all current parameter data. This is a copy of the plugin's parameter
+// state, hence why it is returned by value rather than by pointer. The intended way to use this
+// is by calling it once in your plugin's process callback, then passing references by pointer to
+// any downstream functions which will need it.
+ParameterData get_plugin_parameters(Plugin *p);
+// Get a parameter value run through a smoothing funciton to prevent audio artefacts.
+// TODO figure out how to handle multiple channels
+f32 get_parameter_smoothed(Plugin *p, u32 param_id);
 // [Audio Thread] Get a parameter value
 f32 get_parameter(Plugin *p, u32 param_id);
 // [Main Thread] Get a parameter value
+__attribute__((deprecated))
 f32 get_parameter_main(Plugin *p, u32 param_id);
 // [Audio Thread] Set a parameter value
 void set_parameter(Plugin *p, u32 param_id, float value);
 // [Main Thread] Set a parameter value
+__attribute__((deprecated))
 void set_parameter_main(Plugin *p, u32 param_id, float value);
-const Parameter *get_parameter_info(Plugin *p, u32 param_id);
+const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id);
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_default(Plugin *p, u32 param_id);
+// TODO API for parameter changes, e.g.:
+// Checks a param change mask against the provided ID
+// bool parameter_changed(Plugin *p, u32 param_id);
 
 AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
     AudioBuffer32 buf = {

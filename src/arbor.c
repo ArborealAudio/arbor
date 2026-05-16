@@ -13,13 +13,13 @@ Allocator *plugin_allocator(Plugin *p) {
     return &p->main_arena.allocator;
 }
 
-void *plugin_get_user(Plugin *p) { return p->user; }
+void *plugin_get_user(Plugin *p) { return p->user_iface.user; }
 
-static void default_float_print(const Parameter *p, f32 value, char *buf, u32 buf_size) {
+static void default_float_print(const ParameterInfo *p, f32 value, char *buf, u32 buf_size) {
     string_print_buf(buf, buf_size, "%.3f", value);
 }
 
-static void default_choice_print(const Parameter *p, f32 value, char *buf, u32 buf_size) {
+static void default_choice_print(const ParameterInfo *p, f32 value, char *buf, u32 buf_size) {
     if ((uint)value >= p->choices.count)
         return;
 
@@ -27,7 +27,7 @@ static void default_choice_print(const Parameter *p, f32 value, char *buf, u32 b
     memcpy(buf, choice.data, choice.len);
 }
 
-static void default_bool_print(const Parameter *p, f32 value, char *buf, u32 buf_size) {
+static void default_bool_print(const ParameterInfo *p, f32 value, char *buf, u32 buf_size) {
     const char on[] = "On";
     const char off[] = "Off";
     if (value > 0) {
@@ -39,29 +39,61 @@ static void default_bool_print(const Parameter *p, f32 value, char *buf, u32 buf
 
 #include <user_code.c>
 
-struct PluginParameterData {
-    // TODO replace these with a generated struct that just contains fields named after parameters,
-    // would be sick if they were typed the same as the input e.g.:
-    // float gain;
-    // float out_gain;
-    // float freq;
-    // Mode saturation_mode;
-    // bool input_boost;
-    float audio[Param_Count];
-    float main[Param_Count];
+struct InternalParameters {
+    float data[Param_Count];
 };
 
 f64 get_sample_rate(Plugin *p) {
     return p->sample_rate;
 }
 
-f32 get_parameter(Plugin *p, u32 param_id) {
+char *_raw_param_data_from_id(ParameterData *data, u32 id) {
+    return (char*)data + (id * 4);
+}
+
+ParameterData get_plugin_parameters(Plugin *p) {
+    ParameterData data;
+    float *params = p->params->data;
+    for (int i = 0; i < Param_Count; ++i) {
+        ParameterInfo *info = &parameter_layout[i];
+        char *raw = _raw_param_data_from_id(&data, i);
+        switch (info->type) {
+        case ParameterType_Bool:
+        case ParameterType_Int:
+        case ParameterType_Choice: {
+            int v = (int)params[i];
+            memcpy(raw, &v, 4);
+        } break;
+        case ParameterType_Float: {
+            float v = params[i];
+            memcpy(raw, &v, 4);
+        } break;
+        }
+    }
+
+    return data;
+}
+
+f32 get_parameter_smoothed(Plugin *p, u32 param_id) {
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return 0;
     }
 
-    return p->params->audio[param_id];
+    // TODO smooth result i.e.:
+    // f32 smoothed = _calc_smoothed_param(p, param_id);
+    // return smoothed;
+    return p->params->data[param_id];
+}
+
+f32 get_parameter(Plugin *p, u32 param_id) {
+    // TODO assert that this is the main thread
+    if (param_id >= Param_Count) {
+        err("Invalid param ID\n");
+        return 0;
+    }
+
+    return p->params->data[param_id];
 }
 
 f32 get_parameter_main(Plugin *p, u32 param_id) {
@@ -69,18 +101,18 @@ f32 get_parameter_main(Plugin *p, u32 param_id) {
         err("Invalid param ID\n");
         return 0;
     }
-
-    return p->params->main[param_id];
+    return p->params->data[param_id];
 }
 
 void set_parameter(Plugin *p, u32 param_id, float value) {
+    // TODO assert that this is the main thread
     dbg("%d: %.2f", param_id, value);
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return;
     }
 
-    p->params->audio[param_id] = value;
+    p->params->data[param_id] = value;
 }
 
 void set_parameter_main(Plugin *p, u32 param_id, float value) {
@@ -89,30 +121,31 @@ void set_parameter_main(Plugin *p, u32 param_id, float value) {
         return;
     }
 
-    p->params->main[param_id] = value;
+    p->params->data[param_id] = value;
 }
 
-const Parameter *get_parameter_info(Plugin *p, u32 param_id) {
+const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id) {
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return NULL;
     }
 
-    return &p->parameters[param_id];
+    return &parameter_layout[param_id];
+    // return &p->parameters[param_id];
 }
 
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value) {
-    Parameter *param = &p->parameters[param_id];
+    ParameterInfo *param = &parameter_layout[param_id];
     return (value - param->min_value) / (param->max_value - param->min_value);
 }
 
 f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value) {
-    Parameter *param = &p->parameters[param_id];
+    ParameterInfo *param = &parameter_layout[param_id];
     return value * (param->max_value - param->min_value) + param->min_value;
 }
 
 f32 get_parameter_default(Plugin *p, u32 param_id) {
-    Parameter *param = &p->parameters[param_id];
+    ParameterInfo *param = &parameter_layout[param_id];
     if (!param) {
         err("Invalid param ID\n");
         return 0;
@@ -131,12 +164,10 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         .note_input_count = plugin_config.note_ports.inputs,
         .main_arena = arena,
         .plugin_wrapper = wrapper_ptr,
-        .parameters = parameter_layout,
+        // .parameters = parameter_layout,
         .user_iface = plugin_create(&arena.allocator),
-        .params = arena_alloc(&arena, sizeof(PluginParameterData)),
+        .params = arena_alloc(&arena, sizeof(InternalParameters)),
     };
-    // Copy user pointer "up" one level for quicker access
-    p->user = p->user_iface.user;
 
     // check for user errors in provided interface
     if (!p->user_iface.init_cb) {
@@ -156,23 +187,23 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
     }
 
     for (int i = 0; i < Param_Count; ++i) {
-        Parameter *param = &p->parameters[i];
+        ParameterInfo *pinfo = &parameter_layout[i];
 
-        if (!param->value_to_text) {
-            switch (param->type) {
+        if (!pinfo->value_to_text) {
+            switch (pinfo->type) {
             case ParameterType_Float:
-                param->value_to_text = default_float_print;
+                pinfo->value_to_text = default_float_print;
                 break;
             case ParameterType_Choice:
-                param->value_to_text = default_choice_print;
+                pinfo->value_to_text = default_choice_print;
                 break;
             case ParameterType_Bool:
-                param->value_to_text = default_bool_print;
+                pinfo->value_to_text = default_bool_print;
                 break;
             default: break;
             }
         }
-        p->params->audio[i] = p->params->main[i] = param->default_value;
+        p->params->data[i] = pinfo->default_value;
     }
 
     cleanup: {

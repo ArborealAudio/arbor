@@ -202,6 +202,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         if (next_event_frame == i) {
             ParamChange change = vst3->param_changes[event_id];
             assert(change.offset == i);
+            // TODO replace with push parameter change
             set_parameter(plugin, change.id, change.value);
             event_id++;
             if (vst3->param_changes[event_id].valid) {
@@ -241,7 +242,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     }
 
     // sync main params to audio params
-    memcpy(plugin->params->main, plugin->params->audio, sizeof(plugin->params->audio));
+    // memcpy(plugin->params->main, plugin->params->audio, sizeof(plugin->params->audio));
 
     return Steinberg_kResultOk;
 }
@@ -509,7 +510,7 @@ static Steinberg_tresult controller_get_parameter_info (void* thisInterface, Ste
 
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, controller);
     Plugin *plugin = vst3->plugin;
-    const Parameter *param = get_parameter_info(plugin, paramIndex);
+    const ParameterInfo *param = get_parameter_info(plugin, paramIndex);
     if (!param) {
         return Steinberg_kInvalidArgument;
     }
@@ -548,7 +549,7 @@ static Steinberg_tresult controller_param_string_by_value (void* thisInterface, 
     dbg();
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, controller);
     Plugin *plugin = vst3->plugin;
-    const Parameter *param = get_parameter_info(plugin, id);
+    const ParameterInfo *param = get_parameter_info(plugin, id);
     if (!param) {
         return Steinberg_kInvalidArgument;
     }
@@ -599,7 +600,7 @@ static Steinberg_Vst_ParamValue controller_get_param_normalized (void* thisInter
         return 0;
     }
 
-    f32 value = get_parameter_main(plugin, id);
+    f32 value = get_parameter(plugin, id);
     return get_parameter_normalized(plugin, id, value);
 }
 

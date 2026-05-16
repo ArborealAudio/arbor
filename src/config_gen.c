@@ -395,7 +395,33 @@ static bool node_has_field(Node *node, ParamField field) {
     return false;
 }
 
-static void print_node_fields_recursive(File f, Allocator *alloc, Node *root) {
+static void print_parameter_data(File f, Allocator *alloc, Node *root) {
+    switch (root->type) {
+    case Node_ParamDecl: {
+        ParamType type = node_get_parameter_type(root);
+        String type_name = node_get_parameter_name(root);
+        String field_name = string_to_snake_case(alloc, type_name);
+        switch (type) {
+        case ParamType_Choice:
+            file_printf(f, alloc, "\t%.*s %.*s;\n", type_name.len, type_name.data, field_name.len, field_name.data);
+            break;
+        case ParamType_Bool:
+            file_printf(f, alloc, "\tbool32 %.*s;\n", field_name.len, field_name.data);
+            break;
+        case ParamType_Float:
+            file_printf(f, alloc, "\tfloat %.*s;\n", field_name.len, field_name.data);
+            break;
+        case ParamType_Int:
+            file_printf(f, alloc, "\tint %.*s;\n", field_name.len, field_name.data);
+            break;
+        default: break;
+        }
+    } break;
+    default: break;
+    }
+}
+
+static void print_parameter_info(File f, Allocator *alloc, Node *root) {
 	String data = node_get_identifier(root);
 	dbg("Printing node data: %.*s", data.len, data.data);
 	switch (root->type) {
@@ -471,7 +497,7 @@ static void print_node_fields_recursive(File f, Allocator *alloc, Node *root) {
 	}
 
 	for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
-		print_node_fields_recursive(f, alloc, node);
+		print_parameter_info(f, alloc, node);
 	}
 
 	if (root->type == Node_ParamDecl) {
@@ -759,41 +785,50 @@ static ParseError config_build(PluginBuild *build) {
 	// Find any enum parameters & generate enums & names
 	{
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
-		    if (node->type == Node_ParamDecl) {
-				String param_name = node_get_parameter_name(node);
-    			Node *choices = node_get_choices(node);
-                if (!choices)
-                    continue;
-                STACK_ALLOC_BEGIN(KB(1));
-                // Print enum
-                file_printf(config_fd, alloc, "typedef enum {\n");
-                Array(String) names;
-                array_init_capacity(STACK_ALLOC, &names, 16);
-                // iterate each choice
-                for (Node *choice = get_node(choices->first); choice != NULL; choice = get_node(choice->next)) {
-                    String identifier = node_get_identifier(choice);
-                    array_append(STACK_ALLOC, &names, identifier);
-                    file_printf(config_fd, alloc, "\t%.*s,\n", identifier.len, identifier.data);
-                }
-                file_printf(config_fd, alloc, "\t%.*s_Count,\n", param_name.len, param_name.data);
-                file_printf(config_fd, alloc, "} %.*s;\n\n", param_name.len, param_name.data);
+		    assert(node->type == Node_ParamDecl);
+			String param_name = node_get_parameter_name(node);
+ 			Node *choices = node_get_choices(node);
+            if (!choices)
+                continue;
+            STACK_ALLOC_BEGIN(KB(1));
+            // Print enum
+            file_printf(config_fd, alloc, "typedef enum {\n");
+            Array(String) names;
+            array_init_capacity(STACK_ALLOC, &names, 16);
+            // iterate each choice
+            for (Node *choice = get_node(choices->first); choice != NULL; choice = get_node(choice->next)) {
+                String identifier = node_get_identifier(choice);
+                array_append(STACK_ALLOC, &names, identifier);
+                file_printf(config_fd, alloc, "\t%.*s,\n", identifier.len, identifier.data);
+            }
+            file_printf(config_fd, alloc, "\t%.*s_Count,\n", param_name.len, param_name.data);
+            file_printf(config_fd, alloc, "} %.*s;\n\n", param_name.len, param_name.data);
 
-                // Print names array
-                file_printf(config_fd, alloc, "static String %.*s_names[%.*s_Count] = {\n",
-                    param_name.len, param_name.data, param_name.len, param_name.data);
-                for (int i = 0; i < names.len; ++i) {
-                    file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", names.items[i].len, names.items[i].data);
-                }
-                file_printf(config_fd, alloc, "};\n\n");
-			}
+            // Print names array
+            file_printf(config_fd, alloc, "static String %.*s_names[%.*s_Count] = {\n",
+                param_name.len, param_name.data, param_name.len, param_name.data);
+            for (int i = 0; i < names.len; ++i) {
+                file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", names.items[i].len, names.items[i].data);
+            }
+            file_printf(config_fd, alloc, "};\n\n");
 		}
 	}
-	// Iterate tree & write out its fields
+	// Iterate tree & print ParameterData struct
 	{
-		String header = STR_LIT("static Parameter parameter_layout[Param_Count] = {\n");
+		String header = STR_LIT("struct ParameterData{\n");
 		file_write_string(config_fd, header);
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
-			print_node_fields_recursive(config_fd, alloc, node);
+			print_parameter_data(config_fd, alloc, node);
+		}
+		String footer = STR_LIT("};\n\n");
+		file_write_string(config_fd, footer);
+	}
+	// Iterate tree & print ParameterInfo array
+	{
+		String header = STR_LIT("static ParameterInfo parameter_layout[Param_Count] = {\n");
+		file_write_string(config_fd, header);
+		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
+			print_parameter_info(config_fd, alloc, node);
 		}
 		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
@@ -850,11 +885,12 @@ static ParseError config_build(PluginBuild *build) {
 
 	file_close(config_fd);
 
-	usize mem_used = arena_query_capacity(&arena);
-cleanup:
+cleanup: {
+    usize mem_used = arena_query_capacity(&arena);
     println("Config generation complete");
     println("Arena mem: %.2fkB", (float)mem_used / 1024);
     arena_deinit(&arena);
+}
 
     return result;
 }
