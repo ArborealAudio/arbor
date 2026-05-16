@@ -148,6 +148,14 @@ static Steinberg_tresult audio_processor_setup_processing (void* thisInterface, 
     dbg();
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
     Plugin *plugin = vst3->plugin;
+
+    // Prepare parameter smoothers
+    for (int ch = 0; ch < plugin->audio_input_count; ++ch) {
+        plugin->param_smoother[ch].b = exp(-2 * PI * (PARAM_SMOOTH_HZ / setup->sampleRate));
+        plugin->param_smoother[ch].a = 1.0 - plugin->param_smoother[ch].b;
+        memset(plugin->param_smoother[ch].state, 0, sizeof(plugin->param_smoother[ch].state));
+    }
+
     plugin->user_iface.prepare_cb(plugin, setup->sampleRate, setup->maxSamplesPerBlock);
     return Steinberg_kResultOk;
 }
@@ -241,8 +249,8 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         i += frames_to_process;
     }
 
-    // sync main params to audio params
-    // memcpy(plugin->params->main, plugin->params->audio, sizeof(plugin->params->audio));
+    // sync main params from audio params
+    memcpy(plugin->params->main, plugin->params->audio, sizeof(plugin->params->audio));
 
     return Steinberg_kResultOk;
 }

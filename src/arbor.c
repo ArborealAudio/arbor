@@ -40,20 +40,26 @@ static void default_bool_print(const ParameterInfo *p, f32 value, char *buf, u32
 #include <user_code.c>
 
 struct InternalParameters {
-    float data[Param_Count];
+    f32 audio[Param_Count];
+    f32 main[Param_Count];
+};
+
+struct ParameterSmoother {
+    f32 a, b;
+    f32 state[Param_Count];
 };
 
 f64 get_sample_rate(Plugin *p) {
     return p->sample_rate;
 }
 
-char *_raw_param_data_from_id(ParameterData *data, u32 id) {
+static char *_raw_param_data_from_id(ParameterData *data, u32 id) {
     return (char*)data + (id * 4);
 }
 
 ParameterData get_plugin_parameters(Plugin *p) {
     ParameterData data;
-    float *params = p->params->data;
+    float *params = p->params->audio;
     for (int i = 0; i < Param_Count; ++i) {
         ParameterInfo *info = &parameter_layout[i];
         char *raw = _raw_param_data_from_id(&data, i);
@@ -74,16 +80,23 @@ ParameterData get_plugin_parameters(Plugin *p) {
     return data;
 }
 
-f32 get_parameter_smoothed(Plugin *p, u32 param_id) {
+// TODO should all these bounds checks on param_id be asserts?
+
+static f32 _calc_smoothed_param(ParameterSmoother *sm, f32 value, u32 param_id) {
+    f32 z = sm->state[param_id];
+    f32 y = value * sm->a + z * sm->b;
+    sm->state[param_id] = y;
+    return y;
+}
+
+f32 get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch) {
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return 0;
     }
 
-    // TODO smooth result i.e.:
-    // f32 smoothed = _calc_smoothed_param(p, param_id);
-    // return smoothed;
-    return p->params->data[param_id];
+    f32 value = p->params->audio[param_id];
+    return _calc_smoothed_param(&p->param_smoother[ch], value, param_id);
 }
 
 f32 get_parameter(Plugin *p, u32 param_id) {
@@ -93,7 +106,7 @@ f32 get_parameter(Plugin *p, u32 param_id) {
         return 0;
     }
 
-    return p->params->data[param_id];
+    return p->params->audio[param_id];
 }
 
 f32 get_parameter_main(Plugin *p, u32 param_id) {
@@ -101,7 +114,7 @@ f32 get_parameter_main(Plugin *p, u32 param_id) {
         err("Invalid param ID\n");
         return 0;
     }
-    return p->params->data[param_id];
+    return p->params->main[param_id];
 }
 
 void set_parameter(Plugin *p, u32 param_id, float value) {
@@ -112,16 +125,7 @@ void set_parameter(Plugin *p, u32 param_id, float value) {
         return;
     }
 
-    p->params->data[param_id] = value;
-}
-
-void set_parameter_main(Plugin *p, u32 param_id, float value) {
-    if (param_id >= Param_Count) {
-        err("Invalid param ID\n");
-        return;
-    }
-
-    p->params->data[param_id] = value;
+    p->params->audio[param_id] = value;
 }
 
 const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id) {
@@ -153,6 +157,46 @@ f32 get_parameter_default(Plugin *p, u32 param_id) {
     return param->default_value;
 }
 
+AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
+    AudioBuffer32 buf = {
+        .num_frames = num_frames,
+        .num_ch = num_ch,
+    };
+
+    buf.data = alloc->alloc(alloc, num_ch * sizeof(f32*));
+    for (u32 ch = 0; ch < num_ch; ++ch) {
+        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f32));
+    }
+
+    return buf;
+}
+
+AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
+    AudioBuffer64 buf = {
+        .num_frames = num_frames,
+        .num_ch = num_ch,
+    };
+
+    buf.data = alloc->alloc(alloc, num_ch * sizeof(f64*));
+    for (u32 ch = 0; ch < num_ch; ++ch) {
+        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f64));
+    }
+
+    return buf;
+}
+
+void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
+    assert(dst.num_ch == src.num_ch);
+    assert(dst.num_frames == src.num_frames);
+
+    for (u32 ch = 0; ch < src.num_ch; ++ch) {
+        for (u32 i = 0; i < src.num_frames; ++i) {
+            dst.data[ch][i] = (f64)src.data[ch][i];
+        }
+    }
+}
+
+
 // Internal functions
 
 static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
@@ -164,10 +208,10 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         .note_input_count = plugin_config.note_ports.inputs,
         .main_arena = arena,
         .plugin_wrapper = wrapper_ptr,
-        // .parameters = parameter_layout,
         .user_iface = plugin_create(&arena.allocator),
         .params = arena_alloc(&arena, sizeof(InternalParameters)),
     };
+    p->param_smoother = arena_alloc(&arena, sizeof(ParameterSmoother) * p->audio_input_count);
 
     // check for user errors in provided interface
     if (!p->user_iface.init_cb) {
@@ -203,7 +247,7 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
             default: break;
             }
         }
-        p->params->data[i] = pinfo->default_value;
+        p->params->audio[i] = p->params->main[i] = pinfo->default_value;
     }
 
     cleanup: {

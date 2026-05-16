@@ -111,8 +111,8 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
     dbg();
     Plugin *p = plugin->plugin_data;
     InternalParameters *param = (InternalParameters*)p;
-    usize size = sizeof(param->data);
-    u64 written = stream->write(stream, param->data, size);
+    usize size = sizeof(param->main);
+    u64 written = stream->write(stream, param->main, size);
     return size == written;
 }
 
@@ -120,8 +120,8 @@ static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream
     dbg();
     Plugin *p = plugin->plugin_data;
     InternalParameters *param = (InternalParameters*)p;
-    usize size = sizeof(param->data);
-    u64 read = stream->read(stream, param->data, size);
+    usize size = sizeof(param->main);
+    u64 read = stream->read(stream, param->main, size);
     return size == read;
 }
 
@@ -238,14 +238,12 @@ static clap_plugin_params_t plugin_params = {
 
 // PLUGIN
 static bool plugin_init(const clap_plugin_t *plugin) {
-    // TODO call user init code
     Plugin *p = plugin->plugin_data;
     p->user_iface.init_cb(p);
     return true;
 }
 
 static void plugin_destroy(const clap_plugin_t *plugin) {
-    // TODO call user deinit code
     Plugin *p = plugin->plugin_data;
     p->user_iface.deinit_cb(p);
     arena_deinit(&p->main_arena);
@@ -256,6 +254,12 @@ static bool plugin_activate(const clap_plugin_t *plugin, f64 sample_rate, u32 mi
     p->sample_rate = sample_rate;
     p->min_frames = min_frames;
     p->max_frames = max_frames;
+    // Prepare parameter smoothers
+    for (int ch = 0; ch < p->audio_input_count; ++ch) {
+        p->param_smoother[ch].b = exp(-2 * PI * (PARAM_SMOOTH_HZ / sample_rate));
+        p->param_smoother[ch].a = 1.0 - p->param_smoother[ch].b;
+        memset(p->param_smoother[ch].state, 0, sizeof(p->param_smoother[ch].state));
+    }
     p->user_iface.prepare_cb(p, sample_rate, max_frames);
     return true;
 }
@@ -299,7 +303,6 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                 case CLAP_EVENT_PARAM_VALUE: {
                     clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
                     dbg("Param value event: %d = %.2f", event->param_id, event->value);
-                    // p->params_audio[event->param_id] = (float)event->value;
                     // TODO Replace with pushing param change
                     set_parameter(p, event->param_id, (float)event->value);
                 } break;
@@ -371,7 +374,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         i += frames_to_process;
     }
     // Sync main params to audio params
-    // memcpy(p->params->main, p->params->audio, sizeof(p->params->audio));
+    memcpy(p->params->main, p->params->audio, sizeof(p->params->audio));
     return CLAP_PROCESS_CONTINUE;
 }
 

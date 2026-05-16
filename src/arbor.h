@@ -133,6 +133,11 @@ typedef struct {
 
 typedef struct ParameterData ParameterData;
 typedef struct InternalParameters InternalParameters;
+typedef struct ParameterSmoother ParameterSmoother;
+
+#ifndef PARAM_SMOOTH_HZ
+#define PARAM_SMOOTH_HZ 10.0
+#endif
 
 struct Plugin {
     u32 audio_input_count;
@@ -147,6 +152,7 @@ struct Plugin {
 
     Arena main_arena;
 
+    // TODO Make this a pointer to a struct, so that we can leave this empty if MIDI is not needed
     struct {
         MidiEvent buffer[MIDI_BUFFER_CAP]; // TODO What's a reasonable max size for MIDI
         uint head;
@@ -158,12 +164,10 @@ struct Plugin {
 
     PluginInterface user_iface;
 
-    // WE don't really need this?
-    // ParameterInfo *parameters;
-
     InternalParameters *params;
-
-    // TODO u64 param_change_mask;
+    // An n-channel-sized array, manages smoothing of all parameter values
+    ParameterSmoother *param_smoother;
+    u64 param_change_mask;
 };
 
 Allocator *plugin_allocator(Plugin *p);
@@ -184,17 +188,11 @@ f64 get_sample_rate(Plugin *p);
 ParameterData get_plugin_parameters(Plugin *p);
 // Get a parameter value run through a smoothing funciton to prevent audio artefacts.
 // TODO figure out how to handle multiple channels
-f32 get_parameter_smoothed(Plugin *p, u32 param_id);
-// [Audio Thread] Get a parameter value
+f32 get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch);
+//  Get a parameter value
 f32 get_parameter(Plugin *p, u32 param_id);
-// [Main Thread] Get a parameter value
-__attribute__((deprecated))
-f32 get_parameter_main(Plugin *p, u32 param_id);
-// [Audio Thread] Set a parameter value
+//  Set a parameter value
 void set_parameter(Plugin *p, u32 param_id, float value);
-// [Main Thread] Set a parameter value
-__attribute__((deprecated))
-void set_parameter_main(Plugin *p, u32 param_id, float value);
 const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id);
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
@@ -203,44 +201,10 @@ f32 get_parameter_default(Plugin *p, u32 param_id);
 // Checks a param change mask against the provided ID
 // bool parameter_changed(Plugin *p, u32 param_id);
 
-AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
-    AudioBuffer32 buf = {
-        .num_frames = num_frames,
-        .num_ch = num_ch,
-    };
-
-    buf.data = alloc->alloc(alloc, num_ch * sizeof(f32*));
-    for (u32 ch = 0; ch < num_ch; ++ch) {
-        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f32));
-    }
-
-    return buf;
-}
-
-AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
-    AudioBuffer64 buf = {
-        .num_frames = num_frames,
-        .num_ch = num_ch,
-    };
-
-    buf.data = alloc->alloc(alloc, num_ch * sizeof(f64*));
-    for (u32 ch = 0; ch < num_ch; ++ch) {
-        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f64));
-    }
-
-    return buf;
-}
-
-void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
-    assert(dst.num_ch == src.num_ch);
-    assert(dst.num_frames == src.num_frames);
-
-    for (u32 ch = 0; ch < src.num_ch; ++ch) {
-        for (u32 i = 0; i < src.num_frames; ++i) {
-            dst.data[ch][i] = (f64)src.data[ch][i];
-        }
-    }
-}
+AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames);
+AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames);
+// Copy a 32-bit buffer to a pre-allocated 64-bit buffer
+void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src);
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
