@@ -15,15 +15,15 @@ static void _check_rebuild(const char *bin, const char *src) {
         // self-rebuild
         println("Recompiling build runner");
 
-        // char cmd[512] = {0};
-        // sprintf(cmd, "cc -o %s %s", bin, src);
-        STACK_ALLOC_BEGIN(512);
-        String cmd = string_printf(STACK_ALLOC, "cc -o %s %s", bin, src);
-        char *cstr = cstring_from_string(STACK_ALLOC, cmd);
+        char cmd[512] = {0};
+        sprintf(cmd, "cc -o %s %s", bin, src);
+        // STACK_ALLOC_BEGIN(512);
+        // String cmd = string_printf(STACK_ALLOC, "cc -o %s %s", bin, src);
+        // char *cstr = cstring_from_string(STACK_ALLOC, cmd);
 
-        println("Executing self-build: %.*s", cmd.len, cmd.data);
+        println("Executing self-build: %s", cmd);
 
-        if (system(cstr) != 0) {
+        if (system(cmd) != 0) {
             err("Self-build failed\n");
             exit(1);
         }
@@ -225,10 +225,11 @@ static void build_plugin(PluginBuild *build) {
         }
     }
 
+cleanup: {
     usize arena_mem = arena_query_capacity(&_arena);
     usize stack_mem = _sa.head;
-cleanup:
     println("Build process finished");
     println("Arena mem: %.2fkB | Stack mem: %.2fkB", (float)arena_mem / 1024, (float)stack_mem / 1024);
     arena_deinit(&_arena);
+}
 }
