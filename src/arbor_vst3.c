@@ -57,15 +57,15 @@ typedef struct {
 
 #define vst3_from_ptr(ptr, field) (Vst3Plugin*)((char*)(ptr) - offsetof(Vst3Plugin, field))
 
-static int compare_param_change_offset(const void *a, const void *b) {
+static int _compare_param_change_offset(const void *a, const void *b) {
     ParamChange *change_a = (ParamChange*)a;
     ParamChange *change_b = (ParamChange*)b;
 
     return change_a->offset - change_b->offset;
 }
 
-static void sort_param_changes(Vst3Plugin *vst3) {
-    qsort(vst3->param_changes, vst3->param_change_head, sizeof(ParamChange), compare_param_change_offset);
+static void _sort_param_changes(Vst3Plugin *vst3) {
+    qsort(vst3->param_changes, vst3->param_change_head, sizeof(ParamChange), _compare_param_change_offset);
 }
 
 // TODO Figure out when plugin is actually destroyed, based on accumulated refs
@@ -198,7 +198,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     }
 
     if (param_change_count > 0) {
-        sort_param_changes(vst3);
+        _sort_param_changes(vst3);
         if (vst3->param_changes->valid) {
             next_event_frame = vst3->param_changes->offset;
         }
@@ -207,10 +207,11 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     u32 i = 0;
     u32 event_id = 0;
     while (i < num_frames) {
-        if (next_event_frame == i) {
+        while (next_event_frame == i) {
+        // if (next_event_frame == i) {
             ParamChange change = vst3->param_changes[event_id];
             assert(change.offset == i);
-            // TODO replace with push parameter change
+            _plugin_push_param_change_id(plugin, change.id);
             set_parameter(plugin, change.id, change.value);
             event_id++;
             if (vst3->param_changes[event_id].valid) {
@@ -246,6 +247,8 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
                                           .length = plugin->midi.head,
                                       });
 
+        _clear_midi(plugin);
+        _plugin_reset_param_changes(plugin);
         i += frames_to_process;
     }
 

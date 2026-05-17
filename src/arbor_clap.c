@@ -293,24 +293,25 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     u32 event_id = 0;
     u32 next_event_frame = num_in_events > 0 ? 0 : num_frames;
     while (i < num_frames) {
-        if (next_event_frame == i) {
+        while (next_event_frame == i) {
+        // if (next_event_frame == i) {
             const clap_event_header_t *hdr = in_events->get(in_events, event_id);
             if (hdr) {
                 if (hdr->time != i)
                     next_event_frame = hdr->time;
-                // handle event
                 switch (hdr->type) {
                 case CLAP_EVENT_PARAM_VALUE: {
                     clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
                     dbg("Param value event: %d = %.2f", event->param_id, event->value);
-                    // TODO Replace with pushing param change
                     set_parameter(p, event->param_id, (float)event->value);
+                    _plugin_push_param_change_id(p, event->param_id);
                 } break;
                 case CLAP_EVENT_PARAM_MOD: {
                     clap_event_param_mod_t *event = (clap_event_param_mod_t*)hdr;
                     dbg("Param mod: %d += %.2f", event->param_id, event->amount);
                     f32 current = get_parameter(p, event->param_id);
                     set_parameter(p, event->param_id, current + (float)event->amount);
+                    _plugin_push_param_change_id(p, event->param_id);
                 } break;
                 case CLAP_EVENT_NOTE_ON:
                 case CLAP_EVENT_NOTE_OFF: {
@@ -370,7 +371,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                                  });
 
         _clear_midi(p);
-
+        _plugin_reset_param_changes(p);
         i += frames_to_process;
     }
     // Sync main params to audio params

@@ -186,8 +186,8 @@ f64 get_sample_rate(Plugin *p);
 // is by calling it once in your plugin's process callback, then passing references by pointer to
 // any downstream functions which will need it.
 ParameterData get_plugin_parameters(Plugin *p);
-// Get a parameter value run through a smoothing funciton to prevent audio artefacts.
-// TODO figure out how to handle multiple channels
+// Get a parameter value run through a smoothing funciton to prevent audio artefacts. Requires a
+// channel index.
 f32 get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch);
 //  Get a parameter value
 f32 get_parameter(Plugin *p, u32 param_id);
@@ -197,9 +197,9 @@ const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id);
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_default(Plugin *p, u32 param_id);
-// TODO API for parameter changes, e.g.:
 // Checks a param change mask against the provided ID
-// bool parameter_changed(Plugin *p, u32 param_id);
+// The return value should remain valid for the duration of the audio process callback
+bool parameter_changed(Plugin *p, u32 param_id);
 
 AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames);
 AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames);

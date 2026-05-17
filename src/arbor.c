@@ -157,6 +157,19 @@ f32 get_parameter_default(Plugin *p, u32 param_id) {
     return param->default_value;
 }
 
+static void _plugin_reset_param_changes(Plugin *p) {
+    p->param_change_mask = 0;
+}
+
+static void _plugin_push_param_change_id(Plugin *p, u32 id) {
+    assert(id < 64);
+    p->param_change_mask |= (1 << id);
+}
+
+bool parameter_changed(Plugin *p, u32 param_id) {
+    return (p->param_change_mask & (1 << param_id)) > 0;
+}
+
 AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
     AudioBuffer32 buf = {
         .num_frames = num_frames,
