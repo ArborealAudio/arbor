@@ -34,6 +34,10 @@ static inline f32 mapLogf(f32 x, f32 min, f32 max) {
     return powf(10.f, x * (lmax - lmin) + lmin);
 }
 
+static inline f32 clamp(f32 x, f32 min, f32 max) {
+    return fmaxf(min, fminf(x, max));
+}
+
 //
 // IIR FILTER
 //

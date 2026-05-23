@@ -149,19 +149,12 @@ static Steinberg_tresult audio_processor_setup_processing (void* thisInterface, 
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
     Plugin *plugin = vst3->plugin;
 
-    // Prepare parameter smoothers
-    for (int ch = 0; ch < plugin->audio_input_count; ++ch) {
-        plugin->param_smoother[ch].b = exp(-2 * PI * (PARAM_SMOOTH_HZ / setup->sampleRate));
-        plugin->param_smoother[ch].a = 1.0 - plugin->param_smoother[ch].b;
-        memset(plugin->param_smoother[ch].state, 0, sizeof(plugin->param_smoother[ch].state));
-    }
-
-    plugin->user_iface.prepare_cb(plugin, setup->sampleRate, setup->maxSamplesPerBlock);
+    _plugin_prepare(plugin, setup->sampleRate, 1, (u32)setup->maxSamplesPerBlock);
     return Steinberg_kResultOk;
 }
 
 static Steinberg_tresult audio_processor_set_processing (void* thisInterface, Steinberg_TBool state) {
-    dbg();
+    dbg("state: %d", state);
     return Steinberg_kResultOk;
 }
 
@@ -170,6 +163,13 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     Plugin *plugin = vst3->plugin;
     u32 num_frames = data->numSamples;
     u32 next_event_frame = num_frames;
+
+    // Sync audio params to any changes in main
+    memcpy(plugin->params->audio, plugin->params->main, sizeof(plugin->params->main));
+
+    // Sometimes we get crazy numbers of channels
+    assert(data->inputs->numChannels <= plugin->audio_input_count);
+    assert(data->outputs->numChannels <= plugin->audio_output_count);
 
     int param_change_count = 0;
     if (data->inputParameterChanges) {
@@ -211,8 +211,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         // if (next_event_frame == i) {
             ParamChange change = vst3->param_changes[event_id];
             assert(change.offset == i);
-            _plugin_push_param_change_id(plugin, change.id);
-            set_parameter(plugin, change.id, change.value);
+            _plugin_update_param(plugin, change.id, change.value);
             event_id++;
             if (vst3->param_changes[event_id].valid) {
                 next_event_frame = vst3->param_changes[event_id].offset;
@@ -227,7 +226,8 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         AudioBuffer32 in_buf = {
             .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
             .num_frames = frames_to_process,
-            .num_ch = data->inputs->numChannels,
+            // .num_ch = data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+            .num_ch = plugin->audio_input_count,
         };
         for (int ch = 0; ch < in_buf.num_ch; ++ch) {
             in_buf.data[ch] += i;
@@ -236,7 +236,8 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         AudioBuffer32 out_buf = {
             .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
             .num_frames = frames_to_process,
-            .num_ch = data->outputs->numChannels,
+            // .num_ch = data->outputs->numChannels,
+            .num_ch = plugin->audio_output_count,
         };
         for (int ch = 0; ch < out_buf.num_ch; ++ch) {
             out_buf.data[ch] += i;
@@ -247,7 +248,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
                                           .length = plugin->midi.head,
                                       });
 
-        _clear_midi(plugin);
+        _midi_clear(plugin);
         _plugin_reset_param_changes(plugin);
         i += frames_to_process;
     }
@@ -498,17 +499,17 @@ static Steinberg_tresult controller_terminate (void* thisInterface) {
 
 static Steinberg_tresult controller_set_component_state (void* thisInterface, struct Steinberg_IBStream* state) {
     dbg();
-    return Steinberg_kResultOk;
+    return Steinberg_kNotImplemented;
 }
 
 static Steinberg_tresult controller_set_state (void* thisInterface, struct Steinberg_IBStream* state) {
     dbg();
-    return Steinberg_kResultOk;
+    return Steinberg_kNotImplemented;
 }
 
 static Steinberg_tresult controller_get_state (void* thisInterface, struct Steinberg_IBStream* state) {
     dbg();
-    return Steinberg_kResultOk;
+    return Steinberg_kNotImplemented;
 }
 
 static Steinberg_int32 controller_get_parameter_count (void* thisInterface) {

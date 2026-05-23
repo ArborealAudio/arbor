@@ -129,9 +129,6 @@ static void install_plugin(PluginBuild *build, String output_path) {
     // Copy debug contents
     String dbg_src = string_concat(STACK_ALLOC, (String[]){output_path, STR_LIT(".dSYM")}, 2);
     String dbg_dst = string_concat(STACK_ALLOC, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
-    if (dir_exists(dbg_dst)) {
-        file_delete(dbg_dst);
-    }
     if (!file_copy_recursive(dbg_src, dbg_dst)) {
         err("Copy debug info failed\n");
     }
@@ -167,6 +164,8 @@ static void build_plugin(PluginBuild *build) {
 
         if (build->debug) {
             string_array_append(STACK_ALLOC, &args, STR_LIT("-g"));
+        } else {
+            string_array_append(STACK_ALLOC, &args, STR_LIT("-DNDEBUG"));
         }
 
         switch (build->optimize_mode) {

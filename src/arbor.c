@@ -100,7 +100,6 @@ f32 get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch) {
 }
 
 f32 get_parameter(Plugin *p, u32 param_id) {
-    // TODO assert that this is the main thread
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return 0;
@@ -118,7 +117,6 @@ f32 get_parameter_main(Plugin *p, u32 param_id) {
 }
 
 void set_parameter(Plugin *p, u32 param_id, float value) {
-    // TODO assert that this is the main thread
     dbg("%d: %.2f", param_id, value);
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
@@ -155,15 +153,6 @@ f32 get_parameter_default(Plugin *p, u32 param_id) {
         return 0;
     }
     return param->default_value;
-}
-
-static void _plugin_reset_param_changes(Plugin *p) {
-    p->param_change_mask = 0;
-}
-
-static void _plugin_push_param_change_id(Plugin *p, u32 id) {
-    assert(id < 64);
-    p->param_change_mask |= (1 << id);
 }
 
 bool parameter_changed(Plugin *p, u32 param_id) {
@@ -272,11 +261,51 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
     return ok;
 }
 
+static void _plugin_reset_param_changes(Plugin *p) {
+    p->param_change_mask = 0;
+}
+
+static void _plugin_push_param_change_id(Plugin *p, u32 id) {
+    assert(id < 64);
+    p->param_change_mask |= (1 << id);
+}
+
 static void _plugin_deinit(Plugin *p) {
     arena_deinit(&p->main_arena);
 }
 
-static void _push_midi(Plugin *p, MidiEvent e) {
+static void _plugin_prepare(Plugin *p, f64 sample_rate, u32 min_frames, u32 max_frames) {
+    p->sample_rate = sample_rate;
+    p->min_frames = min_frames;
+    p->max_frames = max_frames;
+    // Prepare parameter smoothers
+    for (int ch = 0; ch < p->audio_input_count; ++ch) {
+        p->param_smoother[ch].b = exp(-2 * PI * (PARAM_SMOOTH_HZ / sample_rate));
+        p->param_smoother[ch].a = 1.0 - p->param_smoother[ch].b;
+        memset(p->param_smoother[ch].state, 0, sizeof(p->param_smoother[ch].state));
+    }
+
+    p->user_iface.prepare_cb(p, sample_rate, max_frames);
+}
+
+static void _plugin_update_param(Plugin *p, u32 param_id, f32 value) {
+    const ParameterInfo *info = get_parameter_info(p, param_id);
+    f32 min = info->min_value;
+    f32 max = info->max_value;
+    set_parameter(p, param_id, clamp(value, min, max));
+    _plugin_push_param_change_id(p, param_id);
+}
+
+static void _plugin_modulate_param(Plugin *p, u32 param_id, f32 amount) {
+    const ParameterInfo *info = get_parameter_info(p, param_id);
+    f32 min = info->min_value;
+    f32 max = info->max_value;
+    f32 current = get_parameter(p, param_id);
+    set_parameter(p, param_id, clamp(current + amount, min, max));
+    _plugin_push_param_change_id(p, param_id);
+}
+
+static void _midi_push(Plugin *p, MidiEvent e) {
     if (p->midi.head >= MIDI_BUFFER_CAP) {
         err("MIDI event overflow\n");
         return;
@@ -285,7 +314,7 @@ static void _push_midi(Plugin *p, MidiEvent e) {
     p->midi.head += 1;
 }
 
-static void _clear_midi(Plugin *p) {
+static void _midi_clear(Plugin *p) {
     p->midi.head = 0;
     memset(p->midi.buffer, 0, sizeof(p->midi.buffer));
 }
