@@ -1,7 +1,7 @@
 #include "vst3/vst3.h"
 #include "arbor.h"
 
-static inline bool tuid_match(const Steinberg_TUID a, const Steinberg_TUID b) {
+static inline bool32 tuid_match(const Steinberg_TUID a, const Steinberg_TUID b) {
     return memcmp(a, b, sizeof(Steinberg_TUID)) == 0;
 }
 
@@ -37,7 +37,7 @@ typedef struct {
 
 
 typedef struct {
-    bool valid;
+    bool32 valid;
     u32 id;
     u32 offset;
     double value;
@@ -186,7 +186,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
                 if (queue->lpVtbl->getPoint(queue, p, &offset, &value) == Steinberg_kResultOk) {
                     f32 normalized = get_parameter_from_normalized(plugin, id, (f32)value);
                     vst3->param_changes[vst3->param_change_head] = (ParamChange){
-                        .valid = true,
+                        .valid = TRUE,
                         .id = id,
                         .offset = offset,
                         .value = normalized,
@@ -243,10 +243,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
             out_buf.data[ch] += i;
         }
 
-        plugin->user_iface.process_cb(plugin, in_buf, out_buf, (MidiBuffer){
-                                          .events = plugin->midi.buffer,
-                                          .length = plugin->midi.head,
-                                      });
+        plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
 
         _midi_clear(plugin);
         _plugin_reset_param_changes(plugin);
@@ -870,11 +867,11 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
         memset(info, 0, sizeof(*info));
         info->cardinality = Steinberg_PClassInfo_ClassCardinality_kManyInstances;
         info->classFlags = Steinberg_PFactoryInfo_FactoryFlags_kUnicode;
-        String16 name = string16_from_utf8(&global_arena.allocator, plugin_config.desc.name);
+        String16 name = string16_from_utf8(&global_arena->allocator, plugin_config.desc.name);
         memcpy(info->name, name.data, name.len * sizeof(u16));
-        String16 version = string16_from_utf8(&global_arena.allocator, plugin_config.desc.version);
+        String16 version = string16_from_utf8(&global_arena->allocator, plugin_config.desc.version);
         memcpy(info->version, version.data, version.len * sizeof(u16));
-        String16 vendor = string16_from_utf8(&global_arena.allocator, plugin_config.desc.company);
+        String16 vendor = string16_from_utf8(&global_arena->allocator, plugin_config.desc.company);
         memcpy(info->vendor, vendor.data, vendor.len * sizeof(u16));
 
         if (plugin_config.features & Feature_Effect) {
@@ -885,7 +882,7 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
             memcpy(info->subCategories, category, sizeof(category));
         }
 
-        String16 sdk_version = string16_from_utf8(&global_arena.allocator, Steinberg_Vst_SDKVersionString);
+        String16 sdk_version = string16_from_utf8(&global_arena->allocator, Steinberg_Vst_SDKVersionString);
         memcpy(info->sdkVersion, sdk_version.data, sdk_version.len * sizeof(u16));
         if (index == 0) {
             memcpy(info->cid, vst3_class_id, sizeof(Steinberg_TUID));
@@ -938,24 +935,24 @@ void *GetPluginFactory() {
     return factory;
 }
 
-bool bundleEntry(void *ctx) {
+bool32 bundleEntry(void *ctx) {
     dbg();
-    global_arena = arena_init(page_size());
-    return true;
+    global_arena = arena_init();
+    return TRUE;
 }
 
-bool bundleExit(void *ctx) {
+bool32 bundleExit(void *ctx) {
     dbg();
-    arena_deinit(&global_arena);
-    return true;
+    arena_deinit(global_arena);
+    return TRUE;
 }
 
-bool ModuleEntry(void *ctx) {
+bool32 ModuleEntry(void *ctx) {
     dbg();
-    return true;
+    return TRUE;
 }
 
-bool ModuleExit(void *ctx) {
+bool32 ModuleExit(void *ctx) {
     dbg();
-    return true;
+    return TRUE;
 }

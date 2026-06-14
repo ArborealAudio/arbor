@@ -2,15 +2,16 @@
 // See LICENSE at this repository's root
 
 #include "arbor.h"
+#include <stddef.h>
 
 // An arena for doing global allocations, i.e. plugin factories, plugin wrapper types before the
 // main plugin data is allocated
-static Arena global_arena;
+static Arena *global_arena;
 
-#define new(T) (T*)arena_alloc(&global_arena, sizeof(T))
+#define new(T) (T*)arena_alloc(global_arena, sizeof(T))
 
 Allocator *plugin_allocator(Plugin *p) {
-    return &p->main_arena.allocator;
+    return &p->main_arena->allocator;
 }
 
 void *plugin_get_user(Plugin *p) { return p->user_iface.user; }
@@ -39,6 +40,13 @@ static void default_bool_print(const ParameterInfo *p, f32 value, char *buf, u32
 
 #include <user_code.c>
 
+// But wait, I have an idea...what if we could replace this with the "typed" ParameterData struct,
+// the `Plugin` holds a pointer to this struct which gets passed to the user. When the user wants
+// a smoothed param value, instead of passing `Param_whatever`, they pass &params->whatever. The ID
+// can be computed by comparing the passed-in pointer against the base pointer to `ParameterData`.
+// Only issue is the separation between main/audio thread data. Really, the data we "need to hide"
+// is just the main thread copy, and so that could be named such that it is clear the user does not
+// need to use it.
 struct InternalParameters {
     f32 audio[Param_Count];
     f32 main[Param_Count];
@@ -89,7 +97,8 @@ static f32 _calc_smoothed_param(ParameterSmoother *sm, f32 value, u32 param_id) 
     return y;
 }
 
-f32 get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch) {
+// `param` is a pointer to the param field in `ParameterData` that you wish to obtain the smoothed value for
+f32 _get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch) {
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return 0;
@@ -155,7 +164,7 @@ f32 get_parameter_default(Plugin *p, u32 param_id) {
     return param->default_value;
 }
 
-bool parameter_changed(Plugin *p, u32 param_id) {
+bool32 parameter_changed(Plugin *p, u32 param_id) {
     return (p->param_change_mask & (1 << param_id)) > 0;
 }
 
@@ -201,34 +210,42 @@ void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
 
 // Internal functions
 
-static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
-    bool ok = true;
-    Arena arena = arena_init(KB(64));
+static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
+    bool32 ok = TRUE;
+    Arena *arena = arena_init();
     *p = (Plugin){
         .audio_input_count = plugin_config.audio_ports.inputs * 2, // TODO Don't assume stereo
         .audio_output_count = plugin_config.audio_ports.outputs * 2,
         .note_input_count = plugin_config.note_ports.inputs,
         .main_arena = arena,
         .plugin_wrapper = wrapper_ptr,
-        .user_iface = plugin_create(&arena.allocator),
-        .params = arena_alloc(&arena, sizeof(InternalParameters)),
+        .user_iface = plugin_create(&arena->allocator),
     };
-    p->param_smoother = arena_alloc(&arena, sizeof(ParameterSmoother) * p->audio_input_count);
+    p->params = plugin_alloc(p, InternalParameters);
+    p->param_smoother = arena_alloc(arena, sizeof(ParameterSmoother) * p->audio_input_count);
+
+    if ((plugin_config.features & Feature_Instrument) || (plugin_config.features & Feature_Synth)) {
+        MidiEvent *data = arena_alloc(arena, sizeof(MidiEvent) * MIDI_BUFFER_CAP);
+        p->midi = (MidiBuffer){
+            .buffer = data,
+            .head = 0,
+        };
+    }
 
     // check for user errors in provided interface
     if (!p->user_iface.init_cb) {
         err("Must provide an init callback function in plugin_create()\n");
-        ok = false;
+        ok = FALSE;
         goto cleanup;
     }
     if (!p->user_iface.prepare_cb) {
         err("Must provide a prepare callback function in plugin_create()\n");
-        ok = false;
+        ok = FALSE;
         goto cleanup;
     }
     if (!p->user_iface.process_cb) {
         err("Must provide a process callback function in plugin_create()\n");
-        ok =  false;
+        ok =  FALSE;
         goto cleanup;
     }
 
@@ -254,7 +271,7 @@ static bool _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
 
     cleanup: {
         if (!ok) {
-            arena_deinit(&p->main_arena);
+            arena_deinit(p->main_arena);
         }
     }
 
@@ -271,7 +288,7 @@ static void _plugin_push_param_change_id(Plugin *p, u32 id) {
 }
 
 static void _plugin_deinit(Plugin *p) {
-    arena_deinit(&p->main_arena);
+    arena_deinit(p->main_arena);
 }
 
 static void _plugin_prepare(Plugin *p, f64 sample_rate, u32 min_frames, u32 max_frames) {
@@ -316,7 +333,7 @@ static void _midi_push(Plugin *p, MidiEvent e) {
 
 static void _midi_clear(Plugin *p) {
     p->midi.head = 0;
-    memset(p->midi.buffer, 0, sizeof(p->midi.buffer));
+    memset(p->midi.buffer, 0, p->midi.head * sizeof(MidiEvent));
 }
 
 // Plugin wrapper impl

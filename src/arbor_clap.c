@@ -4,20 +4,20 @@
 static const char *const *get_clap_features() {
     PluginFeatures plugin_features = plugin_config.features;
     Array(const char *) list;
-    array_init_capacity(&global_arena.allocator, &list, 32);
+    array_init_capacity(&global_arena->allocator, &list, 32);
 
     if (plugin_features & Feature_Mono)
-        array_append(&global_arena.allocator, &list, CLAP_PLUGIN_FEATURE_MONO);
+        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_MONO);
     if (plugin_features & Feature_Stereo)
-        array_append(&global_arena.allocator, &list, CLAP_PLUGIN_FEATURE_STEREO);
+        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_STEREO);
     if (plugin_features & Feature_Surround)
-        array_append(&global_arena.allocator, &list, CLAP_PLUGIN_FEATURE_SURROUND);
+        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_SURROUND);
     if (plugin_features & Feature_Effect)
-        array_append(&global_arena.allocator, &list, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT);
+        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT);
     if (plugin_features & Feature_Instrument)
-        array_append(&global_arena.allocator, &list, CLAP_PLUGIN_FEATURE_INSTRUMENT);
+        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_INSTRUMENT);
 
-    array_append(&global_arena.allocator, &list, NULL);
+    array_append(&global_arena->allocator, &list, NULL);
 
     return list.items;
 }
@@ -268,7 +268,7 @@ static void plugin_destroy(const clap_plugin_t *plugin) {
     dbg();
     Plugin *p = plugin->plugin_data;
     p->user_iface.deinit_cb(p);
-    arena_deinit(&p->main_arena);
+    arena_deinit(p->main_arena);
 }
 
 static bool plugin_activate(const clap_plugin_t *plugin, f64 sample_rate, u32 min_frames, u32 max_frames) {
@@ -379,10 +379,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
             out.data[ch] += i;
         }
 
-        p->user_iface.process_cb(p, in, out, (MidiBuffer){
-                                     .events = p->midi.buffer,
-                                     .length = p->midi.head - 1,
-                                 });
+        p->user_iface.process_cb(p, in, out, p->midi);
 
         _midi_clear(p);
         _plugin_reset_param_changes(p);
@@ -475,13 +472,13 @@ static clap_plugin_factory_t plugin_factory = (clap_plugin_factory_t){
 static bool entry_init(const char *plugin_path) {
     dbg("plugin_path: %s", plugin_path);
     _make_clap_desc(); // make description as early as possible
-    global_arena = arena_init(page_size());
+    global_arena = arena_init();
     return true;
 }
 
 static void entry_deinit() {
     dbg();
-    arena_deinit(&global_arena);
+    arena_deinit(global_arena);
 }
 
 static const void *get_factory(const char *factory_id) {

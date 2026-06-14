@@ -6,7 +6,7 @@
 
 #include "stdlib.h"
 
-static Arena _arena = {0};
+static Arena *_arena;
 
 #define check_rebuild() _check_rebuild(argv[0], __FILE__)
 
@@ -44,12 +44,12 @@ static String _format_plist(PluginBuild *build) {
         STR_LIT("macos_bundle_plist.txt"),
     }, 2);
     File fd = file_open(plist_path, FileOpen_ReadOnly);
-    const char *fmt = file_read_full_alloc(fd, &_arena.allocator);
+    const char *fmt = file_read_full_alloc(fd, &_arena->allocator);
     file_close(fd);
 
     PluginDescription desc = build->config.desc;
 
-    return string_printf(&_arena.allocator, fmt, desc.name, desc.id, desc.name, desc.name, desc.version,
+    return string_printf(&_arena->allocator, fmt, desc.name, desc.id, desc.name, desc.name, desc.version,
         desc.version, desc.copyright);
 }
 
@@ -136,7 +136,7 @@ static void install_plugin(PluginBuild *build, String output_path) {
 }
 
 static void build_plugin(PluginBuild *build) {
-    _arena = arena_init(page_size());
+    _arena = arena_init();
 
     if (file_exists(STR_LIT("generated/user_code.c"))) {
         if (file_mtime(build->config_file) > file_mtime("generated/user_code.c")) {
@@ -225,10 +225,10 @@ static void build_plugin(PluginBuild *build) {
     }
 
 cleanup: {
-    usize arena_mem = arena_query_capacity(&_arena);
+    usize arena_mem = arena_query_size(_arena);
     usize stack_mem = _sa.head;
     println("Build process finished");
     println("Arena mem: %.2fkB | Stack mem: %.2fkB", (float)arena_mem / 1024, (float)stack_mem / 1024);
-    arena_deinit(&_arena);
+    arena_deinit(_arena);
 }
 }

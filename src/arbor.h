@@ -18,7 +18,6 @@ typedef struct {
     char *description;
 } PluginDescription;
 
-typedef u32 PluginFeatures;
 typedef enum {
     Feature_Mono = (1<<0),
     Feature_Stereo = (1<<1),
@@ -38,7 +37,7 @@ typedef enum {
     Feature_Sampler = (1<<15),
     Feature_Drum = (1<<16),
     Feature_Gui = (1<<17),
-} PluginFeature;
+} PluginFeatures;
 
 #define DefaultPluginFeatures Feature_Stereo | Feature_Effect | Feature_Gui
 
@@ -64,7 +63,7 @@ struct ParameterInfo {
     ParameterValueToText value_to_text;
     ParameterTextToValue text_to_value;
     // Sets whether this parameter should be merged with the host's bypass parameter
-    bool is_bypass;
+    bool32 is_bypass;
 };
 
 typedef struct {
@@ -109,8 +108,8 @@ typedef struct {
 } MidiEvent;
 
 typedef struct {
-    MidiEvent *events;
-    uint length;
+    MidiEvent *buffer;
+    uint head;
 } MidiBuffer;
 
 #ifndef MIDI_BUFFER_CAP
@@ -150,13 +149,9 @@ struct Plugin {
     f64 sample_rate;
     u32 latency;
 
-    Arena main_arena;
+    Arena *main_arena;
 
-    // TODO Make this a pointer to a struct, so that we can leave this empty if MIDI is not needed
-    struct {
-        MidiEvent buffer[MIDI_BUFFER_CAP]; // TODO What's a reasonable max size for MIDI
-        uint head;
-    } midi;
+    MidiBuffer midi;
 
     // format-specific plugin type, e.g. clap_plugin_t
     void *plugin_wrapper;
@@ -172,7 +167,7 @@ struct Plugin {
 
 Allocator *plugin_allocator(Plugin *p);
 
-#define plugin_alloc(p, T) (T*)arena_alloc(&p->main_arena, sizeof(T))
+#define plugin_alloc(p, T) (T*)arena_alloc(p->main_arena, sizeof(T))
 
 // A user-defined function which provides a `PluginInterface` to call the user's functions and
 // provide a reference to user-allocated data
@@ -188,7 +183,8 @@ f64 get_sample_rate(Plugin *p);
 ParameterData get_plugin_parameters(Plugin *p);
 // Get a parameter value run through a smoothing funciton to prevent audio artefacts. Requires a
 // channel index.
-f32 get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch);
+static f32 _get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch);
+#define get_parameter_smoothed(plugin, param, ch) _get_parameter_smoothed((plugin), offsetof(ParameterData, param)/4, (ch))
 //  Get a parameter value
 f32 get_parameter(Plugin *p, u32 param_id);
 //  Set a parameter value
@@ -199,7 +195,7 @@ f32 get_parameter_from_normalized(Plugin *p, u32 param_id, f32 value);
 f32 get_parameter_default(Plugin *p, u32 param_id);
 // Checks a param change mask against the provided ID
 // The return value should remain valid for the duration of the audio process callback
-bool parameter_changed(Plugin *p, u32 param_id);
+bool32 parameter_changed(Plugin *p, u32 param_id);
 
 AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames);
 AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames);

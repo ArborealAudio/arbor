@@ -21,9 +21,9 @@ typedef struct {
     char *arbor_src_path;
     PluginConfig config;
     BuildFormat format;
-    bool debug;
+    bool32 debug;
     OptimizeMode optimize_mode;
-    bool install;
+    bool32 install;
 } PluginBuild;
 
 static void build_plugin(PluginBuild *);

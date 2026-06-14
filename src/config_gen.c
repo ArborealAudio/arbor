@@ -19,7 +19,7 @@ other ideas just spitballin':
     Provide an API for getting smoothed param changes
 */
 
-static Arena arena;
+static Arena *arena;
 
 typedef enum {
     Token_Invalid,
@@ -189,17 +189,6 @@ static Node *get_node(u32 id) {
 	return &nodes[id];
 }
 
-__attribute__((deprecated("Don't use this! Refactor around not using 0 as root ID")))
-static Node *get_node_incl_root(u32 id) {
-	if (id == 0)
-		return &nodes[0];
-
-	if (id >= parser.head)
-		return NULL;
-
-	return &nodes[id];
-}
-
 static Node *get_last_node() {
 	return &nodes[parser.head];
 }
@@ -294,15 +283,15 @@ static ParseError parser_push_node(NodeType node_type, u32 token_id) {
 	return ParseError_None;
 }
 
-static bool is_whitespace(const u8 c) {
+static bool32 is_whitespace(const u8 c) {
 	return (c == ' ' || c == '\t');
 }
 
-static bool is_numeric(const u8 c) {
+static bool32 is_numeric(const u8 c) {
 	return (c >= '0' && c <= '9');
 }
 
-static bool is_alpha(const u8 c) {
+static bool32 is_alpha(const u8 c) {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 }
 
@@ -310,7 +299,7 @@ static bool is_alpha(const u8 c) {
 // may necessitate a new kind of token that includes the quotes as its data, is treated a little differently
 static String get_identifier(const char *token_start) {
 	u32 len = 0, i = 0;
-	while (true) {
+	while (TRUE) {
 		const u8 c = token_start[i];
 		if (is_whitespace(c) || c == '\n') {
 			break;
@@ -375,24 +364,24 @@ static Node *node_get_choices(Node *n) {
 }
 
 // Checks whether node has a child or sibling which provides a parameter name
-static bool node_has_field(Node *node, ParamField field) {
+static bool32 node_has_field(Node *node, ParamField field) {
     if (node->param_field == field)
-        return true;
+        return TRUE;
     // Search siblings
     u32 parent = node->parent;
     if (parent) {
         for (Node *child = get_node(get_node(parent)->first); child != NULL; child = get_node(child->next)) {
             if (child->param_field == field)
-                return true;
+                return TRUE;
         }
     }
 
     for (Node *child = get_node(node->first); child != NULL; child = get_node(child->next)) {
         if (child->param_field == field)
-            return true;
+            return TRUE;
     }
 
-    return false;
+    return FALSE;
 }
 
 static void print_parameter_data(File f, Allocator *alloc, Node *root) {
@@ -432,17 +421,20 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
 		}
 		if (!node_has_field(root, ParamField_Min)) {
 		    if (node_get_parameter_type(root) == ParamType_Bool) {
-				file_write_string(f, STR_LIT("\t\t.min_value = false,\n"));
+				file_write_string(f, STR_LIT("\t\t.min_value = FALSE,\n"));
 			} else {
     			Node *choices = node_get_choices(root);
     			Node *min = get_node(choices->first);
     			String min_value = node_get_identifier(min);
+                if (string_match(min_value, STR_LIT("false"))) {
+                    min_value = STR_LIT("FALSE");
+                }
     			file_printf(f, alloc, "\t\t.min_value = %.*s,\n", min_value.len, min_value.data);
 			}
 		}
 		if (!node_has_field(root, ParamField_Max)) {
     		if (node_get_parameter_type(root) == ParamType_Bool) {
-				file_write_string(f, STR_LIT("\t\t.max_value = true,\n"));
+				file_write_string(f, STR_LIT("\t\t.max_value = TRUE,\n"));
 			} else {
     			Node *choices = node_get_choices(root);
     			Node *max = get_node(choices->last);
@@ -472,7 +464,7 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
     			param_name.data, param_name.len, param_name.data);
 		} break;
 		default:
-			file_printf(f, alloc, "\t\t.%.*s = ", data.len, data.data);
+		    file_printf(f, alloc, "\t\t.%.*s = ", data.len, data.data);
 			break;
 		}
 	} break;
@@ -489,8 +481,14 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
 			break;
        	case ParamField_Choices: break;
 		default:
-			file_printf(f, alloc, "%.*s,\n", data.len, data.data);
-			break;
+		    if (string_match(data, STR_LIT("true"))) {
+		        file_printf(f, alloc, "TRUE,\n");
+		    } else if (string_match(data, STR_LIT("false"))) {
+		        file_printf(f, alloc, "FALSE,\n");
+		    } else {
+                file_printf(f, alloc, "%.*s,\n", data.len, data.data);
+			}
+		    break;
 		}
 	} break;
 	default: break;
@@ -517,8 +515,8 @@ static u32 hash_plugin_id(char *plugin_id) {
 }
 
 static ParseError config_build(PluginBuild *build) {
-    arena = arena_init(page_size());
-    Allocator *alloc = &arena.allocator;
+    arena = arena_init();
+    Allocator *alloc = &arena->allocator;
     File user_config_fd = file_open(string(build->config_file), FileOpen_ReadOnly);
     char *const data = file_read_full_alloc(user_config_fd, alloc);
     config_data = data;
@@ -552,9 +550,9 @@ static ParseError config_build(PluginBuild *build) {
         	while (is_numeric(c))
         		c = data[++i];
         } else if (is_alpha(c)) {
-            if (string_match(STR_LIT("true"), (String){data + i, 4})) {
+            if (string_match(STR_LIT("TRUE"), (String){data + i, 4})) {
                 push_token(Token_True);
-            } else if (string_match(STR_LIT("false"), (String){data + i, 5})) {
+            } else if (string_match(STR_LIT("FALSE"), (String){data + i, 5})) {
                 push_token(Token_False);
             } else {
                 push_token(Token_Identifier);
@@ -743,14 +741,12 @@ static ParseError config_build(PluginBuild *build) {
 	if (!dir_exists(STR_LIT("generated/"))) {
         if (!make_dir(STR_LIT("generated/"))) {
             err("Failed to make generated dir\n");
-            arena_deinit(&arena);
             result = ParseError_FilesystemError;
             goto cleanup;
         }
 	}
 	File config_fd = file_open(STR_LIT("generated/user_code.c"), 0);
 	if (!config_fd.fd) {
-        arena_deinit(&arena);
         result = ParseError_FilesystemError;
         goto cleanup;
 	}
@@ -763,7 +759,7 @@ static ParseError config_build(PluginBuild *build) {
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
-			file_printf(config_fd, &arena.allocator, "\tParam_%.*s,\n", name.len, name.data);
+			file_printf(config_fd, &arena->allocator, "\tParam_%.*s,\n", name.len, name.data);
 		}
 		String param_count = STR_LIT("\tParam_Count,\n");
 		file_write_string(config_fd, param_count);
@@ -886,10 +882,10 @@ static ParseError config_build(PluginBuild *build) {
 	file_close(config_fd);
 
 cleanup: {
-    usize mem_used = arena_query_capacity(&arena);
+    usize mem_used = arena_query_size(arena);
     println("Config generation complete");
     println("Arena mem: %.2fkB", (float)mem_used / 1024);
-    arena_deinit(&arena);
+    arena_deinit(arena);
 }
 
     return result;
