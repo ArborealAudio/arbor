@@ -5,6 +5,8 @@
 #define ARBOR_H
 
 #include "../cbase/cbase.h"
+#include "dsp/dsp.h"
+#include "visual/visual.h"
 
 typedef struct {
     char *name;
@@ -122,12 +124,23 @@ typedef void (*InitFn)(Plugin *);
 typedef void (*DeinitFn)(Plugin *);
 typedef void (*PrepareFn)(Plugin *, f64 sample_rate, u32 max_frames);
 typedef void (*ProcessFn)(Plugin *, const AudioBuffer32 in, AudioBuffer32 out, MidiBuffer midi);
+typedef void (*GuiInitFn)(Plugin *);
+typedef void (*GuiDeinitFn)(Plugin *);
+typedef void (*GuiRenderFn)(Plugin *);
+typedef void (*GuiEventFn)(Plugin *, pv_Event *);
+
 typedef struct {
     void *user;
     InitFn init_cb;
     DeinitFn deinit_cb;
     PrepareFn prepare_cb;
     ProcessFn process_cb;
+    GuiInitFn gui_init_cb;
+    GuiDeinitFn gui_deinit_cb;
+    GuiRenderFn gui_render_cb;
+    GuiEventFn gui_event_cb;
+    int gui_width;
+    int gui_height;
 } PluginInterface;
 
 typedef struct ParameterData ParameterData;
@@ -137,6 +150,19 @@ typedef struct ParameterSmoother ParameterSmoother;
 #ifndef PARAM_SMOOTH_HZ
 #define PARAM_SMOOTH_HZ 10.0
 #endif
+
+typedef struct {
+    bool32 create_ui;
+} PluginGuiDesc;
+
+typedef struct {
+    bool32 active;
+    int width;
+    int height;
+    void *user;
+    pv_Context *platform;
+    UICtx *ui;
+} PluginGui;
 
 struct Plugin {
     u32 audio_input_count;
@@ -163,6 +189,8 @@ struct Plugin {
     // An n-channel-sized array, manages smoothing of all parameter values
     ParameterSmoother *param_smoother;
     u64 param_change_mask;
+
+    PluginGui gui;
 };
 
 Allocator *plugin_allocator(Plugin *p);
@@ -202,9 +230,9 @@ AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames
 // Copy a 32-bit buffer to a pre-allocated 64-bit buffer
 void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src);
 
+void create_plugin_gui(Plugin*, PluginGuiDesc);
+
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
-
-#include "dsp/dsp.h"
 
 #endif

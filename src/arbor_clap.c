@@ -1,5 +1,8 @@
 #include "clap/clap.h"
 #include "arbor.h"
+#include "clap/ext/gui.h"
+#include "visual/platform.h"
+#include "visual/visual.h"
 
 static const char *const *get_clap_features() {
     PluginFeatures plugin_features = plugin_config.features;
@@ -254,7 +257,107 @@ static clap_plugin_params_t plugin_params = {
 };
 
 // GUI
-// TODO
+
+#ifdef __APPLE__
+#define CLAP_GUI_API CLAP_WINDOW_API_COCOA
+#endif
+
+static bool gui_is_api_supported(const clap_plugin_t *plugin, const char *api, bool is_floating) {
+    return const_string_match(const_string(CLAP_GUI_API), const_string(api)) && !is_floating;
+}
+
+static bool gui_get_preferred_api(const clap_plugin_t *plugin, const char **api,
+    bool *is_floating) {
+    *api = CLAP_GUI_API;
+    *is_floating = false;
+    return true;
+}
+
+static bool gui_create(const clap_plugin_t *plugin, const char *api, bool is_floating) {
+    if (!gui_is_api_supported(plugin, api, is_floating)) {
+        return false;
+    }
+    Plugin *p = (Plugin*)plugin->plugin_data;
+    return _visual_init(p) == TRUE;
+}
+
+static void gui_destroy(const clap_plugin_t *plugin) {
+    Plugin *p = (Plugin*)plugin->plugin_data;
+    _visual_deinit(p);
+}
+
+static bool gui_set_scale(const clap_plugin_t *plugin, double scale) {
+    return TRUE;
+}
+
+static bool gui_get_size(const clap_plugin_t *plugin, uint32_t *width, uint32_t *height) {
+    Plugin *p = (Plugin*)plugin->plugin_data;
+    *width = (u32)p->gui.width;
+    *height = (u32)p->gui.height;
+    return TRUE;
+}
+
+static bool gui_can_resize(const clap_plugin_t *plugin) {
+    return FALSE;
+}
+
+static bool gui_get_resize_hints(const clap_plugin_t *plugin, clap_gui_resize_hints_t *hints) {
+    return FALSE;
+}
+
+static bool gui_adjust_size(const clap_plugin_t *plugin, uint32_t *width, uint32_t *height) {
+    return FALSE;
+}
+
+static bool gui_set_size(const clap_plugin_t *plugin, uint32_t width, uint32_t height) {
+    Plugin *p = (Plugin*)plugin->plugin_data;
+    pv_set_render_size(p->gui.platform, (av_Size){.width = width, .height = height});
+    return TRUE;
+}
+
+static bool gui_set_parent(const clap_plugin_t *plugin, const clap_window_t *window) {
+    Plugin *p = (Plugin*)plugin->plugin_data;
+#ifdef __APPLE__
+    _visual_set_parent(p, (pv_Window)window->cocoa);
+#endif
+    return TRUE;
+}
+
+static bool gui_set_transient(const clap_plugin_t *plugin, const clap_window_t *window) {
+    return FALSE;
+}
+
+static void gui_suggest_title(const clap_plugin_t *plugin, const char *title) {}
+
+static bool gui_show(const clap_plugin_t *plugin) {
+    Plugin *p = (Plugin*)plugin->plugin_data;
+    _visual_open(p);
+    return true;
+}
+
+static bool gui_hide(const clap_plugin_t *plugin) {
+    Plugin *p = (Plugin*)plugin->plugin_data;
+    _visual_close(p);
+    return true;
+}
+
+static clap_plugin_gui_t plugin_gui = {
+    .is_api_supported = gui_is_api_supported,
+    .get_preferred_api = gui_get_preferred_api,
+    .create = gui_create,
+    .destroy = gui_destroy,
+    .set_scale = gui_set_scale,
+    .get_size = gui_get_size,
+    .can_resize = gui_can_resize,
+    .get_resize_hints = gui_get_resize_hints,
+    .adjust_size = gui_adjust_size,
+    .set_size = gui_set_size,
+    .set_parent = gui_set_parent,
+    .set_transient = gui_set_transient,
+    .suggest_title = gui_suggest_title,
+    .show = gui_show,
+    .hide = gui_hide,
+};
 
 // PLUGIN
 static bool plugin_init(const clap_plugin_t *plugin) {
@@ -406,6 +509,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &plugin_state;
     if (const_string_match(const_string(id), const_string(CLAP_EXT_LATENCY)))
         return &plugin_latency;
+    if (const_string_match(const_string(id), const_string(CLAP_EXT_GUI)))
+        return &plugin_gui;
     return NULL;
 }
 

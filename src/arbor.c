@@ -2,7 +2,9 @@
 // See LICENSE at this repository's root
 
 #include "arbor.h"
-#include <stddef.h>
+#include "visual/platform.h"
+#include "visual/ui.h"
+#include "visual/visual.h"
 
 // An arena for doing global allocations, i.e. plugin factories, plugin wrapper types before the
 // main plugin data is allocated
@@ -207,9 +209,15 @@ void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
     }
 }
 
+void create_plugin_gui(Plugin* plugin, PluginGuiDesc desc) {
+    if (desc.create_ui) {
+        plugin->gui.ui = ui_init(plugin->gui.platform);
+    }
+}
 
 // Internal functions
 
+// NOTE Maybe rename this to arbor_init
 static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
     bool32 ok = TRUE;
     Arena *arena = arena_init();
@@ -221,6 +229,8 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         .plugin_wrapper = wrapper_ptr,
         .user_iface = plugin_create(&arena->allocator),
     };
+    p->gui.width = p->user_iface.gui_width;
+    p->gui.height = p->user_iface.gui_height;
     p->params = plugin_alloc(p, InternalParameters);
     p->param_smoother = arena_alloc(arena, sizeof(ParameterSmoother) * p->audio_input_count);
 
@@ -332,8 +342,83 @@ static void _midi_push(Plugin *p, MidiEvent e) {
 }
 
 static void _midi_clear(Plugin *p) {
-    p->midi.head = 0;
     memset(p->midi.buffer, 0, p->midi.head * sizeof(MidiEvent));
+    p->midi.head = 0;
+}
+
+static void _on_pv_init(pv_Context *pv) {
+    Plugin *p = pv->desc.user_data;
+    if (p->user_iface.gui_init_cb)
+        p->user_iface.gui_init_cb(p);
+}
+
+static void _on_pv_cleanup(pv_Context *pv) {
+    Plugin *p = pv->desc.user_data;
+    if (p->user_iface.gui_deinit_cb)
+        p->user_iface.gui_deinit_cb(p);
+    if (p->gui.ui) {
+        ui_deinit(p->gui.ui);
+    }
+}
+
+static void _on_pv_render(pv_Context *pv) {
+    Plugin *p = pv->desc.user_data;
+    UICtx *ui = p->gui.ui;
+
+    if (ui) {
+        ui_begin(ui);
+    }
+
+    if (p->user_iface.gui_render_cb)
+        p->user_iface.gui_render_cb(p);
+
+    if (ui) {
+        ui_end(ui);
+    }
+}
+
+static void _on_pv_event(pv_Context *pv, pv_Event *event) {
+    Plugin *p = pv->desc.user_data;
+   if (p->user_iface.gui_event_cb) {
+       p->user_iface.gui_event_cb(p, event);
+   }
+
+   if (p->gui.ui) {
+       ui_send_event(p->gui.ui, event);
+   }
+}
+
+static bool32 _visual_init(Plugin* p) {
+    pv_Context *pv = pv_init_child_window((pv_Desc){
+        .title = plugin_config.desc.name,
+        .width = p->gui.width,
+        .height = p->gui.height,
+        .init_proc = _on_pv_init,
+        .cleanup_proc = _on_pv_cleanup,
+        .render_proc = _on_pv_render,
+        .event_proc = _on_pv_event,
+        .user_data = p,
+    });
+    p->gui.platform = pv;
+    return pv != NULL;
+}
+
+static void _visual_deinit(Plugin* p) {
+    pv_deinit(p->gui.platform);
+}
+
+static void _visual_set_parent(Plugin *p, pv_Window parent) {
+    pv_set_parent(p->gui.platform, parent);
+}
+
+static void _visual_open(Plugin *p) {
+    p->gui.active = TRUE;
+    pv_set_visible(p->gui.platform, TRUE);
+}
+
+static void _visual_close(Plugin *p) {
+    p->gui.active = FALSE;
+    pv_set_visible(p->gui.platform, FALSE);
 }
 
 // Plugin wrapper impl
@@ -346,3 +431,4 @@ static void _midi_clear(Plugin *p) {
 // Other required impl
 #include "dsp/dsp.c"
 #include "../cbase/cbase.c"
+#include "visual/visual.c"

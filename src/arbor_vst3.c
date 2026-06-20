@@ -35,6 +35,11 @@ typedef struct {
     RefCount ref_count;
 } Vst3Controller;
 
+typedef struct {
+    Steinberg_IPlugViewVtbl *vtable;
+    RefCount ref_count;
+    bool32 active;
+} Vst3View;
 
 typedef struct {
     bool32 valid;
@@ -47,6 +52,7 @@ typedef struct {
     Vst3AudioProcessor processor;
     Vst3Component component;
     Vst3Controller controller;
+    Vst3View view;
 
 #define PARAM_QUEUE_SIZE 512
     ParamChange param_changes[PARAM_QUEUE_SIZE];
@@ -158,6 +164,10 @@ static Steinberg_tresult audio_processor_set_processing (void* thisInterface, St
     return Steinberg_kResultOk;
 }
 
+static bool32 _buffer_is_valid(struct Steinberg_Vst_AudioBusBuffers *buf) {
+    return buf->numChannels > 0 && (buf->Steinberg_Vst_AudioBusBuffers_channelBuffers32 != 0 || buf->Steinberg_Vst_AudioBusBuffers_channelBuffers64 != 0);
+}
+
 static Steinberg_tresult audio_processor_process (void* thisInterface, struct Steinberg_Vst_ProcessData* data) {
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
     Plugin *plugin = vst3->plugin;
@@ -168,8 +178,10 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     memcpy(plugin->params->audio, plugin->params->main, sizeof(plugin->params->main));
 
     // Sometimes we get crazy numbers of channels
-    assert(data->inputs->numChannels <= plugin->audio_input_count);
-    assert(data->outputs->numChannels <= plugin->audio_output_count);
+    if (data->inputs)
+        assert(data->inputs->numChannels <= plugin->audio_input_count);
+    if (data->outputs)
+        assert(data->outputs->numChannels <= plugin->audio_output_count);
 
     int param_change_count = 0;
     if (data->inputParameterChanges) {
@@ -208,7 +220,6 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     u32 event_id = 0;
     while (i < num_frames) {
         while (next_event_frame == i) {
-        // if (next_event_frame == i) {
             ParamChange change = vst3->param_changes[event_id];
             assert(change.offset == i);
             _plugin_update_param(plugin, change.id, change.value);
@@ -223,27 +234,27 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
 
         u32 frames_to_process = next_event_frame - i;
 
-        AudioBuffer32 in_buf = {
-            .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-            .num_frames = frames_to_process,
-            // .num_ch = data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
-            .num_ch = plugin->audio_input_count,
-        };
-        for (int ch = 0; ch < in_buf.num_ch; ++ch) {
-            in_buf.data[ch] += i;
-        }
+        if (_buffer_is_valid(data->inputs) && _buffer_is_valid(data->outputs)) {
+            AudioBuffer32 in_buf = {
+                .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
+                .num_frames = frames_to_process,
+                .num_ch = data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+            };
+            for (int ch = 0; ch < in_buf.num_ch; ++ch) {
+                in_buf.data[ch] += i;
+            }
 
-        AudioBuffer32 out_buf = {
-            .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-            .num_frames = frames_to_process,
-            // .num_ch = data->outputs->numChannels,
-            .num_ch = plugin->audio_output_count,
-        };
-        for (int ch = 0; ch < out_buf.num_ch; ++ch) {
-            out_buf.data[ch] += i;
-        }
+            AudioBuffer32 out_buf = {
+                .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
+                .num_frames = frames_to_process,
+                .num_ch = data->outputs->numChannels,
+            };
+            for (int ch = 0; ch < out_buf.num_ch; ++ch) {
+                out_buf.data[ch] += i;
+            }
 
-        plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
+            plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
+        }
 
         _midi_clear(plugin);
         _plugin_reset_param_changes(plugin);
@@ -316,6 +327,14 @@ static Steinberg_tresult component_query_interface (void* thisInterface, const S
             return Steinberg_kResultOk;
         }
     }
+    if (tuid_match(iid, Steinberg_IPlugView_iid)) {
+        if (obj) {
+            dbg("Component: query View OK");
+            vst3->view.ref_count += 1;
+            *obj = &vst3->view;
+            return Steinberg_kResultOk;
+        }
+    }
 
     dbg("Component: unsupported interface (%s)", iid);
 
@@ -339,6 +358,9 @@ static Steinberg_uint32 component_release (void* thisInterface) {
     }
 
     dbg("Component: all refs released");
+
+    Vst3Plugin *vst3 = vst3_from_ptr(comp, component);
+    _plugin_deinit(vst3->plugin);
 
     return 0;
 }
@@ -643,7 +665,136 @@ static Steinberg_tresult controller_set_component_handler (void* thisInterface, 
 
 static struct Steinberg_IPlugView* controller_create_view (void* thisInterface, Steinberg_FIDString name) {
     dbg();
-    return NULL;
+
+    Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, controller);
+    if (!_visual_init(vst3->plugin))
+        return NULL;
+    return (Steinberg_IPlugView*)&vst3->view;
+}
+
+// VIEW:
+// Interface which manages UI functionality
+
+#if __APPLE__
+#define VST3_GUI_PLATFORM "NSView"
+#endif
+
+static Steinberg_tresult view_query_interface (void* thisInterface, const Steinberg_TUID iid, void** obj) {
+    Vst3View *view = (Vst3View*)thisInterface;
+    if (tuid_match(iid, Steinberg_IPlugView_iid) || tuid_match(iid, Steinberg_FUnknown_iid)) {
+        if (obj) {
+            dbg("Query OK: View");
+            view->ref_count += 1;
+            *obj = view;
+            return Steinberg_kResultOk;
+        } else {
+            return Steinberg_kInvalidArgument;
+        }
+    }
+
+    dbg("View: unsupported TUID (%s)", iid);
+    *obj = NULL;
+    return Steinberg_kNoInterface;
+}
+
+static Steinberg_uint32 view_add_ref (void* thisInterface) {
+    Vst3View *view = (Vst3View*)thisInterface;
+    int count = ++view->ref_count;
+    dbg("View: adding ref (%d)", count);
+    return count;
+}
+
+static Steinberg_uint32 view_release (void* thisInterface) {
+    Vst3View *view = (Vst3View*)thisInterface;
+    Vst3Plugin *vst3 = vst3_from_ptr(view, view);
+    int count = --view->ref_count;
+    dbg("View: releasing ref (%d)", count);
+    if (count > 0)
+        return count;
+
+    dbg("View: all refs released");
+    Plugin *plugin = vst3->plugin;
+    if (plugin->gui.active) {
+        dbg("view_removed wasn't called");
+        _visual_close(plugin);
+    }
+
+    _visual_deinit(plugin);
+
+    return 0;
+}
+
+static Steinberg_tresult view_is_platform_type_supported (void* thisInterface, Steinberg_FIDString type) {
+    dbg("Type: %s", type);
+    if (const_string_match(const_string(VST3_GUI_PLATFORM), const_string(type))) {
+        return Steinberg_kResultTrue;
+    }
+
+    return Steinberg_kResultFalse;
+}
+
+static Steinberg_tresult view_attached (void* thisInterface, void* parent, Steinberg_FIDString type) {
+    dbg("Type: %s", type);
+
+    Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, view);
+    // Set GUI parent
+    _visual_set_parent(vst3->plugin, parent);
+    _visual_open(vst3->plugin);
+
+    return Steinberg_kResultOk;
+}
+
+static Steinberg_tresult view_removed (void* thisInterface) {
+    dbg();
+    Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, view);
+    _visual_close(vst3->plugin);
+    return Steinberg_kResultOk;
+}
+
+static Steinberg_tresult view_on_wheel (void* thisInterface, float distance) {
+    return Steinberg_kNotImplemented;
+}
+
+static Steinberg_tresult view_on_key_down (void* thisInterface, Steinberg_char16 key,
+    Steinberg_int16 keyCode, Steinberg_int16 modifiers) {
+    return Steinberg_kNotImplemented;
+}
+
+static Steinberg_tresult view_on_key_up (void* thisInterface, Steinberg_char16 key,
+    Steinberg_int16 keyCode, Steinberg_int16 modifiers) {
+    return Steinberg_kNotImplemented;
+}
+
+// Size of platform view
+static Steinberg_tresult view_get_size (void* thisInterface, struct Steinberg_ViewRect* size) {
+    dbg();
+    return Steinberg_kResultOk;
+}
+
+// Resize the platform view
+static Steinberg_tresult view_on_size (void* thisInterface, struct Steinberg_ViewRect* newSize) {
+    dbg();
+    return Steinberg_kResultOk;
+}
+
+static Steinberg_tresult view_on_focus (void* thisInterface, Steinberg_TBool state) {
+    dbg("State: %d", state);
+    return Steinberg_kResultOk;
+}
+
+// Attach a Frame interface to notify host about resizing
+static Steinberg_tresult view_set_frame (void* thisInterface, struct Steinberg_IPlugFrame* frame) {
+    dbg();
+    return Steinberg_kResultOk;
+}
+
+static Steinberg_tresult view_can_resize (void* thisInterface) {
+    return Steinberg_kResultFalse;
+}
+
+static Steinberg_tresult view_check_size_constraint (void* thisInterface, struct Steinberg_ViewRect* rect) {
+    dbg();
+    return Steinberg_kResultOk;
 }
 
 static Vst3Plugin *vst3_plugin_create() {
@@ -713,6 +864,27 @@ static Vst3Plugin *vst3_plugin_create() {
         .createView = controller_create_view,
     };
     vst3->controller.ref_count = 1;
+
+    vst3->view.vtable = new(Steinberg_IPlugViewVtbl);
+    *vst3->view.vtable = (Steinberg_IPlugViewVtbl){
+        .queryInterface = view_query_interface,
+        .addRef = view_add_ref,
+        .release = view_release,
+        .isPlatformTypeSupported = view_is_platform_type_supported,
+        .attached = view_attached,
+        .removed = view_removed,
+        .onWheel = view_on_wheel,
+        .onKeyDown = view_on_key_down,
+        .onKeyUp = view_on_key_up,
+        .getSize = view_get_size,
+        .onSize = view_on_size,
+        .onFocus = view_on_focus,
+        .setFrame = view_set_frame,
+        .canResize = view_can_resize,
+        .checkSizeConstraint = view_check_size_constraint,
+    };
+    vst3->view.ref_count = 1;
+    vst3->view.active = FALSE;
 
     vst3->plugin = new(Plugin);
 

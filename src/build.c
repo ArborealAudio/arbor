@@ -159,7 +159,7 @@ static void build_plugin(PluginBuild *build) {
     while (build->format != 0) {
         STACK_ALLOC_RESET;
         // build plugin
-        char *base_args [] = {"-shared", "-Werror", "-I./generated"};
+        char *base_args [] = {"-shared", "-Werror", "-I./generated", "-ObjC", "-framework Cocoa"};
         StringArray args = string_array_from_cstrs(STACK_ALLOC, base_args, array_len(base_args), 16);
 
         if (build->debug) {
