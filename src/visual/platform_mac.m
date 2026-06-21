@@ -117,6 +117,10 @@ static void _osx_timer_cb(CFRunLoopTimerRef timer_ref, void *ctx);
         if (ctx->desc.init_proc)
             ctx->desc.init_proc(ctx);
         ctx->initialized = true;
+        OSX_VisualContext *osx = osx_ctx(ctx);
+        if (!osx->view.font_ref) {
+            pv_set_font(ctx, STR_LIT("Arial"), 18);
+        }
     }
     if (ctx->desc.render_proc)
         ctx->desc.render_proc(ctx);
@@ -456,9 +460,11 @@ av_Size pv_measure_text(pv_Context *ctx, String text) {
     char *cstr = cstring_from_string(&ctx->arena->allocator, text);
     NSString *str = [[NSString alloc] initWithUTF8String:cstr];
 
+    OSX_VisualContext *osx = osx_ctx(ctx);
+
     NSMutableParagraphStyle *style = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     NSSize sz = [str sizeWithAttributes:@{
-        NSFontAttributeName : [osx_ctx(ctx)->view.font_ref fontWithSize:osx_ctx(ctx)->view.font_size],
+        NSFontAttributeName : [osx->view.font_ref fontWithSize:osx->view.font_size],
     }];
 
     temp_alloc_end(&tmp);

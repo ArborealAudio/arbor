@@ -738,7 +738,7 @@ static ParseError config_build(PluginBuild *build) {
 	//
 	// CODE GEN
 	//
-	if (!dir_exists(STR_LIT("generated/"))) {
+	if (!file_exists(STR_LIT("generated/"))) {
         if (!make_dir(STR_LIT("generated/"))) {
             err("Failed to make generated dir\n");
             result = ParseError_FilesystemError;

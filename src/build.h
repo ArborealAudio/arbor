@@ -16,9 +16,9 @@ enum {
 typedef u32 BuildFormat;
 
 typedef struct {
-    char *src_file;
-    char *config_file;
-    char *arbor_src_path;
+    const char *src_file;
+    const char *config_file;
+    const char *arbor_src_path;
     PluginConfig config;
     BuildFormat format;
     bool32 debug;

@@ -726,7 +726,7 @@ static Steinberg_uint32 view_release (void* thisInterface) {
 
 static Steinberg_tresult view_is_platform_type_supported (void* thisInterface, Steinberg_FIDString type) {
     dbg("Type: %s", type);
-    if (const_string_match(const_string(VST3_GUI_PLATFORM), const_string(type))) {
+    if (string_match(STR_LIT(VST3_GUI_PLATFORM), string(type))) {
         return Steinberg_kResultTrue;
     }
 

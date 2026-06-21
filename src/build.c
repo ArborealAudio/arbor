@@ -8,15 +8,15 @@
 
 static Arena *_arena;
 
-#define check_rebuild() _check_rebuild(argv[0], __FILE__)
+#define check_rebuild() _check_rebuild(string(argv[0]), STR_LIT(__FILE__))
 
-static void _check_rebuild(const char *bin, const char *src) {
+static void _check_rebuild(String bin, String src) {
     if (file_mtime(bin) < file_mtime(src)) {
         // self-rebuild
         println("Recompiling build runner");
 
         char cmd[512] = {0};
-        sprintf(cmd, "cc -o %s %s", bin, src);
+        sprintf(cmd, "cc -o %.*s %.*s", bin.len, bin.data, src.len, src.data);
         // STACK_ALLOC_BEGIN(512);
         // String cmd = string_printf(STACK_ALLOC, "cc -o %s %s", bin, src);
         // char *cstr = cstring_from_string(STACK_ALLOC, cmd);
@@ -28,7 +28,9 @@ static void _check_rebuild(const char *bin, const char *src) {
             exit(1);
         }
 
-        if (system(bin) != 0) {
+        STACK_ALLOC_BEGIN(512);
+        const char *cstr_bin = cstring_from_string(STACK_ALLOC, bin);
+        if (system(cstr_bin) != 0) {
             err("Compilation failed\n");
             exit(1);
         }
@@ -57,7 +59,7 @@ static void install_plugin(PluginBuild *build, String output_path) {
     STACK_ALLOC_BEGIN(KB(16));
     String bundle_stem = string_split_after(output_path, '/');
     // Get system plugin dir
-    char *home = getenv("HOME");
+    const char *home = getenv("HOME");
     String user_plugin_dir = {0};
     String plugin_dest = {0};
     String plugin_ext = {0};
@@ -132,14 +134,13 @@ static void install_plugin(PluginBuild *build, String output_path) {
     if (!file_copy_recursive(dbg_src, dbg_dst)) {
         err("Copy debug info failed\n");
     }
-
 }
 
 static void build_plugin(PluginBuild *build) {
     _arena = arena_init();
 
     if (file_exists(STR_LIT("generated/user_code.c"))) {
-        if (file_mtime(build->config_file) > file_mtime("generated/user_code.c")) {
+        if (file_mtime(string(build->config_file)) > file_mtime(STR_LIT("generated/user_code.c"))) {
             if (config_build(build) != ParseError_None) {
                 err("Config parse failed\n");
                 goto cleanup;
@@ -154,29 +155,29 @@ static void build_plugin(PluginBuild *build) {
 
     PluginDescription plugin_desc = build->config.desc;
 
-    STACK_ALLOC_BEGIN(KB(16));
-
     while (build->format != 0) {
-        STACK_ALLOC_RESET;
+        TempAlloc tmp = temp_alloc_begin(_arena);
+        Allocator *alloc = &_arena->allocator;
         // build plugin
-        char *base_args [] = {"-shared", "-Werror", "-I./generated", "-ObjC", "-framework Cocoa"};
-        StringArray args = string_array_from_cstrs(STACK_ALLOC, base_args, array_len(base_args), 16);
+        const char *base_args [] = {"-shared", "-Werror", "-I./generated",
+            /* TODO factor these out */ "-ObjC", "-framework Cocoa"};
+        StringArray args = string_array_from_cstrs(alloc, base_args, array_len(base_args), 16);
 
         if (build->debug) {
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-g"));
+            string_array_append(alloc, &args, STR_LIT("-g"));
         } else {
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-DNDEBUG"));
+            string_array_append(alloc, &args, STR_LIT("-DNDEBUG"));
         }
 
         switch (build->optimize_mode) {
         case Optimize_Regular:
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-O2"));
+            string_array_append(alloc, &args, STR_LIT("-O2"));
             break;
         case Optimize_Fast:
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-O3"));
+            string_array_append(alloc, &args, STR_LIT("-O3"));
             break;
         case Optimize_Size:
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-Os"));
+            string_array_append(alloc, &args, STR_LIT("-Os"));
             break;
         default: break;
         }
@@ -184,22 +185,22 @@ static void build_plugin(PluginBuild *build) {
         String out_path = {0};
         if (build->format & BuildFormat_VST3) {
             println("Building VST3");
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-DARBOR_VST3"));
-            out_path = string_printf(STACK_ALLOC, ".build/%s.vst3/Contents/MacOS/%s",
+            string_array_append(alloc, &args, STR_LIT("-DARBOR_VST3"));
+            out_path = string_printf(alloc, ".build/%s.vst3/Contents/MacOS/%s",
                 plugin_desc.name, plugin_desc.name);
         } else if (build->format & BuildFormat_CLAP) {
             println("Building CLAP");
-            string_array_append(STACK_ALLOC, &args, STR_LIT("-DARBOR_CLAP"));
-            out_path = string_printf(STACK_ALLOC, ".build/%s.clap/Contents/MacOS/%s",
+            string_array_append(alloc, &args, STR_LIT("-DARBOR_CLAP"));
+            out_path = string_printf(alloc, ".build/%s.clap/Contents/MacOS/%s",
                 plugin_desc.name, plugin_desc.name);
         }
         if (make_dir(out_path)) {
             println("Created directory: %.*s", out_path.len, out_path.data);
         }
-        String out_arg = string_concat(STACK_ALLOC, (String[]){STR_LIT("-o"), out_path}, 2);
-        string_array_append(STACK_ALLOC, &args, out_arg);
+        String out_arg = string_concat(alloc, (String[]){STR_LIT("-o"), out_path}, 2);
+        string_array_append(alloc, &args, out_arg);
 
-        String args_str = string_array_flatten(STACK_ALLOC, &args);
+        String args_str = string_array_flatten(alloc, &args);
         char cmd[512] = {0};
         string_print_buf(cmd, sizeof(cmd), "cc %.*s %s/arbor.c", args_str.len, args_str.data,
             build->arbor_src_path);
@@ -216,19 +217,19 @@ static void build_plugin(PluginBuild *build) {
         if (build->install)
             install_plugin(build, out_path);
 
-
         if (build->format & BuildFormat_VST3) {
             build->format ^= BuildFormat_VST3;
         } else if (build->format & BuildFormat_CLAP) {
             build->format ^= BuildFormat_CLAP;
         }
+
+        temp_alloc_end(&tmp);
     }
 
 cleanup: {
     usize arena_mem = arena_query_size(_arena);
-    usize stack_mem = _sa.head;
     println("Build process finished");
-    println("Arena mem: %.2fkB | Stack mem: %.2fkB", (float)arena_mem / 1024, (float)stack_mem / 1024);
+    println("Arena mem: %.2fkB", (float)arena_mem / 1024);
     arena_deinit(_arena);
 }
 }

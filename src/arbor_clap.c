@@ -263,7 +263,7 @@ static clap_plugin_params_t plugin_params = {
 #endif
 
 static bool gui_is_api_supported(const clap_plugin_t *plugin, const char *api, bool is_floating) {
-    return const_string_match(const_string(CLAP_GUI_API), const_string(api)) && !is_floating;
+    return string_match(STR_LIT(CLAP_GUI_API), string(api)) && !is_floating;
 }
 
 static bool gui_get_preferred_api(const clap_plugin_t *plugin, const char **api,
@@ -496,20 +496,20 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 }
 
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id) {
-    if (const_string_match(const_string(id), const_string(CLAP_EXT_AUDIO_PORTS)))
+    if (string_match(string(id), STR_LIT(CLAP_EXT_AUDIO_PORTS)))
         return &audio_port_info;
     if (((plugin_config.features & Feature_Instrument) || (plugin_config.features & Feature_Synth)) &&
             (plugin_config.note_ports.inputs > 0 || plugin_config.note_ports.outputs > 0)) {
-        if (const_string_match(const_string(id), const_string(CLAP_EXT_NOTE_PORTS)))
+        if (string_match(string(id), STR_LIT(CLAP_EXT_NOTE_PORTS)))
             return &note_ports;
     }
-    if (const_string_match(const_string(id), const_string(CLAP_EXT_PARAMS)))
+    if (string_match(string(id), STR_LIT(CLAP_EXT_PARAMS)))
         return &plugin_params;
-    if (const_string_match(const_string(id), const_string(CLAP_EXT_STATE)))
+    if (string_match(string(id), STR_LIT(CLAP_EXT_STATE)))
         return &plugin_state;
-    if (const_string_match(const_string(id), const_string(CLAP_EXT_LATENCY)))
+    if (string_match(string(id), STR_LIT(CLAP_EXT_LATENCY)))
         return &plugin_latency;
-    if (const_string_match(const_string(id), const_string(CLAP_EXT_GUI)))
+    if (string_match(string(id), STR_LIT(CLAP_EXT_GUI)))
         return &plugin_gui;
     return NULL;
 }
@@ -544,7 +544,7 @@ static const clap_plugin_t *create_plugin(const struct clap_plugin_factory *fact
         err("Incompatible CLAP version\n");
         return NULL;
     }
-    if (const_string_match(const_string(plugin_id), const_string(clap_desc.id))) {
+    if (string_match(string(plugin_id), string(clap_desc.id))) {
         Plugin *plugin = new(Plugin);
         clap_plugin_t *clap = new(clap_plugin_t);
         _plugin_init(plugin, clap, host);
@@ -588,9 +588,9 @@ static void entry_deinit() {
 
 static const void *get_factory(const char *factory_id) {
     dbg("factory_id: %s", factory_id);
-    ConstString in = const_string(factory_id);
-    ConstString fid = const_string(CLAP_PLUGIN_FACTORY_ID);
-    if (const_string_match(in, fid)) {
+    String in = string(factory_id);
+    String fid = STR_LIT(CLAP_PLUGIN_FACTORY_ID);
+    if (string_match(in, fid)) {
         return &plugin_factory;
     }
     return NULL;
