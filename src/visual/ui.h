@@ -29,8 +29,9 @@ enum UiBoxMouseEvents {
     BoxMouseHover = 1 << 1,
     BoxMouseDown = 1 << 2,
     BoxMouseClick = 1 << 3,
-    BoxMouseDrag = 1 << 4,
-    BoxMouseScroll = 1 << 5,
+    BoxMouseHold = 1 << 4,
+    BoxMouseDrag = 1 << 5,
+    BoxMouseScroll = 1 << 6,
 };
 
 typedef struct {
@@ -106,10 +107,15 @@ static UiBoxStyle default_style = {
     .border_color = (av_Colorf){0.75f, 0.75f, 0.75f, 1},
 };
 
-static const char *null_key = NULL;
+static bool32 is_null_key(String key) {
+    return key.data == NULL || key.len == 0;
+}
+
+static String null_key = {0};
 
 typedef struct UiBox UiBox;
 struct UiBox {
+    bool32 first_frame;
     // TODO Make this a `String`
     char display[64];
     av_Rect bounds;
@@ -118,7 +124,7 @@ struct UiBox {
     float value_fixed_size[2];
     float rel_pos[2];
     UiAxis child_layout_axis;
-    UiBoxStyle style;
+    UiBoxStyle style; // NOTE Is this redundant now that most UI functions take a style parameter?
     int gap[2]; // Gap btw this element & others
     UiBoxFlag flags;
     float value;
@@ -160,6 +166,8 @@ typedef struct {
         pv_MouseButton button;
     } mouse;
     pv_KeyMod key_mod;
+    UiBox *mouse_latch_box;
+
     bool32 measure_perf;
     struct timespec layout_start, layout_end;
     struct timespec draw_start, draw_end;
@@ -188,16 +196,16 @@ void ui_row_begin(UICtx *ctx, UiBoxStyle style);
 void ui_row_end(UICtx *ctx);
 void ui_column_begin(UICtx *ctx, UiBoxStyle style);
 void ui_column_end(UICtx *ctx);
-void ui_label(UICtx *ctx, const char *text, UiBoxStyle style);
+void ui_label(UICtx *ctx, String display, UiBoxStyle style);
 void ui_labelf(UICtx *ctx, UiBoxStyle style, const char *fmt, ...);
-bool32 ui_button(UICtx *ctx, const char *text, UiBoxStyle style);
-void ui_toggle_button(UICtx *ctx, bool32 *state, const char *display, UiBoxStyle style);
-bool32 ui_icon_button(UICtx *ctx, pv_IconSlot icon, const char *id, UiBoxStyle style);
+bool32 ui_button(UICtx *ctx, String display, UiBoxStyle style);
+void ui_toggle_button(UICtx *ctx, bool32 *state, String display, UiBoxStyle style);
+bool32 ui_icon_button(UICtx *ctx, pv_IconSlot icon, String id, UiBoxStyle style);
 void ui_spacer(UICtx *ctx, UiAxis direction);
-bool32 ui_popup_begin(UICtx *ctx, UiAxis direction, const char *display, UiBoxStyle button_style, UiBoxStyle popup_style);
+bool32 ui_popup_begin(UICtx *ctx, UiAxis direction, String display, UiBoxStyle button_style, UiBoxStyle popup_style);
 void ui_popup_end(UICtx *ctx);
-bool32 ui_expander(UICtx *ctx, char *display, UiBoxStyle style);
-void ui_slider(UICtx *ctx, float *value, float min, float max, const char *display, UiBoxStyle style);
+bool32 ui_expander(UICtx *ctx, String display, UiBoxStyle style);
+void ui_slider(UICtx *ctx, float *value, float min, float max, String display, UiBoxStyle style);
 void ui_enable_performance_clock(UICtx *ctx);
 
 #endif

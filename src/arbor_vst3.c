@@ -42,37 +42,15 @@ typedef struct {
 } Vst3View;
 
 typedef struct {
-    bool32 valid;
-    u32 id;
-    u32 offset;
-    double value;
-} ParamChange;
-
-typedef struct {
     Vst3AudioProcessor processor;
     Vst3Component component;
     Vst3Controller controller;
     Vst3View view;
 
-#define PARAM_QUEUE_SIZE 512
-    ParamChange param_changes[PARAM_QUEUE_SIZE];
-    uint param_change_head;
-
     Plugin *plugin;
 } Vst3Plugin;
 
 #define vst3_from_ptr(ptr, field) (Vst3Plugin*)((char*)(ptr) - offsetof(Vst3Plugin, field))
-
-static int _compare_param_change_offset(const void *a, const void *b) {
-    ParamChange *change_a = (ParamChange*)a;
-    ParamChange *change_b = (ParamChange*)b;
-
-    return change_a->offset - change_b->offset;
-}
-
-static void _sort_param_changes(Vst3Plugin *vst3) {
-    qsort(vst3->param_changes, vst3->param_change_head, sizeof(ParamChange), _compare_param_change_offset);
-}
 
 // TODO Figure out when plugin is actually destroyed, based on accumulated refs
 
@@ -172,10 +150,6 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
     Plugin *plugin = vst3->plugin;
     u32 num_frames = data->numSamples;
-    u32 next_event_frame = num_frames;
-
-    // Sync audio params to any changes in main
-    memcpy(plugin->params->audio, plugin->params->main, sizeof(plugin->params->main));
 
     // Sometimes we get crazy numbers of channels
     if (data->inputs)
@@ -183,12 +157,10 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     if (data->outputs)
         assert(data->outputs->numChannels <= plugin->audio_output_count);
 
-    int param_change_count = 0;
+    int input_param_change_count = 0;
     if (data->inputParameterChanges) {
-        param_change_count = data->inputParameterChanges->lpVtbl->getParameterCount(data->inputParameterChanges);
-        memset(vst3->param_changes, 0, sizeof(vst3->param_changes));
-        vst3->param_change_head = 0;
-        for (int i = 0; i < param_change_count; ++i) {
+        input_param_change_count = data->inputParameterChanges->lpVtbl->getParameterCount(data->inputParameterChanges);
+        for (int i = 0; i < input_param_change_count; ++i) {
             struct Steinberg_Vst_IParamValueQueue *queue = data->inputParameterChanges->lpVtbl->getParameterData(data->inputParameterChanges, i);
             u32 id = queue->lpVtbl->getParameterId(queue);
             int point_count = queue->lpVtbl->getPointCount(queue);
@@ -197,37 +169,41 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
                 double value;
                 if (queue->lpVtbl->getPoint(queue, p, &offset, &value) == Steinberg_kResultOk) {
                     f32 normalized = get_parameter_from_normalized(plugin, id, (f32)value);
-                    vst3->param_changes[vst3->param_change_head] = (ParamChange){
+                    _plugin_push_param_update(plugin, (ParamChange){
                         .valid = TRUE,
                         .id = id,
                         .offset = offset,
                         .value = normalized,
-                    };
-                    vst3->param_change_head++;
+                    });
                 }
             }
         }
     }
 
-    if (param_change_count > 0) {
-        _sort_param_changes(vst3);
-        if (vst3->param_changes->valid) {
-            next_event_frame = vst3->param_changes->offset;
-        }
+    u32 next_event_frame = num_frames;
+    ParamChange next_param_change = {0};
+    int total_param_change_count = plugin->param_changes.data.len;
+    if (total_param_change_count > 0) {
+        _sort_param_changes(plugin);
+        next_param_change = _plugin_next_param_change(plugin);
+        assert(next_param_change.valid);
+        next_event_frame = next_param_change.offset;
     }
 
     u32 i = 0;
-    u32 event_id = 0;
+    bool32 locked = _plugin_lock_params(plugin);
+    assert(locked);
+
     while (i < num_frames) {
         while (next_event_frame == i) {
-            ParamChange change = vst3->param_changes[event_id];
-            assert(change.offset == i);
-            _plugin_update_param(plugin, change.id, change.value);
-            event_id++;
-            if (vst3->param_changes[event_id].valid) {
-                next_event_frame = vst3->param_changes[event_id].offset;
-            } else {
-               next_event_frame = num_frames;
+            if (total_param_change_count > 0) {
+                _plugin_apply_next_param_update(plugin);
+                next_param_change = _plugin_next_param_change(plugin);
+                if (next_param_change.valid) {
+                    next_event_frame = next_param_change.offset;
+                } else {
+                    next_event_frame = num_frames;
+                }
             }
             assert(next_event_frame <= num_frames);
         }
@@ -256,13 +232,11 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
             plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
         }
 
-        _midi_clear(plugin);
-        _plugin_reset_param_changes(plugin);
         i += frames_to_process;
+        _plugin_end_processing(plugin);
     }
 
-    // sync main params from audio params
-    memcpy(plugin->params->main, plugin->params->audio, sizeof(plugin->params->audio));
+    _plugin_unlock_params(plugin);
 
     return Steinberg_kResultOk;
 }
@@ -631,6 +605,7 @@ static Steinberg_Vst_ParamValue controller_get_param_normalized (void* thisInter
         return 0;
     }
 
+    // TODO Assert not audio thread & get mutex lock
     f32 value = get_parameter(plugin, id);
     return get_parameter_normalized(plugin, id, value);
 }
@@ -645,7 +620,12 @@ static Steinberg_tresult controller_set_param_normalized (void* thisInterface, S
         return Steinberg_kInvalidArgument;
     }
     f32 v = get_parameter_from_normalized(plugin, id, value);
-    set_parameter(plugin, id, v);
+    // TODO Assert not audio thread & get mutex lock
+    _plugin_push_param_update(plugin, (ParamChange){
+        .valid = TRUE,
+        .id = id,
+        .value = v,
+    });
     return Steinberg_kResultOk;
 }
 

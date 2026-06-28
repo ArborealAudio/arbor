@@ -1,8 +1,8 @@
 // gui_mac.m
 // gui implementation for MacOS
 
-#import "platform.h"
 #include "visual.h"
+#include "platform.h"
 #import <Foundation/Foundation.h>
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
@@ -46,7 +46,6 @@ typedef struct {
     CFRunLoopTimerRef timer_ref;
 
     CGImageRef icon;
-
 } OSX_VisualContext;
 
 // Used in desktop application
@@ -55,8 +54,8 @@ static pv_Context _g_ctx;
 #define osx_ctx(c) ((OSX_VisualContext*)(c)->platform_ctx)
 
 static NSPoint _osx_event_mouse_pos(pv_Context *ctx, NSEvent *event) {
-    NSPoint cursor = event.locationInWindow;
     OSX_VisualContext *osx = osx_ctx(ctx);
+    NSPoint cursor = [osx->view convertPoint:event.locationInWindow fromView:nil];
     double height = osx->view.bounds.size.height;
     return (NSPoint){cursor.x, height - cursor.y};
 }

@@ -60,8 +60,10 @@ UiBox *_get_box(UICtx *ctx, const char *key) {
     return NULL;
 }
 
-
 UiBoxEvent _get_box_mouse_event(UICtx *ctx, UiBox *box) {
+    if (box->first_frame || (ctx->mouse_latch_box && ctx->mouse_latch_box != box))
+        return (UiBoxEvent){0};
+
     UiBoxEvent e = {
         .mouse_x = ctx->mouse.x,
         .mouse_y = ctx->mouse.y,
@@ -69,11 +71,21 @@ UiBoxEvent _get_box_mouse_event(UICtx *ctx, UiBox *box) {
         .mouse_dy = ctx->mouse.dy,
         .mouse_button = ctx->mouse.button,
     };
+
     bool32 mouse_over = FALSE;
     if (rect_contains(box->bounds, e.mouse_x, e.mouse_y)) {
-        e.mouse_event |= BoxMouseOver | BoxMouseHover;
         mouse_over = TRUE;
     }
+    UiBoxMouseEvent last_event = box->last_event;
+    bool32 drag_continue = (last_event & BoxMouseDrag) > 0;
+    bool32 mouse_hold = (last_event & BoxMouseDown) > 0;
+    if (drag_continue) {
+        mouse_over = TRUE;
+    } else {
+        ctx->mouse_latch_box = NULL;
+    }
+    if (mouse_over)
+        e.mouse_event |= BoxMouseOver | BoxMouseHover;
 
     bool32 is_dropdown = FALSE;
     for (UiBox *parent = box->parent; parent != NULL; parent = parent->parent) {
@@ -98,15 +110,23 @@ UiBoxEvent _get_box_mouse_event(UICtx *ctx, UiBox *box) {
         e.mouse_event |= BoxMouseDown;
     }
 
-    if ((ctx->mouse.dx != 0 || ctx->mouse.dy != 0) && (box->flags & Draggable)) {
-        // NOTE Technically weird since you could continue the drag by switching from left->right
-        // mouse button. uhuhhh
-        if ((mouse_down && mouse_over) ||
-            (e.mouse_button != pv_MouseNone && (box->last_event & BoxMouseDrag)))
-            e.mouse_event |= BoxMouseDrag;
+    if (!mouse_down) {
+        drag_continue = FALSE;
+        mouse_hold = FALSE;
     }
 
-    if (!mouse_down && (box->last_event & BoxMouseDown) && (box->flags & Clickable) && mouse_over) {
+    if (mouse_hold)
+        e.mouse_event |= BoxMouseHold;
+
+    bool32 mouse_drag = drag_continue || ((e.mouse_dx != 0 || e.mouse_dy != 0) && mouse_down && mouse_over);
+    if (mouse_drag && (box->flags & Draggable)) {
+        // NOTE Technically weird since you could continue the drag by switching from left->right
+        // mouse button. uhuhhh
+        e.mouse_event |= BoxMouseDrag;
+        ctx->mouse_latch_box = box;
+    }
+
+    if (mouse_over && mouse_down && !mouse_hold && (box->flags & Clickable)) {
         e.mouse_event |= BoxMouseClick;
     }
 
@@ -211,13 +231,15 @@ void _build_root(UICtx *ctx) {
     _push_parent(ctx, &ctx->root_box);
 }
 
-void _set_box_string(UiBox *box, const char *string) {
-    memcpy(box->display, string, string_len(string));
+void _set_box_string(UiBox *box, String string) {
+    memcpy(box->display, string.data, string.len);
 }
 
-UiBox *_build_box(UICtx *ctx, UiBoxFlag flags, UiBoxStyle style, const char *key) {
-    bool32 is_transient = key == null_key;
-    UiBox *box = is_transient ? null_box : _get_box(ctx, key);
+UiBox *_build_box(UICtx *ctx, UiBoxFlag flags, UiBoxStyle style, String key) {
+    bool32 is_transient = is_null_key(key);
+    STACK_ALLOC_BEGIN(256);
+    const char *ckey = cstring_from_string(STACK_ALLOC, key);
+    UiBox *box = is_transient ? null_box : _get_box(ctx, ckey);
     if (!box) {
         if (is_transient) {
             box = ui_frame_alloc(UiBox);
@@ -227,11 +249,14 @@ UiBox *_build_box(UICtx *ctx, UiBoxFlag flags, UiBoxStyle style, const char *key
         *box = (UiBox){
             .style = _build_style(style),
             .flags = flags | _last_flags(ctx),
+            .first_frame = TRUE,
         };
         if (!is_transient) {
             _set_box_string(box, key);
-            shput(ctx->table, key, box);
+            shput(ctx->table, ckey, box);
         }
+    } else {
+        box->first_frame = FALSE;
     }
 
     box->flags = flags | _last_flags(ctx);
@@ -275,9 +300,9 @@ void ui_column_end(UICtx *ctx) {
     _pop_parent(ctx);
 }
 
-void ui_label(UICtx *ctx, const char *text, UiBoxStyle style) {
+void ui_label(UICtx *ctx, String display, UiBoxStyle style) {
     UiBox *box = _build_box(ctx, DrawText, style, null_key);
-    _set_box_string(box, text);
+    _set_box_string(box, display);
     box->pref_size[Horizontal] = (UiSize){.kind = SizeKindText, .strictness = 1};
     box->pref_size[Vertical] = (UiSize){.kind = SizeKindText, .strictness = 1};
 }
@@ -286,12 +311,12 @@ void ui_labelf(UICtx *ctx, UiBoxStyle style, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     String str = string_printfv(&ctx->frame_arena->allocator, fmt, args);
-    ui_label(ctx, str.data, style);
+    ui_label(ctx, str, style);
     va_end(args);
 }
 
-bool32 ui_button(UICtx *ctx, const char *text, UiBoxStyle style) {
-    UiBox *box = _build_box(ctx, Clickable | DrawText | DrawBackground | DrawBorder, style, text);
+bool32 ui_button(UICtx *ctx, String display, UiBoxStyle style) {
+    UiBox *box = _build_box(ctx, Clickable | DrawText | DrawBackground | DrawBorder, style, display);
     box->pref_size[Horizontal] = (UiSize){.kind = SizeKindText, .strictness = 1};
     box->pref_size[Vertical] = (UiSize){.kind = SizeKindText, .strictness = 1};
 
@@ -311,11 +336,10 @@ bool32 ui_button(UICtx *ctx, const char *text, UiBoxStyle style) {
     return clicked;
 }
 
-void ui_toggle_button(UICtx *ctx, bool32 *state, const char *display, UiBoxStyle style) {
+void ui_toggle_button(UICtx *ctx, bool32 *state, String display, UiBoxStyle style) {
     UiBox *container = _build_box(ctx, Clickable | DrawBackground | DrawBorder, style, display);
     container->child_layout_axis = Horizontal;
-    container->pref_size[Horizontal] = (UiSize){SizeKindChildrenSum};
-    container->pref_size[Vertical] = (UiSize){SizeKindChildrenSum};
+    container->pref_size[Horizontal] = container->pref_size[Vertical] = (UiSize){SizeKindChildrenSum};
     _push_parent(ctx, container);
     UiBoxFlag toggle_flags = *state ? DrawBackground : DrawBorder;
 
@@ -350,14 +374,13 @@ void ui_toggle_button(UICtx *ctx, bool32 *state, const char *display, UiBoxStyle
         container->flags |= FocusActive;
     }
     if (e.mouse_event & BoxMouseClick) {
-        // box->background_color = button_background;
         *state = !*state;
     }
-    container->value = (float)*state;
+    toggle->value = (float)*state;
 }
 
-bool32 ui_icon_button(UICtx *ctx, pv_IconSlot icon, const char *id, UiBoxStyle style) {
-    UiBox *box = _build_box(ctx, DrawBackground | DrawBorder | Clickable | DrawImage, style, id);
+bool32 ui_icon_button(UICtx *ctx, pv_IconSlot icon, String display, UiBoxStyle style) {
+    UiBox *box = _build_box(ctx, DrawBackground | DrawBorder | Clickable | DrawImage, style, display);
     box->pref_size[Horizontal] = (UiSize){SizeKindPixels, 32};
     box->pref_size[Vertical] = (UiSize){SizeKindPixels, 32};
     box->icon = icon;
@@ -387,9 +410,9 @@ void ui_spacer(UICtx *ctx, UiAxis direction) {
 // Not a new OS window
 // Returns whether the window is open
 // ISSUE doesn't really create a floating window
-bool32 ui_window_begin(UICtx *ctx, char *display, UiBoxStyle style, av_Rect rect) {
+bool32 ui_window_begin(UICtx *ctx, String display, UiBoxStyle style, av_Rect rect) {
     String close_window = string_concat(&ctx->frame_arena->allocator,
-                                     (String[]){string(display), string("-close")}, 2);
+                                     (String[]){display, string("-close")}, 2);
 
     UiBox *window = _build_box(ctx, FloatingPos | DrawBorder | DrawBackground, style, null_key);
     window->pref_size[Horizontal] = (UiSize){SizeKindPixels, rect.width, 1};
@@ -407,7 +430,7 @@ bool32 ui_window_begin(UICtx *ctx, char *display, UiBoxStyle style, av_Rect rect
         ui_row_begin(ctx, style);
         ui_label(ctx, display, style);
         ui_spacer(ctx, Horizontal);
-        if (ui_icon_button(ctx, pv_IconX, close_window.data, (UiBoxStyle){
+        if (ui_icon_button(ctx, pv_IconX, close_window, (UiBoxStyle){
                 .background_color = (av_Colorf){.r = 0.5, .a = 1}
             }))
                 should_close = TRUE;
@@ -441,7 +464,7 @@ void ui_window_end(UICtx *ctx) {
 }
 
 // Returns TRUE if menu is opened
-bool32 ui_popup_begin(UICtx *ctx, UiAxis direction, const char *display,
+bool32 ui_popup_begin(UICtx *ctx, UiAxis direction, String display,
                          UiBoxStyle button_style, UiBoxStyle popup_style) {
     UiBox *button = _build_box(ctx, Clickable | DrawText | DrawBackground | DrawBorder,
                                button_style, display);
@@ -453,9 +476,9 @@ bool32 ui_popup_begin(UICtx *ctx, UiAxis direction, const char *display,
     if (e.mouse_event & BoxMouseDown)
         button->flags |= FocusActive;
     if (e.mouse_event & BoxMouseClick) {
-        button->value = (float)!(bool)button->value;
+        button->value = (float)!(bool32)button->value;
     }
-    if ((bool)button->value) {
+    if ((bool32)button->value) {
         const char *popup_key = "popup_root";
         UiBox *popup = _get_box(ctx, popup_key);
         if (!popup) {
@@ -487,7 +510,7 @@ void ui_popup_end(UICtx *ctx) {
     _pop_parent(ctx);
 }
 
-bool32 ui_expander(UICtx *ctx, char *display, UiBoxStyle style) {
+bool32 ui_expander(UICtx *ctx, String display, UiBoxStyle style) {
     UiBox *box = _build_box(ctx,
                             DrawBackground | DrawBorder | Clickable,
                             style,
@@ -506,7 +529,7 @@ bool32 ui_expander(UICtx *ctx, char *display, UiBoxStyle style) {
 
     UiBoxEvent e = _get_box_mouse_event(ctx, box);
     UiBoxMouseEvent me = e.mouse_event;
-    bool32 open = (bool)box->value;
+    bool32 open = (bool32)box->value;
     if (me & BoxMouseHover) {
         box->flags |= FocusHot;
     }
@@ -527,15 +550,22 @@ bool32 ui_expander(UICtx *ctx, char *display, UiBoxStyle style) {
 }
 
 
+// IDEA To provide us with different options for slider appearences, e.g. our current method of
+// filling a rectangle, or a single "thumb" that slides along the bounding box, we could instead
+// treat the "value" component of the slider as a separate box, whose size/position is determined
+// by the value. We could then eliminate the "value" field altogether probably
 void ui_slider(UICtx *ctx, float *value, float min, float max,
-                    const char *display, UiBoxStyle style) {
-    UiBox *container = _build_box(ctx, DrawBackground | DrawBorder, style, null_key);
+                    String display, UiBoxStyle style) {
+    UiBox *container = _build_box(ctx, 0, style, null_key);
     container->child_layout_axis = Vertical;
     container->pref_size[Horizontal] = (UiSize){SizeKindChildrenSum};
     container->pref_size[Vertical] = (UiSize){SizeKindChildrenSum};
+    container->gap[Horizontal] = container->gap[Vertical] = 5;
     _push_parent(ctx, container);
 
-    ui_labelf(ctx, style, display, *value);
+    STACK_ALLOC_BEGIN(256);
+    const char *fmt = cstring_from_string(STACK_ALLOC, display);
+    ui_labelf(ctx, style, fmt, *value);
 
     UiBox *slider = _build_box(ctx,
         Clickable | Draggable | DrawBackground | DrawBorder | DrawValue,
@@ -543,23 +573,20 @@ void ui_slider(UICtx *ctx, float *value, float min, float max,
     slider->style.border_width = 2;
     // TODO Could we programatically determine a default value color based on the background
     // color, such that it "automatically" contrasts?
-    slider->pref_size[Horizontal] = (UiSize){SizeKindParentPct, 1};
-    slider->pref_size[Vertical] = (UiSize){SizeKindPixels, 50.f, 0.5f};
+    slider->pref_size[Horizontal] = (UiSize){SizeKindParentPct, 0.8f};
+    slider->pref_size[Vertical] = (UiSize){SizeKindPixels, 35.f, 0.5f};
 
     _pop_parent(ctx);
 
     UiBoxEvent e = _get_box_mouse_event(ctx, slider);
 
     if (e.mouse_event & BoxMouseHover) {
-        // box->background_color = 0xff444444;
         slider->flags |= FocusHot;
-    } else {
-        // box->background_color = 0xff222222;
     }
 
+    float v = *value;
+    float vnorm = (v - min) / (max - min);
     if (e.mouse_event & BoxMouseDrag) {
-        float v = *value;
-        float vnorm = (v - min) / (max - min);
         const float drag_scale = 0.01f;
         float delta = (float)e.mouse_dx * drag_scale;
         vnorm += delta;
@@ -569,8 +596,8 @@ void ui_slider(UICtx *ctx, float *value, float min, float max,
         v = fminf(max, v);
         v = fmaxf(min, v);
         *value = v;
-        slider->value = vnorm;
     }
+    slider->value = vnorm;
 }
 
 // Must call before doing layout

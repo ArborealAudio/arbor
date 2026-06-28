@@ -9,15 +9,15 @@
 #include "visual/visual.h"
 
 typedef struct {
-    char *name;
-    char *id;
-    char *company;
-    char *version;
-    char *copyright;
-    char *url;
-    char *contact;
-    char *manual;
-    char *description;
+    const char *name;
+    const char *id;
+    const char *company;
+    const char *version;
+    const char *copyright;
+    const char *url;
+    const char *contact;
+    const char *manual;
+    const char *description;
 } PluginDescription;
 
 typedef enum {
@@ -119,15 +119,16 @@ typedef struct {
 #endif
 
 typedef struct Plugin Plugin;
+typedef struct PluginGui PluginGui;
 
 typedef void (*InitFn)(Plugin *);
 typedef void (*DeinitFn)(Plugin *);
 typedef void (*PrepareFn)(Plugin *, f64 sample_rate, u32 max_frames);
 typedef void (*ProcessFn)(Plugin *, const AudioBuffer32 in, AudioBuffer32 out, MidiBuffer midi);
 typedef void (*GuiInitFn)(Plugin *);
-typedef void (*GuiDeinitFn)(Plugin *);
-typedef void (*GuiRenderFn)(Plugin *);
-typedef void (*GuiEventFn)(Plugin *, pv_Event *);
+typedef void (*GuiDeinitFn)(PluginGui *);
+typedef void (*GuiRenderFn)(PluginGui *);
+typedef void (*GuiEventFn)(PluginGui *, pv_Event *);
 
 typedef struct {
     void *user;
@@ -152,17 +153,32 @@ typedef struct ParameterSmoother ParameterSmoother;
 #endif
 
 typedef struct {
-    bool32 create_ui;
+    bool32 create_ui_builder;
 } PluginGuiDesc;
 
-typedef struct {
+struct PluginGui {
     bool32 active;
     int width;
     int height;
     void *user;
     pv_Context *platform;
     UICtx *ui;
-} PluginGui;
+    InternalParameters *param_cache;
+};
+
+typedef struct {
+    bool32 valid;
+    u32 id;
+    u32 offset;
+    double value;
+} ParamChange;
+
+#define PARAM_CHANGES_CAPACITY 128 // Initial capacity, may grow
+
+typedef struct {
+    Array(ParamChange) data;
+    int read_head;
+} ParamChangeList;
 
 struct Plugin {
     u32 audio_input_count;
@@ -185,17 +201,23 @@ struct Plugin {
 
     PluginInterface user_iface;
 
+    Mutex param_lock;
     InternalParameters *params;
     // An n-channel-sized array, manages smoothing of all parameter values
     ParameterSmoother *param_smoother;
+    ParamChangeList param_changes;
     u64 param_change_mask;
 
     PluginGui gui;
 };
 
-Allocator *plugin_allocator(Plugin *p);
+#define plugin_from_gui(p) (Plugin*)((char*)p - offsetof(Plugin, gui))
 
 #define plugin_alloc(p, T) (T*)arena_alloc(p->main_arena, sizeof(T))
+
+static inline Allocator *plugin_allocator(Plugin *p) {
+    return &p->main_arena->allocator;
+}
 
 // A user-defined function which provides a `PluginInterface` to call the user's functions and
 // provide a reference to user-allocated data
@@ -204,14 +226,15 @@ PluginInterface plugin_create(Allocator *);
 void *plugin_get_user(Plugin *p);
 
 f64 get_sample_rate(Plugin *p);
+// [Audio Thread Only]
 // Get a struct representing all current parameter data. This is a copy of the plugin's parameter
 // state, hence why it is returned by value rather than by pointer. The intended way to use this
 // is by calling it once in your plugin's process callback, then passing references by pointer to
 // any downstream functions which will need it.
-ParameterData get_plugin_parameters(Plugin *p);
+ParameterData get_audio_parameters(Plugin *p);
+static f32 _get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch);
 // Get a parameter value run through a smoothing funciton to prevent audio artefacts. Requires a
 // channel index.
-static f32 _get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch);
 #define get_parameter_smoothed(plugin, param, ch) _get_parameter_smoothed((plugin), offsetof(ParameterData, param)/4, (ch))
 //  Get a parameter value
 f32 get_parameter(Plugin *p, u32 param_id);
@@ -225,12 +248,22 @@ f32 get_parameter_default(Plugin *p, u32 param_id);
 // The return value should remain valid for the duration of the audio process callback
 bool32 parameter_changed(Plugin *p, u32 param_id);
 
+// GUI functions
+void create_plugin_gui(Plugin*, PluginGuiDesc);
+ParameterData get_gui_parameters(PluginGui *gui);
+f32 *get_gui_raw_parameters(PluginGui *gui);
+// UI builder function wrappers -- provides a set of GUI parameter controls
+// which will automatically propagate changes to the underlying parameter state
+void slider(PluginGui *gui, u32 param_id, UiBoxStyle style);
+
+// Generates a basic prototype UI with sliders, combo boxes and buttons for all parameters
+void arbor_quick_ui(PluginGui *gui);
+
 AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames);
 AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames);
 // Copy a 32-bit buffer to a pre-allocated 64-bit buffer
 void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src);
 
-void create_plugin_gui(Plugin*, PluginGuiDesc);
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)

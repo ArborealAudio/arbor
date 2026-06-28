@@ -1,8 +1,5 @@
 #include "clap/clap.h"
 #include "arbor.h"
-#include "clap/ext/gui.h"
-#include "visual/platform.h"
-#include "visual/visual.h"
 
 static const char *const *get_clap_features() {
     PluginFeatures plugin_features = plugin_config.features;
@@ -114,11 +111,11 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
     dbg();
     Plugin *p = plugin->plugin_data;
     InternalParameters *params = p->params;
-    usize size = sizeof(params->main);
+    usize size = sizeof(params->data);
     i64 written = 0;
     while (written < size) {
         usize to_write = size - written;
-        i64 res = stream->write(stream, (char*)params->main + written, to_write);
+        i64 res = stream->write(stream, (char*)params->data + written, to_write);
         if (res < 0) {
             err("Error saving plugin state\n");
             return false;
@@ -132,11 +129,11 @@ static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream
     dbg();
     Plugin *p = plugin->plugin_data;
     InternalParameters *params = p->params;
-    usize size = sizeof(params->main);
+    usize size = sizeof(params->data);
     i64 read = 0;
     while (read < size) {
         usize to_read = size - read;
-        i64 res = stream->read(stream, (char*)params->main + read, to_read);
+        i64 res = stream->read(stream, (char*)params->data + read, to_read);
         if (res < 0) {
             err("Error loading plugin state\n");
             return false;
@@ -238,7 +235,16 @@ static void param_flush(const clap_plugin_t *plugin, const clap_input_events_t *
             switch (hdr->type) {
             case CLAP_EVENT_PARAM_VALUE: {
                 clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
-                _plugin_update_param(p, event->param_id, event->value);
+                _plugin_push_param_update(p, (ParamChange){
+                    .valid = TRUE,
+                    .id = event->param_id,
+                    .value = event->value,
+                    .offset = hdr->time,
+                });
+            } break;
+            case CLAP_EVENT_PARAM_MOD: {
+                clap_event_param_mod_t *event = (clap_event_param_mod_t*)hdr;
+                _plugin_push_param_mod(p, event->param_id, event->amount, hdr->time);
             } break;
             }
         }
@@ -400,65 +406,70 @@ static void plugin_reset(const clap_plugin_t *plugin) {
 
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process) {
     Plugin *p = plugin->plugin_data;
-    // Sync audio params to any changes in main
-    // ISSUE this is kind of pointless because we're going to write to audio params anyway if
-    // there are changes
-    memcpy(p->params->audio, p->params->main, sizeof(p->params->main));
 
     const u32 num_frames = process->frames_count;
     const clap_input_events_t *in_events = process->in_events;
     u32 num_in_events = in_events != NULL ? in_events->size(in_events) : 0;
+    for (u32 event_id = 0; event_id < num_in_events; ++event_id) {
+        const clap_event_header_t *hdr = in_events->get(in_events, event_id);
+        if (hdr && hdr->space_id == CLAP_CORE_EVENT_SPACE_ID) {
+            switch (hdr->type) {
+            case CLAP_EVENT_PARAM_VALUE: {
+                clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
+                dbg("Param value event: %d = %.2f", event->param_id, event->value);
+                _plugin_push_param_update(p, (ParamChange){
+                    .valid = TRUE,
+                    .id = event->param_id,
+                    .value = event->value,
+                    .offset = hdr->time,
+                });
+            } break;
+            case CLAP_EVENT_PARAM_MOD: {
+                clap_event_param_mod_t *event = (clap_event_param_mod_t*)hdr;
+                dbg("Param mod: %d += %.2f", event->param_id, event->amount);
+                _plugin_push_param_mod(p, event->param_id, event->amount, hdr->time);
+            } break;
+            case CLAP_EVENT_NOTE_ON:
+            case CLAP_EVENT_NOTE_OFF: {
+                clap_event_note_t *event = (clap_event_note_t*)hdr;
+                _midi_push(
+                    p, (MidiEvent){
+                           .valid = TRUE,
+                           .note = event->key,
+                           .velocity = event->velocity,
+                           .type = hdr->type,
+                           .offset = hdr->time,
+                       });
+            } break;
+            case CLAP_EVENT_MIDI: {
+                clap_event_midi_t *event = (clap_event_midi_t*)hdr;
+                dbg("Port: %d | %x", event->port_index, *((u32*)event->data));
+            } break;
+            }
+        }
+    }
+
+    u32 next_event_frame = num_frames;
+    ParamChange next_change = _plugin_next_param_change(p);
+    // TODO handle MIDI w/ no param changes
+    if (next_change.valid) {
+        next_event_frame = next_change.offset;
+    }
 
     u32 i = 0;
-    u32 event_id = 0;
-    u32 next_event_frame = num_in_events > 0 ? 0 : num_frames;
+    bool32 locked = _plugin_lock_params(p);
+    assert(locked);
+
     while (i < num_frames) {
         while (next_event_frame == i) {
-        // if (next_event_frame == i) {
-            const clap_event_header_t *hdr = in_events->get(in_events, event_id);
-            if (hdr && hdr->space_id == CLAP_CORE_EVENT_SPACE_ID) {
-                if (hdr->time != i)
-                    next_event_frame = hdr->time;
-                switch (hdr->type) {
-                case CLAP_EVENT_PARAM_VALUE: {
-                    clap_event_param_value_t *event = (clap_event_param_value_t*)hdr;
-                    dbg("Param value event: %d = %.2f", event->param_id, event->value);
-                    _plugin_update_param(p, event->param_id, event->value);
-                } break;
-                case CLAP_EVENT_PARAM_MOD: {
-                    clap_event_param_mod_t *event = (clap_event_param_mod_t*)hdr;
-                    dbg("Param mod: %d += %.2f", event->param_id, event->amount);
-                    _plugin_modulate_param(p, event->param_id, event->amount);
-                } break;
-                case CLAP_EVENT_NOTE_ON:
-                case CLAP_EVENT_NOTE_OFF: {
-                    clap_event_note_t *event = (clap_event_note_t*)hdr;
-                    _midi_push(
-                        p, (MidiEvent){
-                               .valid = TRUE,
-                               .note = event->key,
-                               .velocity = event->velocity,
-                               .type = hdr->type,
-                               .offset = i,
-                               // ISSUE This won't translate in a
-                               // sample-accurate context because we're going to
-                               // always start processing audio at i. So the
-                               // offset needs to be relative to i, but
-                               // like...we'll never have multiple events in one
-                               // process call...so I guess we should only send
-                               // one MIDI event per process callback??
-                               // OR, we build a queue of MIDI to send per N frames
-                           });
-                } break;
-                case CLAP_EVENT_MIDI: {
-                    clap_event_midi_t *event = (clap_event_midi_t*)hdr;
-                    dbg("Port: %d | %x", event->port_index, *((u32*)event->data));
-                } break;
-                }
-                event_id++;
-                if (event_id == num_in_events)
-                    next_event_frame = num_frames;
+            _plugin_apply_next_param_update(p);
+            next_change = _plugin_next_param_change(p);
+            if (next_change.valid) {
+                next_event_frame = next_change.offset;
+            } else {
+                next_event_frame = num_frames;
             }
+            assert(next_event_frame <= num_frames);
         }
         u32 frames_to_process = next_event_frame - i;
 
@@ -484,14 +495,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
         p->user_iface.process_cb(p, in, out, p->midi);
 
-        _midi_clear(p);
-        _plugin_reset_param_changes(p);
         i += frames_to_process;
+        _plugin_end_processing(p);
     }
-    // Sync main params to audio params
-    // ISSUE What if the main thread is in the middle of writing to its params?
-    // We need to queue a list of changes for the main thread rather than just hard-overwriting here
-    memcpy(p->params->main, p->params->audio, sizeof(p->params->audio));
+
+    _plugin_unlock_params(p);
+
     return CLAP_PROCESS_CONTINUE;
 }
 

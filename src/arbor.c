@@ -2,19 +2,13 @@
 // See LICENSE at this repository's root
 
 #include "arbor.h"
-#include "visual/platform.h"
-#include "visual/ui.h"
-#include "visual/visual.h"
+#include <string.h>
 
 // An arena for doing global allocations, i.e. plugin factories, plugin wrapper types before the
 // main plugin data is allocated
 static Arena *global_arena;
 
 #define new(T) (T*)arena_alloc(global_arena, sizeof(T))
-
-Allocator *plugin_allocator(Plugin *p) {
-    return &p->main_arena->allocator;
-}
 
 void *plugin_get_user(Plugin *p) { return p->user_iface.user; }
 
@@ -42,16 +36,8 @@ static void default_bool_print(const ParameterInfo *p, f32 value, char *buf, u32
 
 #include <user_code.c>
 
-// But wait, I have an idea...what if we could replace this with the "typed" ParameterData struct,
-// the `Plugin` holds a pointer to this struct which gets passed to the user. When the user wants
-// a smoothed param value, instead of passing `Param_whatever`, they pass &params->whatever. The ID
-// can be computed by comparing the passed-in pointer against the base pointer to `ParameterData`.
-// Only issue is the separation between main/audio thread data. Really, the data we "need to hide"
-// is just the main thread copy, and so that could be named such that it is clear the user does not
-// need to use it.
 struct InternalParameters {
-    f32 audio[Param_Count];
-    f32 main[Param_Count];
+    f32 data[Param_Count];
 };
 
 struct ParameterSmoother {
@@ -67,9 +53,8 @@ static char *_raw_param_data_from_id(ParameterData *data, u32 id) {
     return (char*)data + (id * 4);
 }
 
-ParameterData get_plugin_parameters(Plugin *p) {
+static ParameterData _param_data(float *params) {
     ParameterData data;
-    float *params = p->params->audio;
     for (int i = 0; i < Param_Count; ++i) {
         ParameterInfo *info = &parameter_layout[i];
         char *raw = _raw_param_data_from_id(&data, i);
@@ -90,6 +75,18 @@ ParameterData get_plugin_parameters(Plugin *p) {
     return data;
 }
 
+ParameterData get_audio_parameters(Plugin *p) {
+    return _param_data(p->params->data);
+}
+
+ParameterData get_gui_parameters(PluginGui *p) {
+    return _param_data(p->param_cache->data);
+}
+
+f32 *get_gui_raw_parameters(PluginGui *p) {
+    return p->param_cache->data;
+}
+
 // TODO should all these bounds checks on param_id be asserts?
 
 static f32 _calc_smoothed_param(ParameterSmoother *sm, f32 value, u32 param_id) {
@@ -106,7 +103,7 @@ f32 _get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch) {
         return 0;
     }
 
-    f32 value = p->params->audio[param_id];
+    f32 value = p->params->data[param_id];
     return _calc_smoothed_param(&p->param_smoother[ch], value, param_id);
 }
 
@@ -116,15 +113,16 @@ f32 get_parameter(Plugin *p, u32 param_id) {
         return 0;
     }
 
-    return p->params->audio[param_id];
+    return p->params->data[param_id];
 }
 
-f32 get_parameter_main(Plugin *p, u32 param_id) {
+f32 get_gui_parameter(PluginGui *gui, u32 param_id) {
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
         return 0;
     }
-    return p->params->main[param_id];
+
+    return gui->param_cache->data[param_id];
 }
 
 void set_parameter(Plugin *p, u32 param_id, float value) {
@@ -134,7 +132,7 @@ void set_parameter(Plugin *p, u32 param_id, float value) {
         return;
     }
 
-    p->params->audio[param_id] = value;
+    p->params->data[param_id] = value;
 }
 
 const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id) {
@@ -144,7 +142,6 @@ const ParameterInfo *get_parameter_info(Plugin *p, u32 param_id) {
     }
 
     return &parameter_layout[param_id];
-    // return &p->parameters[param_id];
 }
 
 f32 get_parameter_normalized(Plugin *p, u32 param_id, f32 value) {
@@ -210,8 +207,53 @@ void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
 }
 
 void create_plugin_gui(Plugin* plugin, PluginGuiDesc desc) {
-    if (desc.create_ui) {
+    if (desc.create_ui_builder) {
         plugin->gui.ui = ui_init(plugin->gui.platform);
+    }
+}
+
+static void _plugin_push_param_update(Plugin *p, ParamChange change);
+
+void toggle_button(PluginGui *gui, u32 param_id, UiBoxStyle style) {
+    bool32 value, cache;
+    value = cache = (bool32)get_gui_parameter(gui, param_id);
+    ui_toggle_button(gui->ui, &value, param_names[param_id], default_style);
+    if (value != cache) {
+        _plugin_push_param_update(plugin_from_gui(gui), (ParamChange){
+            .valid = TRUE,
+            .id = param_id,
+            .value = value,
+        });
+    }
+}
+
+void slider(PluginGui *gui, u32 param_id, UiBoxStyle style) {
+    f32 value, cache;
+    value = cache = get_gui_parameter(gui, param_id);
+    const ParameterInfo *info = get_parameter_info(plugin_from_gui(gui), param_id);
+    ui_slider(gui->ui, &value, info->min_value, info->max_value, param_names[param_id], style);
+    if (value != cache) {
+        _plugin_push_param_update(plugin_from_gui(gui), (ParamChange){
+            .valid = TRUE,
+            .id = param_id,
+            .value = value,
+        });
+    }
+}
+
+void arbor_quick_ui(PluginGui *gui) {
+    Plugin *p = plugin_from_gui(gui);
+    for (int i = 0; i < Param_Count; ++i) {
+        const ParameterInfo *info = get_parameter_info(p, i);
+        switch (info->type) {
+        case ParameterType_Bool:
+            toggle_button(gui, i, default_style);
+            break;
+        case ParameterType_Float:
+            slider(gui, i, default_style);
+            break;
+        default: break;
+        }
     }
 }
 
@@ -229,9 +271,12 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         .plugin_wrapper = wrapper_ptr,
         .user_iface = plugin_create(&arena->allocator),
     };
+    array_init_capacity(plugin_allocator(p), &p->param_changes.data, PARAM_CHANGES_CAPACITY);
+    mutex_init(p->param_lock);
     p->gui.width = p->user_iface.gui_width;
     p->gui.height = p->user_iface.gui_height;
     p->params = plugin_alloc(p, InternalParameters);
+    p->gui.param_cache = plugin_alloc(p, InternalParameters);
     p->param_smoother = arena_alloc(arena, sizeof(ParameterSmoother) * p->audio_input_count);
 
     if ((plugin_config.features & Feature_Instrument) || (plugin_config.features & Feature_Synth)) {
@@ -276,7 +321,7 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
             default: break;
             }
         }
-        p->params->audio[i] = p->params->main[i] = pinfo->default_value;
+        p->params->data[i] = pinfo->default_value;
     }
 
     cleanup: {
@@ -288,7 +333,7 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
     return ok;
 }
 
-static void _plugin_reset_param_changes(Plugin *p) {
+static void _plugin_reset_param_changes_mask(Plugin *p) {
     p->param_change_mask = 0;
 }
 
@@ -298,6 +343,7 @@ static void _plugin_push_param_change_id(Plugin *p, u32 id) {
 }
 
 static void _plugin_deinit(Plugin *p) {
+    mutex_deinit(p->param_lock);
     arena_deinit(p->main_arena);
 }
 
@@ -315,21 +361,64 @@ static void _plugin_prepare(Plugin *p, f64 sample_rate, u32 min_frames, u32 max_
     p->user_iface.prepare_cb(p, sample_rate, max_frames);
 }
 
-static void _plugin_update_param(Plugin *p, u32 param_id, f32 value) {
-    const ParameterInfo *info = get_parameter_info(p, param_id);
-    f32 min = info->min_value;
-    f32 max = info->max_value;
-    set_parameter(p, param_id, clamp(value, min, max));
-    _plugin_push_param_change_id(p, param_id);
+static bool32 _plugin_lock_params(Plugin *p) {
+    if (mutex_lock(p->param_lock) != 0) {
+        err("Failed to lock mutex: %s\n", strerror(errno));
+        return FALSE;
+    }
+    return TRUE;
 }
 
-static void _plugin_modulate_param(Plugin *p, u32 param_id, f32 amount) {
+static void _plugin_unlock_params(Plugin *p) {
+    if (mutex_release(p->param_lock) != 0) {
+        err("Failed to unlock mutex: %s\n", strerror(errno));
+    }
+}
+
+static void _plugin_push_param_update(Plugin *p, ParamChange change) {
+    const ParameterInfo *info = get_parameter_info(p, change.id);
+    f32 min = info->min_value;
+    f32 max = info->max_value;
+    change.value = clamp(change.value, min, max);
+    array_append(plugin_allocator(p), &p->param_changes.data, change);
+    _plugin_push_param_change_id(p, change.id);
+}
+
+static void _plugin_push_param_mod(Plugin *p, u32 param_id, f32 amount, u32 offset) {
     const ParameterInfo *info = get_parameter_info(p, param_id);
     f32 min = info->min_value;
     f32 max = info->max_value;
     f32 current = get_parameter(p, param_id);
-    set_parameter(p, param_id, clamp(current + amount, min, max));
+    _plugin_push_param_update(p, (ParamChange){
+        .valid = TRUE,
+        .id = param_id,
+        .value = clamp(current + amount, min, max),
+        .offset = offset,
+    });
     _plugin_push_param_change_id(p, param_id);
+}
+
+static ParamChange _plugin_next_param_change(Plugin *p) {
+    return p->param_changes.data.items[p->param_changes.read_head];
+}
+
+static void _plugin_apply_next_param_update(Plugin *p) {
+    ParamChange change = p->param_changes.data.items[p->param_changes.read_head];
+    assert(change.valid);
+    f32 *param = &p->params->data[change.id];
+    *param = change.value;
+    p->param_changes.read_head += 1;
+}
+
+static int _compare_param_change_offset(const void *a, const void *b) {
+    ParamChange *change_a = (ParamChange*)a;
+    ParamChange *change_b = (ParamChange*)b;
+
+    return change_a->offset - change_b->offset;
+}
+
+static void _sort_param_changes(Plugin *plugin) {
+    qsort(plugin->param_changes.data.items, plugin->param_changes.data.len, sizeof(ParamChange), _compare_param_change_offset);
 }
 
 static void _midi_push(Plugin *p, MidiEvent e) {
@@ -346,6 +435,14 @@ static void _midi_clear(Plugin *p) {
     p->midi.head = 0;
 }
 
+static void _plugin_end_processing(Plugin *p) {
+    _midi_clear(p);
+    _plugin_reset_param_changes_mask(p);
+    memset(p->param_changes.data.items, 0, p->param_changes.read_head * sizeof(ParamChange));
+    p->param_changes.read_head = 0;
+    array_reset(&p->param_changes.data);
+}
+
 static void _on_pv_init(pv_Context *pv) {
     Plugin *p = pv->desc.user_data;
     if (p->user_iface.gui_init_cb)
@@ -355,7 +452,7 @@ static void _on_pv_init(pv_Context *pv) {
 static void _on_pv_cleanup(pv_Context *pv) {
     Plugin *p = pv->desc.user_data;
     if (p->user_iface.gui_deinit_cb)
-        p->user_iface.gui_deinit_cb(p);
+        p->user_iface.gui_deinit_cb(&p->gui);
     if (p->gui.ui) {
         ui_deinit(p->gui.ui);
     }
@@ -365,12 +462,23 @@ static void _on_pv_render(pv_Context *pv) {
     Plugin *p = pv->desc.user_data;
     UICtx *ui = p->gui.ui;
 
+    // Set GUI parameter state
+    if (mutex_lock(p->param_lock) == 0) {
+        memcpy(p->gui.param_cache, p->params, sizeof(*p->params));
+
+        if (mutex_release(p->param_lock) != 0) {
+            err("Failed to unlock mutex: %s\n", strerror(errno));
+        }
+    } else {
+        err("Failed to lock mutex: %s\n", strerror(errno));
+    }
+
     if (ui) {
         ui_begin(ui);
     }
 
     if (p->user_iface.gui_render_cb)
-        p->user_iface.gui_render_cb(p);
+        p->user_iface.gui_render_cb(&p->gui);
 
     if (ui) {
         ui_end(ui);
@@ -379,9 +487,9 @@ static void _on_pv_render(pv_Context *pv) {
 
 static void _on_pv_event(pv_Context *pv, pv_Event *event) {
     Plugin *p = pv->desc.user_data;
-   if (p->user_iface.gui_event_cb) {
-       p->user_iface.gui_event_cb(p, event);
-   }
+    if (p->user_iface.gui_event_cb) {
+        p->user_iface.gui_event_cb(&p->gui, event);
+    }
 
    if (p->gui.ui) {
        ui_send_event(p->gui.ui, event);
