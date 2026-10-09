@@ -1,7 +1,7 @@
 #include "ui.h"
 
-static inline Allocator *allocator(UICtx *ctx) {
-    return &ctx->arena->allocator;
+static inline Arena *allocator(UICtx *ctx) {
+    return ctx->arena;
 }
 
 UICtx* ui_init(pv_Context *pv_ctx) {
@@ -237,8 +237,8 @@ void _set_box_string(UiBox *box, String string) {
 
 UiBox *_build_box(UICtx *ctx, UiBoxFlag flags, UiBoxStyle style, String key) {
     bool32 is_transient = is_null_key(key);
-    STACK_ALLOC_BEGIN(256);
-    const char *ckey = cstring_from_string(STACK_ALLOC, key);
+    stack_arena_begin(256);
+    const char *ckey = cstring_from_string(stack_arena(), key);
     UiBox *box = is_transient ? null_box : _get_box(ctx, ckey);
     if (!box) {
         if (is_transient) {
@@ -310,7 +310,7 @@ void ui_label(UICtx *ctx, String display, UiBoxStyle style) {
 void ui_labelf(UICtx *ctx, UiBoxStyle style, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    String str = string_printfv(&ctx->frame_arena->allocator, fmt, args);
+    String str = string_printf(ctx->frame_arena, fmt, args);
     ui_label(ctx, str, style);
     va_end(args);
 }
@@ -411,7 +411,7 @@ void ui_spacer(UICtx *ctx, UiAxis direction) {
 // Returns whether the window is open
 // ISSUE doesn't really create a floating window
 bool32 ui_window_begin(UICtx *ctx, String display, UiBoxStyle style, av_Rect rect) {
-    String close_window = string_concat(&ctx->frame_arena->allocator,
+    String close_window = string_concat(ctx->frame_arena,
                                      (String[]){display, string("-close")}, 2);
 
     UiBox *window = _build_box(ctx, FloatingPos | DrawBorder | DrawBackground, style, null_key);
@@ -563,8 +563,8 @@ void ui_slider(UICtx *ctx, float *value, float min, float max,
     container->gap[Horizontal] = container->gap[Vertical] = 5;
     _push_parent(ctx, container);
 
-    STACK_ALLOC_BEGIN(256);
-    const char *fmt = cstring_from_string(STACK_ALLOC, display);
+    TempAlloc tmp = temp_alloc_begin(ctx->frame_arena);
+    const char *fmt = cstring_from_string(ctx->frame_arena, display);
     ui_labelf(ctx, style, fmt, *value);
 
     UiBox *slider = _build_box(ctx,
@@ -622,10 +622,10 @@ void _perf_clock_end(UICtx *ctx) {
     float layout_pct = (layout_delta / total) * 100.f;
     float render_pct = (render_delta / total) * 100.f;
 
-    String time = string_printf(&ctx->frame_arena->allocator,
+    String time = string_printf(ctx->frame_arena,
         "Layout: %.2f ms | %.2f%%\nDraw: %.2f ms | %.2f%%\nTotal: %.2f ms",
         layout_delta, layout_pct, render_delta, render_pct, total);
-    String ram = string_printf(&ctx->frame_arena->allocator, "Arena: %$dB | Frame: %$dB",
+    String ram = string_printf(ctx->frame_arena, "Arena: %$dB | Frame: %$dB",
             arena_query_size(ctx->arena),
             arena_query_size(ctx->frame_arena));
     av_Size time_size = pv_measure_text(ctx->rdr_ctx, time);
@@ -831,13 +831,17 @@ void _resolve_sizes(UICtx *ctx, UiBox *root, UiAxis axis) {
 
         float over = total_size - max_size;
         if (over > 0 & total_weighted_size > 0) {
-            Array(float) fixups = {0};
-			array_reserve(&ctx->frame_arena->allocator, &fixups, root->num_children);
+            // Array(float) fixups = {0};
+            TempAlloc tmp = temp_alloc_begin(ctx->frame_arena);
+            float *fixups = (float*)arena_alloc(ctx->frame_arena, sizeof(f32) * root->num_children);
+            int fid = 0;
             for (UiBox *child = root->first_child; child != NULL; child = child->next) {
                 if (!(child->flags & (FloatingX << axis))) {
                     float fixup = child->fixed_size[axis] * (1.f - child->pref_size[axis].strictness);
                     fixup = fmaxf(0.f, fixup);
-                    array_append(&ctx->frame_arena->allocator, &fixups, fixup);
+                    // array_append(&ctx->frame_arena->allocator, &fixups, fixup);
+                    fixups[fid] = fixup;
+                    fid += 1;
                 }
             }
 
@@ -845,9 +849,11 @@ void _resolve_sizes(UICtx *ctx, UiBox *root, UiAxis axis) {
             size_t child_idx = 0;
             for (UiBox *child = root->first_child; child != NULL; child = child->next, child_idx++) {
                 if (!(child->flags & (FloatingX << axis))) {
-                    child->fixed_size[axis] -= fix_pct * fixups.items[child_idx];
+                    child->fixed_size[axis] -= fix_pct * fixups[child_idx];
                 }
             }
+
+            temp_alloc_end(&tmp);
         }
     } else {
         float max_size = root->fixed_size[axis];

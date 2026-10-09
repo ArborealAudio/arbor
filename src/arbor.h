@@ -213,15 +213,16 @@ struct Plugin {
 
 #define plugin_from_gui(p) (Plugin*)((char*)p - offsetof(Plugin, gui))
 
-#define plugin_alloc(p, T) (T*)arena_alloc(p->main_arena, sizeof(T))
+#define push_struct(plugin, T) (T*)arena_alloc(plugin->main_arena, sizeof(T))
+#define push_array(plugin, T, count) (T*)arena_alloc(plugin->main_arena, sizeof(T) * count)
 
-static inline Allocator *plugin_allocator(Plugin *p) {
-    return &p->main_arena->allocator;
+static inline Arena *plugin_allocator(Plugin *p) {
+    return p->main_arena;
 }
 
 // A user-defined function which provides a `PluginInterface` to call the user's functions and
 // provide a reference to user-allocated data
-PluginInterface plugin_create(Allocator *);
+PluginInterface plugin_create(Arena *);
 // Get the user data provided in the `PluginInterface`
 void *plugin_get_user(Plugin *p);
 
@@ -259,13 +260,20 @@ void slider(PluginGui *gui, u32 param_id, UiBoxStyle style);
 // Generates a basic prototype UI with sliders, combo boxes and buttons for all parameters
 void arbor_quick_ui(PluginGui *gui);
 
-AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames);
-AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames);
+AudioBuffer32 audio_buffer32_create(Plugin *p, u32 num_ch, u32 num_frames);
+AudioBuffer64 audio_buffer64_create(Plugin *p, u32 num_ch, u32 num_frames);
 // Copy a 32-bit buffer to a pre-allocated 64-bit buffer
 void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src);
 
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
+
+// #define log(fmt, ...) dbg(__func__ "(%d): " fmt, __LINE__, __VA_ARGS__)
+#ifndef NDEBUG
+#define dbg(fmt, ...) println("%s(%d): " fmt, __func__, __LINE__, ##__VA_ARGS__)
+#else
+#define dbg
+#endif
 
 #endif

@@ -4,20 +4,20 @@
 static const char *const *get_clap_features() {
     PluginFeatures plugin_features = plugin_config.features;
     Array(const char *) list;
-    array_init_capacity(&global_arena->allocator, &list, 32);
+    array_init_capacity(global_arena, &list, 32);
 
     if (plugin_features & Feature_Mono)
-        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_MONO);
+        array_append(global_arena, &list, CLAP_PLUGIN_FEATURE_MONO);
     if (plugin_features & Feature_Stereo)
-        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_STEREO);
+        array_append(global_arena, &list, CLAP_PLUGIN_FEATURE_STEREO);
     if (plugin_features & Feature_Surround)
-        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_SURROUND);
+        array_append(global_arena, &list, CLAP_PLUGIN_FEATURE_SURROUND);
     if (plugin_features & Feature_Effect)
-        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT);
+        array_append(global_arena, &list, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT);
     if (plugin_features & Feature_Instrument)
-        array_append(&global_arena->allocator, &list, CLAP_PLUGIN_FEATURE_INSTRUMENT);
+        array_append(global_arena, &list, CLAP_PLUGIN_FEATURE_INSTRUMENT);
 
-    array_append(&global_arena->allocator, &list, NULL);
+    array_append(global_arena, &list, NULL);
 
     return list.items;
 }
@@ -554,8 +554,8 @@ static const clap_plugin_t *create_plugin(const struct clap_plugin_factory *fact
         return NULL;
     }
     if (string_match(string(plugin_id), string(clap_desc.id))) {
-        Plugin *plugin = new(Plugin);
-        clap_plugin_t *clap = new(clap_plugin_t);
+        Plugin *plugin = global_struct_alloc(Plugin);
+        clap_plugin_t *clap = global_struct_alloc(clap_plugin_t);
         _plugin_init(plugin, clap, host);
         *clap = (clap_plugin_t){
             .plugin_data = plugin,

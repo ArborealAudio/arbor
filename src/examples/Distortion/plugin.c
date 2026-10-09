@@ -55,7 +55,7 @@ static void process(Plugin *plugin, const AudioBuffer32 in_buf, AudioBuffer32 ou
     }
 }
 
-PluginInterface plugin_create() {
+PluginInterface plugin_create(Arena *arena) {
     return (PluginInterface){
         .init_cb = init,
         .deinit_cb = deinit,

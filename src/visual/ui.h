@@ -3,15 +3,8 @@
 
 #include "platform.h"
 
-#define USE_ARENA 1
-
-#if USE_ARENA
 #define ui_new(T) (T*)arena_alloc(ctx->arena, sizeof(T))
 #define ui_frame_alloc(T) (T*)arena_alloc(ctx->frame_arena, sizeof(T))
-#else
-#define debugui_new(T) (T*)malloc(sizeof(T))
-#define debugui_frame_alloc(T) debugui_new(T)
-#endif
 
 // TODO Use our own hash table
 #define STB_DS_IMPLEMENTATION

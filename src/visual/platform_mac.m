@@ -414,9 +414,9 @@ void pv_fill_ellipse(pv_Context *ctx, av_Point center, float rx, float ry,
 void pv_load_image_asset(pv_Context *ctx, String image_name) {
     Arena *arena = ctx->arena;
     TempAlloc tmp = temp_alloc_begin(arena);
-    String path = path_join(&arena->allocator, (String[]){string("assets"), image_name}, 2);
-    File img_fd = file_open(path, FileOpen_ReadOnly);
-    const char *img_data = file_read_full_alloc(img_fd, &arena->allocator);
+    String path = path_join(arena, (String[]){string("assets"), image_name}, 2);
+    File img_fd = file_open_opt(path, FileOpen_ReadOnly, 0755);
+    const char *img_data = file_read_full_alloc(img_fd, arena);
     if (!img_data) {
         err("Failed to load image: %.*s\n", image_name.len, image_name.data);
     }
@@ -442,21 +442,23 @@ void pv_draw_icon(pv_Context *ctx, pv_IconSlot icon, av_Rect rect, av_Colorf col
 
 void pv_set_font(pv_Context *ctx, String font_name, float size)
 {
-    STACK_ALLOC_BEGIN(128);
-    char *cstr = cstring_from_string(STACK_ALLOC, font_name);
+    TempAlloc tmp = temp_alloc_begin(ctx->arena);
+    char *cstr = cstring_from_string(ctx->arena, font_name);
     osx_ctx(ctx)->view.font_ref = [NSFont fontWithName:[[NSString alloc] initWithUTF8String:cstr] size:size];
     osx_ctx(ctx)->view.font_size = size;
     if (osx_ctx(ctx)->view.font_ref == NULL) {
         fprintf(stderr, "NSFont creation failed\n");
+        temp_alloc_end(&tmp);
         return;
     }
+    temp_alloc_end(&tmp);
 }
 
 float pv_get_current_font_size(pv_Context *ctx) { return osx_ctx(ctx)->view.font_size; }
 
 av_Size pv_measure_text(pv_Context *ctx, String text) {
     TempAlloc tmp = temp_alloc_begin(ctx->arena);
-    char *cstr = cstring_from_string(&ctx->arena->allocator, text);
+    char *cstr = cstring_from_string(ctx->arena, text);
     NSString *str = [[NSString alloc] initWithUTF8String:cstr];
 
     OSX_VisualContext *osx = osx_ctx(ctx);
@@ -476,7 +478,7 @@ void pv_draw_text(pv_Context *ctx, String text, av_Rect rect, av_TextStyle style
     OSX_View *view = osx_ctx(ctx)->view;
     const float height = view.bounds.size.height;
     NSFont *font = view.font_ref;
-    char *cstr = cstring_from_string(&ctx->arena->allocator, text);
+    char *cstr = cstring_from_string(ctx->arena, text);
     NSString *str = [[NSString alloc] initWithUTF8String:cstr];
     NSMutableParagraphStyle *para_style = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     switch (style.justify) {

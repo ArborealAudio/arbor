@@ -10,6 +10,7 @@ static Arena *_arena;
 #define check_rebuild() _check_rebuild(string(argv[0]), STR_LIT(__FILE__))
 
 static void _check_rebuild(String bin, String src) {
+    bool32 res = TRUE;
     if (file_mtime(bin) < file_mtime(src)) {
         // self-rebuild
         println("Recompiling build runner");
@@ -24,38 +25,43 @@ static void _check_rebuild(String bin, String src) {
 
         if (system(cmd) != 0) {
             err("Self-build failed\n");
-            exit(1);
+            res = FALSE;
+            goto cleanup;
         }
 
-        STACK_ALLOC_BEGIN(512);
-        const char *cstr_bin = cstring_from_string(STACK_ALLOC, bin);
+        stack_arena_begin(1024);
+        const char *cstr_bin = cstring_from_string(stack_arena(), bin);
         if (system(cstr_bin) != 0) {
             err("Compilation failed\n");
-            exit(1);
+            res = FALSE;
+            goto cleanup;
         }
-
-        exit(0);
+    cleanup:
+        exit(!res);
     }
 }
 
 static String _format_plist(PluginBuild *build) {
-    STACK_ALLOC_BEGIN(512);
-    String plist_path = path_join(STACK_ALLOC, (String[]){
+    stack_arena_begin(1024);
+    String plist_path = path_join(stack_arena(), (String[]){
         string(build->arbor_src_path),
         STR_LIT("macos_bundle_plist.txt"),
     }, 2);
-    File fd = file_open(plist_path, FileOpen_ReadOnly);
-    const char *fmt = file_read_full_alloc(fd, &_arena->allocator);
+    File fd = file_open_opt(plist_path, FileOpen_ReadOnly, 0644);
+    const char *fmt;
+    if (file_is_valid(fd))
+        fmt = file_read_full_alloc(fd, _arena);
+    else
+        err("MacOS plist file invalid\n");
     file_close(fd);
 
     PluginDescription desc = build->config.desc;
 
-    return string_printf(&_arena->allocator, fmt, desc.name, desc.id, desc.name, desc.name, desc.version,
+    return string_printf(_arena, fmt, desc.name, desc.id, desc.name, desc.name, desc.version,
         desc.version, desc.copyright);
 }
 
 static void install_plugin(PluginBuild *build, String output_path) {
-    STACK_ALLOC_BEGIN(KB(16));
     String bundle_stem = string_split_after(output_path, '/');
     // Get system plugin dir
     const char *home = getenv("HOME");
@@ -63,28 +69,28 @@ static void install_plugin(PluginBuild *build, String output_path) {
     String plugin_dest = {0};
     String plugin_ext = {0};
     if (build->format & BuildFormat_VST3) {
-        user_plugin_dir = path_join(STACK_ALLOC, (String[]){
+        user_plugin_dir = path_join(_arena, (String[]){
             string(home), STR_LIT("Library/Audio/Plug-Ins/VST3")
         }, 2);
         plugin_ext = STR_LIT(".vst3");
     } else if (build->format & BuildFormat_CLAP) {
-        user_plugin_dir = path_join(STACK_ALLOC, (String[]){
+        user_plugin_dir = path_join(_arena, (String[]){
             string(home), STR_LIT("Library/Audio/Plug-Ins/CLAP")
         }, 2);
         plugin_ext = STR_LIT(".clap");
     }
-    plugin_dest = path_join(STACK_ALLOC, (String[]){
+    plugin_dest = path_join(_arena, (String[]){
         user_plugin_dir, bundle_stem
     }, 2);
-    String bin_dir = string_clone(STACK_ALLOC, plugin_dest);
+    String bin_dir = string_clone(_arena, plugin_dest);
     String bin_name = path_split(&bin_dir);
-    String contents_dir = string_clone(STACK_ALLOC, bin_dir);
+    String contents_dir = string_clone(_arena, bin_dir);
     path_split(&contents_dir);
 
-    String plist_path = path_join(STACK_ALLOC, (String[]){
+    String plist_path = path_join(_arena, (String[]){
         contents_dir, STR_LIT("Info.plist")
     }, 2);
-    String pkginfo_path = path_join(STACK_ALLOC, (String[]){
+    String pkginfo_path = path_join(_arena, (String[]){
         contents_dir, STR_LIT("PkgInfo")
     }, 2);
 
@@ -98,28 +104,31 @@ static void install_plugin(PluginBuild *build, String output_path) {
 
     // Update plugin plist
     {
-        File plist_fd = file_open(plist_path, 0);
-        String plist = _format_plist(build);
-        file_write_string(plist_fd, plist);
+        File plist_fd = file_open(plist_path);
+        if (file_is_valid(plist_fd)) {
+            String plist = _format_plist(build);
+            file_write_string(plist_fd, plist);
+        }
         file_close(plist_fd);
     }
     // Update plugin PkgInfo file
     {
-        File pkginfo_fd = file_open(pkginfo_path, 0);
-        file_write_string(pkginfo_fd, STR_LIT("BNDL????"));
+        File pkginfo_fd = file_open(pkginfo_path);
+        if (file_is_valid(pkginfo_fd))
+            file_write_string(pkginfo_fd, STR_LIT("BNDL????"));
         file_close(pkginfo_fd);
     }
 
     // Codesign bundle
     {
-        String bundle_dir = path_join(STACK_ALLOC, (String[]){
-            user_plugin_dir, string_concat(STACK_ALLOC, (String[]){
+        String bundle_dir = path_join(_arena, (String[]){
+            user_plugin_dir, string_concat(_arena, (String[]){
                 string(build->config.desc.name), plugin_ext
             }, 2)
         }, 2);
         // NOTE: stb_sprintf dropping the ball here for some reason
-        // String cmd = string_printf(STACK_ALLOC, "codesign -f -s - %.*s", bundle_dir.len, bundle_dir.data);
-        char *cmd = STACK_ALLOC->alloc(STACK_ALLOC, bundle_dir.len * 2);
+        // String cmd = string_printf(_arena, "codesign -f -s - %.*s", bundle_dir.len, bundle_dir.data);
+        char *cmd = arena_alloc(_arena, bundle_dir.len * 2);
         sprintf(cmd, "codesign -f -s - %.*s", bundle_dir.len, bundle_dir.data);
         println("Codesigning bundle: %s", cmd);
         if (system(cmd) != 0) {
@@ -128,8 +137,8 @@ static void install_plugin(PluginBuild *build, String output_path) {
     }
 
     // Copy debug contents
-    String dbg_src = string_concat(STACK_ALLOC, (String[]){output_path, STR_LIT(".dSYM")}, 2);
-    String dbg_dst = string_concat(STACK_ALLOC, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
+    String dbg_src = string_concat(_arena, (String[]){output_path, STR_LIT(".dSYM")}, 2);
+    String dbg_dst = string_concat(_arena, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
     if (!file_copy_recursive(dbg_src, dbg_dst)) {
         err("Copy debug info failed\n");
     }
@@ -166,55 +175,56 @@ static void build_plugin(PluginBuild *build) {
 
     while (build->format != 0) {
         TempAlloc tmp = temp_alloc_begin(_arena);
-        Allocator *alloc = &_arena->allocator;
         // build plugin
         const char *base_args [] = {"-shared", "-Werror", "-I./generated",
             /* TODO factor these out */ "-ObjC", "-framework Cocoa"};
-        StringArray args = string_array_from_cstrs(alloc, base_args, array_len(base_args), 16);
+        StringArray args = string_array_from_cstrs(_arena, base_args, array_len(base_args), 16);
 
         if (build->debug) {
-            string_array_append(alloc, &args, STR_LIT("-g"));
+            string_array_append(_arena, &args, STR_LIT("-g"));
         } else {
-            string_array_append(alloc, &args, STR_LIT("-DNDEBUG"));
+            string_array_append(_arena, &args, STR_LIT("-DNDEBUG"));
         }
 
         switch (build->optimize_mode) {
         case Optimize_Regular:
-            string_array_append(alloc, &args, STR_LIT("-O2"));
+            string_array_append(_arena, &args, STR_LIT("-O2"));
             break;
         case Optimize_Fast:
-            string_array_append(alloc, &args, STR_LIT("-O3"));
+            string_array_append(_arena, &args, STR_LIT("-O3"));
             break;
         case Optimize_Size:
-            string_array_append(alloc, &args, STR_LIT("-Os"));
+            string_array_append(_arena, &args, STR_LIT("-Os"));
             break;
         default: break;
         }
 
         String out_path = {0};
+        String out_dir = {0};
         if (build->format & BuildFormat_VST3) {
             println("Building VST3");
-            string_array_append(alloc, &args, STR_LIT("-DARBOR_VST3"));
-            out_path = string_printf(alloc, ".build/%s.vst3/Contents/MacOS/%s",
+            string_array_append(_arena, &args, STR_LIT("-DARBOR_VST3"));
+            out_path = string_printf(_arena, ".build/%s.vst3/Contents/MacOS/%s",
                 plugin_desc.name, plugin_desc.name);
         } else if (build->format & BuildFormat_CLAP) {
             println("Building CLAP");
-            string_array_append(alloc, &args, STR_LIT("-DARBOR_CLAP"));
-            out_path = string_printf(alloc, ".build/%s.clap/Contents/MacOS/%s",
+            string_array_append(_arena, &args, STR_LIT("-DARBOR_CLAP"));
+            out_path = string_printf(_arena, ".build/%s.clap/Contents/MacOS/%s",
                 plugin_desc.name, plugin_desc.name);
         }
-        if (make_dir(out_path)) {
-            println("Created directory: %.*s", out_path.len, out_path.data);
+        out_dir = path_parent_dir(out_path);
+        if (make_dir(out_dir)) {
+            println("Created directory: %.*s", out_dir.len, out_dir.data);
         }
-        String out_arg = string_concat(alloc, (String[]){STR_LIT("-o"), out_path}, 2);
-        string_array_append(alloc, &args, out_arg);
+        String out_arg = string_concat(_arena, (String[]){STR_LIT("-o"), out_path}, 2);
+        string_array_append(_arena, &args, out_arg);
 
-        String args_str = string_array_flatten(alloc, &args);
+        String args_str = string_array_flatten(_arena, &args);
         char cmd[512] = {0};
         string_print_buf(cmd, sizeof(cmd), "cc %.*s %s/arbor.c", args_str.len, args_str.data,
             build->arbor_src_path);
 
-        dbg("Executing command: %s", cmd);
+        println("Executing command: %s", cmd);
 
         int result = system(cmd);
         println("Command exited with code %d", result);
@@ -237,8 +247,7 @@ static void build_plugin(PluginBuild *build) {
 
 cleanup: {
     usize arena_mem = arena_query_size(_arena);
-    println("Build process finished");
-    println("Arena mem: %.2fkB", (float)arena_mem / 1024);
+    println("Arena mem: %$$.2dB", arena_mem);
     arena_deinit(_arena);
 }
 }
@@ -601,7 +610,7 @@ static bool32 node_has_field(Node *node, ParamField field) {
     return FALSE;
 }
 
-static void print_parameter_data(File f, Allocator *alloc, Node *root) {
+static void print_parameter_data(File f, Arena *alloc, Node *root) {
     switch (root->type) {
     case Node_ParamDecl: {
         ParamType type = node_get_parameter_type(root);
@@ -627,14 +636,14 @@ static void print_parameter_data(File f, Allocator *alloc, Node *root) {
     }
 }
 
-static void print_parameter_info(File f, Allocator *alloc, Node *root) {
+static void print_parameter_info(File f, Arena *arena, Node *root) {
 	String data = node_get_identifier(root);
 	dbg("Printing node data: %.*s", data.len, data.data);
 	switch (root->type) {
 	case Node_ParamDecl:
-		file_printf(f, alloc, "\t[Param_%.*s] = {\n", data.len, data.data);
+		file_printf(f, _arena, "\t[Param_%.*s] = {\n", data.len, data.data);
 		if (!node_has_field(root, ParamField_Name)) {
-		    file_printf(f, alloc, "\t\t.name = STR_LIT(\"%.*s\"),\n", data.len, data.data);
+		    file_printf(f, _arena, "\t\t.name = STR_LIT(\"%.*s\"),\n", data.len, data.data);
 		}
 		if (!node_has_field(root, ParamField_Min)) {
 		    if (node_get_parameter_type(root) == ParamType_Bool) {
@@ -646,7 +655,7 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
                 if (string_match(min_value, STR_LIT("false"))) {
                     min_value = STR_LIT("FALSE");
                 }
-    			file_printf(f, alloc, "\t\t.min_value = %.*s,\n", min_value.len, min_value.data);
+    			file_printf(f, _arena, "\t\t.min_value = %.*s,\n", min_value.len, min_value.data);
 			}
 		}
 		if (!node_has_field(root, ParamField_Max)) {
@@ -656,7 +665,7 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
     			Node *choices = node_get_choices(root);
     			Node *max = get_node(choices->last);
     			String max_value = node_get_identifier(max);
-    			file_printf(f, alloc, "\t\t.max_value = %.*s,\n", max_value.len, max_value.data);
+    			file_printf(f, _arena, "\t\t.max_value = %.*s,\n", max_value.len, max_value.data);
 			}
 		}
 		break;
@@ -677,11 +686,11 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
 		} break;
 		case ParamField_Choices: {
 		    String param_name = node_get_parameter_name(root);
-			file_printf(f, alloc, "\t\t.choices = (StringArray){%.*s_names, %.*s_Count},\n", param_name.len,
+			file_printf(f, _arena, "\t\t.choices = (StringArray){%.*s_names, %.*s_Count},\n", param_name.len,
     			param_name.data, param_name.len, param_name.data);
 		} break;
 		default:
-		    file_printf(f, alloc, "\t\t.%.*s = ", data.len, data.data);
+		    file_printf(f, _arena, "\t\t.%.*s = ", data.len, data.data);
 			break;
 		}
 	} break;
@@ -691,19 +700,19 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
 		ParamField parent_param_field = parent->param_field;
 		switch (parent_param_field) {
 		case ParamField_Type:
-			file_printf(f, alloc, "%s,\n", param_types_output[root->param_type]);
+			file_printf(f, _arena, "%s,\n", param_types_output[root->param_type]);
 			break;
 		case ParamField_Name:
-			file_printf(f, alloc, "STR_LIT(\"%.*s\"),\n", data.len, data.data);
+			file_printf(f, _arena, "STR_LIT(\"%.*s\"),\n", data.len, data.data);
 			break;
        	case ParamField_Choices: break;
 		default:
 		    if (string_match(data, STR_LIT("true"))) {
-		        file_printf(f, alloc, "TRUE,\n");
+		        file_printf(f, _arena, "TRUE,\n");
 		    } else if (string_match(data, STR_LIT("false"))) {
-		        file_printf(f, alloc, "FALSE,\n");
+		        file_printf(f, _arena, "FALSE,\n");
 		    } else {
-                file_printf(f, alloc, "%.*s,\n", data.len, data.data);
+                file_printf(f, _arena, "%.*s,\n", data.len, data.data);
 			}
 		    break;
 		}
@@ -712,7 +721,7 @@ static void print_parameter_info(File f, Allocator *alloc, Node *root) {
 	}
 
 	for (Node *node = get_node(root->first); node != NULL; node = get_node(node->next)) {
-		print_parameter_info(f, alloc, node);
+		print_parameter_info(f, _arena, node);
 	}
 
 	if (root->type == Node_ParamDecl) {
@@ -732,9 +741,8 @@ static u32 hash_plugin_id(const char *plugin_id) {
 }
 
 static ParseError config_build(PluginBuild *build) {
-    Allocator *alloc = &_arena->allocator;
-    File user_config_fd = file_open(string(build->config_file), FileOpen_ReadOnly);
-    char *const data = file_read_full_alloc(user_config_fd, alloc);
+    File user_config_fd = file_open_opt(string(build->config_file), FileOpen_ReadOnly, 0755);
+    char *const data = file_read_full_alloc(user_config_fd, _arena);
     config_data = data;
     file_close(user_config_fd);
 
@@ -961,7 +969,7 @@ static ParseError config_build(PluginBuild *build) {
             return result;
         }
 	}
-	File config_fd = file_open(STR_LIT("generated/user_code.c"), 0);
+	File config_fd = file_open(STR_LIT("generated/user_code.c"));
 	if (!config_fd.fd) {
         result = ParseError_FilesystemError;
         return result;
@@ -975,7 +983,7 @@ static ParseError config_build(PluginBuild *build) {
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
-			file_printf(config_fd, alloc, "\tParam_%.*s,\n", name.len, name.data);
+			file_printf(config_fd, _arena, "\tParam_%.*s,\n", name.len, name.data);
 		}
 		String param_count = STR_LIT("\tParam_Count,\n");
 		file_write_string(config_fd, param_count);
@@ -989,7 +997,7 @@ static ParseError config_build(PluginBuild *build) {
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
 			Token t = tokens[node->token_id];
 			String name = get_identifier(data + t.offset);
-			file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", name.len, name.data);
+			file_printf(config_fd, _arena, "\tSTR_LIT(\"%.*s\"),\n", name.len, name.data);
 		}
 		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
@@ -1002,27 +1010,27 @@ static ParseError config_build(PluginBuild *build) {
  			Node *choices = node_get_choices(node);
             if (!choices)
                 continue;
-            STACK_ALLOC_BEGIN(KB(1));
+            stack_arena_begin(KB(1));
             // Print enum
-            file_printf(config_fd, alloc, "typedef enum {\n");
+            file_printf(config_fd, _arena, "typedef enum {\n");
             Array(String) names;
-            array_init_capacity(STACK_ALLOC, &names, 16);
+            array_init_capacity(stack_arena(), &names, 16);
             // iterate each choice
             for (Node *choice = get_node(choices->first); choice != NULL; choice = get_node(choice->next)) {
                 String identifier = node_get_identifier(choice);
-                array_append(STACK_ALLOC, &names, identifier);
-                file_printf(config_fd, alloc, "\t%.*s,\n", identifier.len, identifier.data);
+                array_append(stack_arena(), &names, identifier);
+                file_printf(config_fd, _arena, "\t%.*s,\n", identifier.len, identifier.data);
             }
-            file_printf(config_fd, alloc, "\t%.*s_Count,\n", param_name.len, param_name.data);
-            file_printf(config_fd, alloc, "} %.*s;\n\n", param_name.len, param_name.data);
+            file_printf(config_fd, _arena, "\t%.*s_Count,\n", param_name.len, param_name.data);
+            file_printf(config_fd, _arena, "} %.*s;\n\n", param_name.len, param_name.data);
 
             // Print names array
-            file_printf(config_fd, alloc, "static String %.*s_names[%.*s_Count] = {\n",
+            file_printf(config_fd, _arena, "static String %.*s_names[%.*s_Count] = {\n",
                 param_name.len, param_name.data, param_name.len, param_name.data);
             for (int i = 0; i < names.len; ++i) {
-                file_printf(config_fd, alloc, "\tSTR_LIT(\"%.*s\"),\n", names.items[i].len, names.items[i].data);
+                file_printf(config_fd, _arena, "\tSTR_LIT(\"%.*s\"),\n", names.items[i].len, names.items[i].data);
             }
-            file_printf(config_fd, alloc, "};\n\n");
+            file_printf(config_fd, _arena, "};\n\n");
 		}
 	}
 	// Iterate tree & print ParameterData struct
@@ -1030,7 +1038,7 @@ static ParseError config_build(PluginBuild *build) {
 		String header = STR_LIT("struct ParameterData{\n");
 		file_write_string(config_fd, header);
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
-			print_parameter_data(config_fd, alloc, node);
+			print_parameter_data(config_fd, _arena, node);
 		}
 		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
@@ -1040,7 +1048,7 @@ static ParseError config_build(PluginBuild *build) {
 		String header = STR_LIT("static ParameterInfo parameter_layout[Param_Count] = {\n");
 		file_write_string(config_fd, header);
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
-			print_parameter_info(config_fd, alloc, node);
+			print_parameter_info(config_fd, _arena, node);
 		}
 		String footer = STR_LIT("};\n\n");
 		file_write_string(config_fd, footer);
@@ -1051,49 +1059,49 @@ static ParseError config_build(PluginBuild *build) {
     	PluginConfig plugin_config = build->config;
         file_write_string(config_fd, STR_LIT("static PluginConfig plugin_config = {\n\t.desc = {\n"));
         if (plugin_config.desc.name) {
-            file_printf(config_fd, alloc, "\t\t.name = \"%s\",\n", plugin_config.desc.name);
+            file_printf(config_fd, _arena, "\t\t.name = \"%s\",\n", plugin_config.desc.name);
         }
         if (plugin_config.desc.id) {
-            file_printf(config_fd, alloc, "\t\t.id = \"%s\",\n", plugin_config.desc.id);
+            file_printf(config_fd, _arena, "\t\t.id = \"%s\",\n", plugin_config.desc.id);
         }
         if (plugin_config.desc.company) {
-            file_printf(config_fd, alloc, "\t\t.company = \"%s\",\n", plugin_config.desc.company);
+            file_printf(config_fd, _arena, "\t\t.company = \"%s\",\n", plugin_config.desc.company);
         }
         if (plugin_config.desc.version) {
-            file_printf(config_fd, alloc, "\t\t.version = \"%s\",\n", plugin_config.desc.version);
+            file_printf(config_fd, _arena, "\t\t.version = \"%s\",\n", plugin_config.desc.version);
         }
         if (plugin_config.desc.copyright) {
-            file_printf(config_fd, alloc, "\t\t.copyright = \"%s\",\n", plugin_config.desc.copyright);
+            file_printf(config_fd, _arena, "\t\t.copyright = \"%s\",\n", plugin_config.desc.copyright);
         }
         if (plugin_config.desc.url) {
-            file_printf(config_fd, alloc, "\t\t.url = \"%s\",\n", plugin_config.desc.url);
+            file_printf(config_fd, _arena, "\t\t.url = \"%s\",\n", plugin_config.desc.url);
         }
         if (plugin_config.desc.contact) {
-            file_printf(config_fd, alloc, "\t\t.contact = \"%s\",\n", plugin_config.desc.contact);
+            file_printf(config_fd, _arena, "\t\t.contact = \"%s\",\n", plugin_config.desc.contact);
         }
         if (plugin_config.desc.manual) {
-            file_printf(config_fd, alloc, "\t\t.manual = \"%s\",\n", plugin_config.desc.manual);
+            file_printf(config_fd, _arena, "\t\t.manual = \"%s\",\n", plugin_config.desc.manual);
         }
         if (plugin_config.desc.description) {
-            file_printf(config_fd, alloc, "\t\t.description = \"%s\",\n", plugin_config.desc.description);
+            file_printf(config_fd, _arena, "\t\t.description = \"%s\",\n", plugin_config.desc.description);
         }
         file_write_string(config_fd, STR_LIT("\t},\n")); // } desc
         file_write_string(config_fd, STR_LIT("\t.audio_ports = {\n"));
-        file_printf(config_fd, alloc, "\t\t.inputs = %d,\n", plugin_config.audio_ports.inputs);
-        file_printf(config_fd, alloc, "\t\t.outputs = %d,\n", plugin_config.audio_ports.outputs);
+        file_printf(config_fd, _arena, "\t\t.inputs = %d,\n", plugin_config.audio_ports.inputs);
+        file_printf(config_fd, _arena, "\t\t.outputs = %d,\n", plugin_config.audio_ports.outputs);
         file_write_string(config_fd, STR_LIT("\t},\n")); // } audio ports
         file_write_string(config_fd, STR_LIT("\t.note_ports = {\n"));
-        file_printf(config_fd, alloc, "\t\t.inputs = %d,\n", plugin_config.note_ports.inputs);
-        file_printf(config_fd, alloc, "\t\t.outputs = %d,\n", plugin_config.note_ports.outputs);
+        file_printf(config_fd, _arena, "\t\t.inputs = %d,\n", plugin_config.note_ports.inputs);
+        file_printf(config_fd, _arena, "\t\t.outputs = %d,\n", plugin_config.note_ports.outputs);
         file_write_string(config_fd, STR_LIT("\t},\n")); // } audio ports
-        file_printf(config_fd, alloc, "\t.features = 0x%x,\n", plugin_config.features);
+        file_printf(config_fd, _arena, "\t.features = 0x%x,\n", plugin_config.features);
         file_write_string(config_fd, STR_LIT("};\n\n"));
 
         u32 plugin_id_hash = hash_plugin_id(plugin_config.desc.id);
-        file_printf(config_fd, alloc, "#define PLUGIN_ID_HASH 0x%x\n\n", plugin_id_hash);
+        file_printf(config_fd, _arena, "#define PLUGIN_ID_HASH 0x%x\n\n", plugin_id_hash);
 	}
 
-	file_printf(config_fd, alloc, "#include \"../%s\"\n", build->src_file);
+	file_printf(config_fd, _arena, "#include \"../%s\"\n", build->src_file);
 
 	file_close(config_fd);
 

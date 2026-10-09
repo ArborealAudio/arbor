@@ -8,7 +8,7 @@
 // main plugin data is allocated
 static Arena *global_arena;
 
-#define new(T) (T*)arena_alloc(global_arena, sizeof(T))
+#define global_struct_alloc(T) (T*)arena_alloc(global_arena, sizeof(T))
 
 void *plugin_get_user(Plugin *p) { return p->user_iface.user; }
 
@@ -167,29 +167,29 @@ bool32 parameter_changed(Plugin *p, u32 param_id) {
     return (p->param_change_mask & (1 << param_id)) > 0;
 }
 
-AudioBuffer32 audio_buffer32_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
+AudioBuffer32 audio_buffer32_create(Plugin *p, u32 num_ch, u32 num_frames) {
     AudioBuffer32 buf = {
         .num_frames = num_frames,
         .num_ch = num_ch,
     };
 
-    buf.data = alloc->alloc(alloc, num_ch * sizeof(f32*));
+    buf.data = push_array(p, f32*, num_ch);
     for (u32 ch = 0; ch < num_ch; ++ch) {
-        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f32));
+        buf.data[ch] = push_array(p, f32, num_frames);
     }
 
     return buf;
 }
 
-AudioBuffer64 audio_buffer64_create(Allocator *alloc, u32 num_ch, u32 num_frames) {
+AudioBuffer64 audio_buffer64_create(Plugin *p, u32 num_ch, u32 num_frames) {
     AudioBuffer64 buf = {
         .num_frames = num_frames,
         .num_ch = num_ch,
     };
 
-    buf.data = alloc->alloc(alloc, num_ch * sizeof(f64*));
+    buf.data = push_array(p, f64*, num_ch);
     for (u32 ch = 0; ch < num_ch; ++ch) {
-        buf.data[ch] = alloc->alloc(alloc, num_frames * sizeof(f64));
+        buf.data[ch] = push_array(p, f64, num_frames);
     }
 
     return buf;
@@ -269,18 +269,18 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         .note_input_count = plugin_config.note_ports.inputs,
         .main_arena = arena,
         .plugin_wrapper = wrapper_ptr,
-        .user_iface = plugin_create(&arena->allocator),
+        .user_iface = plugin_create(arena),
     };
     array_init_capacity(plugin_allocator(p), &p->param_changes.data, PARAM_CHANGES_CAPACITY);
     mutex_init(p->param_lock);
     p->gui.width = p->user_iface.gui_width;
     p->gui.height = p->user_iface.gui_height;
-    p->params = plugin_alloc(p, InternalParameters);
-    p->gui.param_cache = plugin_alloc(p, InternalParameters);
-    p->param_smoother = arena_alloc(arena, sizeof(ParameterSmoother) * p->audio_input_count);
+    p->params = push_struct(p, InternalParameters);
+    p->gui.param_cache = push_struct(p, InternalParameters);
+    p->param_smoother = push_array(p, ParameterSmoother, p->audio_input_count);
 
     if ((plugin_config.features & Feature_Instrument) || (plugin_config.features & Feature_Synth)) {
-        MidiEvent *data = arena_alloc(arena, sizeof(MidiEvent) * MIDI_BUFFER_CAP);
+        MidiEvent *data = push_array(p, MidiEvent, MIDI_BUFFER_CAP);
         p->midi = (MidiBuffer){
             .buffer = data,
             .head = 0,
@@ -300,7 +300,7 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
     }
     if (!p->user_iface.process_cb) {
         err("Must provide a process callback function in plugin_create()\n");
-        ok =  FALSE;
+        ok = FALSE;
         goto cleanup;
     }
 

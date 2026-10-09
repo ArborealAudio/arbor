@@ -779,9 +779,9 @@ static Steinberg_tresult view_check_size_constraint (void* thisInterface, struct
 
 static Vst3Plugin *vst3_plugin_create() {
     dbg();
-    Vst3Plugin *vst3 = new(Vst3Plugin);
-    vst3->processor.vtable = new(Steinberg_Vst_IAudioProcessorVtbl);
-    vst3->processor.req = new(Steinberg_Vst_IProcessContextRequirementsVtbl);
+    Vst3Plugin *vst3 = global_struct_alloc(Vst3Plugin);
+    vst3->processor.vtable = global_struct_alloc(Steinberg_Vst_IAudioProcessorVtbl);
+    vst3->processor.req = global_struct_alloc(Steinberg_Vst_IProcessContextRequirementsVtbl);
     *vst3->processor.vtable = (Steinberg_Vst_IAudioProcessorVtbl){
         .queryInterface = audio_processor_query_interface,
         .addRef = audio_processor_add_ref,
@@ -803,7 +803,7 @@ static Vst3Plugin *vst3_plugin_create() {
     };
     vst3->processor.ref_count = 1;
 
-    vst3->component.vtable = new(Steinberg_Vst_IComponentVtbl);
+    vst3->component.vtable = global_struct_alloc(Steinberg_Vst_IComponentVtbl);
     *vst3->component.vtable = (Steinberg_Vst_IComponentVtbl){
         .queryInterface = component_query_interface,
         .addRef = component_add_ref,
@@ -822,7 +822,7 @@ static Vst3Plugin *vst3_plugin_create() {
     };
     vst3->component.ref_count = 1;
 
-    vst3->controller.vtable = new(Steinberg_Vst_IEditControllerVtbl);
+    vst3->controller.vtable = global_struct_alloc(Steinberg_Vst_IEditControllerVtbl);
     *vst3->controller.vtable = (Steinberg_Vst_IEditControllerVtbl){
         .queryInterface = controller_query_interface,
         .addRef = controller_add_ref,
@@ -845,7 +845,7 @@ static Vst3Plugin *vst3_plugin_create() {
     };
     vst3->controller.ref_count = 1;
 
-    vst3->view.vtable = new(Steinberg_IPlugViewVtbl);
+    vst3->view.vtable = global_struct_alloc(Steinberg_IPlugViewVtbl);
     *vst3->view.vtable = (Steinberg_IPlugViewVtbl){
         .queryInterface = view_query_interface,
         .addRef = view_add_ref,
@@ -866,7 +866,7 @@ static Vst3Plugin *vst3_plugin_create() {
     vst3->view.ref_count = 1;
     vst3->view.active = FALSE;
 
-    vst3->plugin = new(Plugin);
+    vst3->plugin = global_struct_alloc(Plugin);
 
     if (!_plugin_init(vst3->plugin, vst3, NULL))
         return NULL;
@@ -1016,14 +1016,15 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
                                                   struct Steinberg_PClassInfoW* info) {
     dbg();
     if (info) {
+        TempAlloc tmp = temp_alloc_begin(global_arena);
         memset(info, 0, sizeof(*info));
         info->cardinality = Steinberg_PClassInfo_ClassCardinality_kManyInstances;
         info->classFlags = Steinberg_PFactoryInfo_FactoryFlags_kUnicode;
-        String16 name = string16_from_utf8(&global_arena->allocator, plugin_config.desc.name);
+        String16 name = string16_from_utf8(global_arena, plugin_config.desc.name);
         memcpy(info->name, name.data, name.len * sizeof(u16));
-        String16 version = string16_from_utf8(&global_arena->allocator, plugin_config.desc.version);
+        String16 version = string16_from_utf8(global_arena, plugin_config.desc.version);
         memcpy(info->version, version.data, version.len * sizeof(u16));
-        String16 vendor = string16_from_utf8(&global_arena->allocator, plugin_config.desc.company);
+        String16 vendor = string16_from_utf8(global_arena, plugin_config.desc.company);
         memcpy(info->vendor, vendor.data, vendor.len * sizeof(u16));
 
         if (plugin_config.features & Feature_Effect) {
@@ -1034,7 +1035,7 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
             memcpy(info->subCategories, category, sizeof(category));
         }
 
-        String16 sdk_version = string16_from_utf8(&global_arena->allocator, Steinberg_Vst_SDKVersionString);
+        String16 sdk_version = string16_from_utf8(global_arena, Steinberg_Vst_SDKVersionString);
         memcpy(info->sdkVersion, sdk_version.data, sdk_version.len * sizeof(u16));
         if (index == 0) {
             memcpy(info->cid, vst3_class_id, sizeof(Steinberg_TUID));
@@ -1043,6 +1044,7 @@ static Steinberg_tresult factory_get_class_info_unicode (void* thisInterface, St
         }
         memcpy(info->category, audio_class_info_category, sizeof(audio_class_info_category));
 
+        temp_alloc_end(&tmp);
         return Steinberg_kResultOk;
     }
     return Steinberg_kInvalidArgument;
@@ -1066,9 +1068,9 @@ static Steinberg_tresult factory_set_host_context (void* thisInterface, struct S
 
 void *GetPluginFactory() {
     dbg();
-    Vst3Factory *factory = new(Vst3Factory);
+    Vst3Factory *factory = global_struct_alloc(Vst3Factory);
     *factory = (Vst3Factory){
-        .vtable = new(Steinberg_IPluginFactory3Vtbl)
+        .vtable = global_struct_alloc(Steinberg_IPluginFactory3Vtbl)
     };
     *factory->vtable = (Steinberg_IPluginFactory3Vtbl){
         .queryInterface = factory_query_interface,
