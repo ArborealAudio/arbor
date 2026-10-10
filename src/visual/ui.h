@@ -1,6 +1,7 @@
 #ifndef UI_H
 #define UI_H
 
+#include "common.h"
 #include "platform.h"
 
 #define ui_new(T) (T*)arena_alloc(ctx->arena, sizeof(T))
@@ -47,16 +48,15 @@ enum UiBoxFlags {
     DrawText = 1 << 2,
     DrawBackground = 1 << 3,
     DrawBorder = 1 << 4,
-    FloatingX = 1 << 5,
-    FloatingY = 1 << 6,
+    DrawImage = 1 << 5,
+    FloatingX = 1 << 6,
+    FloatingY = 1 << 7,
     FloatingPos = FloatingX | FloatingY,
-    FixedX = 1 << 7,
-    FixedY = 1 << 8,
+    FixedX = 1 << 8,
+    FixedY = 1 << 9,
     FixedPos = FixedX | FixedY,
-    FocusHot = 1 << 9, // e.g. mouse hover
-    FocusActive = 1 << 10, // e.g. mouse down
-    DrawValue = 1 << 11,
-    DrawImage = 1 << 12,
+    FocusHot = 1 << 10, // e.g. mouse hover
+    FocusActive = 1 << 11, // e.g. mouse down
 };
 
 typedef enum {
@@ -74,16 +74,17 @@ typedef struct {
     float strictness;
 } UiSize;
 
-// General style information passed in each box creation function call
-// Zero == widget-specific default
+// General information about a box's appearance.
+// Each UiBox has its own style field, however this is not to be filled out by the user nor is it
+// to be written out per-box -- styling should be handled through the stacking API, allowing for natural
+// and stateful grouping of styles.
 typedef struct {
     av_TextStyle text_style;
     av_Colorf background_color;
     av_Colorf highlight_color;
-    av_Colorf active_color;
-    av_Colorf value_color;
     av_Colorf border_color;
     float border_width;
+    float corner_radius;
 } UiBoxStyle;
 
 static UiBoxStyle default_style = {
@@ -95,9 +96,9 @@ static UiBoxStyle default_style = {
     },
     .background_color = (av_Colorf){0.2f, 0.2f, 0.2f, 1},
     .highlight_color = (av_Colorf){0.3f, 0.3f, 0.3f, 1},
-    .active_color = (av_Colorf){0.f, 0.3f, 0.3f, 1},
-    .value_color = (av_Colorf){0.5f, 0.7f, 0.7f, 1},
     .border_color = (av_Colorf){0.75f, 0.75f, 0.75f, 1},
+    .border_width = 2,
+    .corner_radius = 10.f,
 };
 
 static bool32 is_null_key(String key) {
@@ -114,16 +115,15 @@ struct UiBox {
     av_Rect bounds;
     UiSize pref_size[2];
     float fixed_size[2];
-    float value_fixed_size[2];
     float rel_pos[2];
     UiAxis child_layout_axis;
-    UiBoxStyle style; // NOTE Is this redundant now that most UI functions take a style parameter?
+    UiBoxStyle style;
     int gap[2]; // Gap btw this element & others
     UiBoxFlag flags;
-    float value;
+    int state; // For boxes which need some kind of persistent state value, e.g. whether an expander should remain open
     pv_IconSlot icon;
 
-    UiBoxMouseEvent last_event;
+    UiBoxEvent last_event;
 
     UiBox *first_child;
     UiBox *last_child;
@@ -136,7 +136,7 @@ struct UiBox {
 static UiBox *null_box = NULL;
 
 typedef struct Table {
-    char *key;
+    String key;
     UiBox *value;
 } Table;
 
@@ -171,34 +171,65 @@ typedef struct {
     UiBox root_box;
     UiBox *popup_root;
 
-    // Used for any stateful application of flags
     Array(UiBoxFlag) flag_stack;
     Array(UiSize) pref_width_stack;
     Array(UiSize) pref_height_stack;
+    Array(av_Colorf) background_color_stack;
+    Array(av_Colorf) border_color_stack;
+    Array(av_Colorf) highlight_color_stack;
+    Array(av_TextStyle) text_style_stack;
     Array(int) x_gap_stack;
     Array(int) y_gap_stack;
-} UICtx;
+    Array(float) border_width_stack;
+    Array(float) corner_radius_stack;
+} UiCtx;
 
-UICtx *ui_init(pv_Context *pv_ctx);
-void ui_deinit(UICtx *ctx);
-void ui_begin(UICtx *ctx);
-void ui_end(UICtx *ctx);
-void ui_send_event(UICtx *ctx, pv_Event *event);
-void ui_set_background_color(UICtx *ctx, av_Colorf color);
-void ui_row_begin(UICtx *ctx, UiBoxStyle style);
-void ui_row_end(UICtx *ctx);
-void ui_column_begin(UICtx *ctx, UiBoxStyle style);
-void ui_column_end(UICtx *ctx);
-void ui_label(UICtx *ctx, String display, UiBoxStyle style);
-void ui_labelf(UICtx *ctx, UiBoxStyle style, const char *fmt, ...);
-bool32 ui_button(UICtx *ctx, String display, UiBoxStyle style);
-void ui_toggle_button(UICtx *ctx, bool32 *state, String display, UiBoxStyle style);
-bool32 ui_icon_button(UICtx *ctx, pv_IconSlot icon, String id, UiBoxStyle style);
-void ui_spacer(UICtx *ctx, UiAxis direction);
-bool32 ui_popup_begin(UICtx *ctx, UiAxis direction, String display, UiBoxStyle button_style, UiBoxStyle popup_style);
-void ui_popup_end(UICtx *ctx);
-bool32 ui_expander(UICtx *ctx, String display, UiBoxStyle style);
-void ui_slider(UICtx *ctx, float *value, float min, float max, String display, UiBoxStyle style);
-void ui_enable_performance_clock(UICtx *ctx);
+UiCtx *ui_init(pv_Context *pv_ctx);
+void ui_deinit(UiCtx *ctx);
+
+void ui_begin(UiCtx *ctx);
+void ui_end(UiCtx *ctx);
+
+void ui_send_event(UiCtx *ctx, pv_Event *event);
+
+void ui_row_begin(UiCtx *ctx);
+void ui_row_end(UiCtx *ctx);
+void ui_column_begin(UiCtx *ctx);
+void ui_column_end(UiCtx *ctx);
+void ui_spacer(UiCtx *ctx, UiAxis direction);
+bool32 ui_expander(UiCtx *ctx, String display);
+
+void ui_label(UiCtx *ctx, String display);
+void ui_labelf(UiCtx *ctx, const char *fmt, ...);
+bool32 ui_button(UiCtx *ctx, String display);
+void ui_toggle_button(UiCtx *ctx, bool32 *state, String display);
+bool32 ui_icon_button(UiCtx *ctx, pv_IconSlot icon, String id);
+void ui_popup_begin(UiCtx *ctx, UiAxis direction, String display);
+void ui_popup_end(UiCtx *ctx);
+void ui_combo_box(UiCtx *ctx, int *value, String display, String *choices, int choice_count);
+void ui_slider(UiCtx *ctx, float *value, float min, float max, String display);
+
+void ui_pref_width(UiCtx *ctx, UiSize size);
+void ui_pref_width_pop(UiCtx *ctx);
+void ui_pref_height(UiCtx *ctx, UiSize size);
+void ui_pref_height_pop(UiCtx *ctx);
+UiSize ui_size_text();
+UiSize ui_children_sum(float strict);
+UiSize ui_px(float pixels, float strict);
+UiSize ui_pct(float pct, float strict);
+void ui_border_width(UiCtx *ctx, float width);
+void ui_border_width_pop(UiCtx *ctx);
+void ui_gap_x(UiCtx *ctx, int gap);
+void ui_gap_x_pop(UiCtx *ctx);
+void ui_gap_y(UiCtx *ctx, int gap);
+void ui_gap_y_pop(UiCtx *ctx);
+void ui_background_color(UiCtx *ctx, av_Colorf color);
+void ui_background_color_pop(UiCtx *ctx);
+void ui_border_color(UiCtx *ctx, av_Colorf color);
+void ui_border_color_pop(UiCtx *ctx);
+void ui_corner_radius(UiCtx *ctx, float radius);
+void ui_corner_radius_pop(UiCtx *ctx);
+
+void ui_enable_performance_clock(UiCtx *ctx);
 
 #endif

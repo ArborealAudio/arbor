@@ -1,13 +1,14 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-#include "../../cbase/cbase.h"
+#include "common.h"
 
 typedef void* pv_Window;
 typedef usize pv_Timer;
 typedef usize pv_KeyMod;
 
 // pv = Platform Visual
+// Abstraction over platform-specific windowing, rendering, and input
 
 typedef enum {
     pv_IconExpanderClosed,
@@ -44,8 +45,6 @@ enum pv_KeyModifierFlags {
     pv_KeyModifierAlt = 1 << 3,
 };
 
-// Obviously this doesn't work if you have multiple mods at once. But...it's nice to have when
-// you're confident you'll mostly have just one at a time.
 // TODO Supply different/proper names based on pv_
 static const char *key_modifier_names[] = {
     [0] = "None",
@@ -59,6 +58,7 @@ static const char *key_modifier_names[] = {
 };
 
 // Adapted from Macpv_ Carbon/Cocoa keycodes
+// TODO Windows + Linux
 enum pv_Keys {
     Key_None = -1,
     Key_A = 0x00,

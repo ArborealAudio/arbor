@@ -162,7 +162,7 @@ struct PluginGui {
     int height;
     void *user;
     pv_Context *platform;
-    UICtx *ui;
+    UiCtx *ui;
     InternalParameters *param_cache;
 };
 
@@ -170,7 +170,7 @@ typedef struct {
     bool32 valid;
     u32 id;
     u32 offset;
-    double value;
+    f64 value;
 } ParamChange;
 
 #define PARAM_CHANGES_CAPACITY 128 // Initial capacity, may grow
@@ -255,7 +255,9 @@ ParameterData get_gui_parameters(PluginGui *gui);
 f32 *get_gui_raw_parameters(PluginGui *gui);
 // UI builder function wrappers -- provides a set of GUI parameter controls
 // which will automatically propagate changes to the underlying parameter state
-void slider(PluginGui *gui, u32 param_id, UiBoxStyle style);
+void toggle_button(PluginGui *gui, u32 param_id);
+void slider(PluginGui *gui, u32 param_id);
+void combo_box(PluginGui *gui, u32 param_id, String choices[], int choice_count);
 
 // Generates a basic prototype UI with sliders, combo boxes and buttons for all parameters
 void arbor_quick_ui(PluginGui *gui);

@@ -2,6 +2,8 @@
 // See LICENSE at this repository's root
 
 #include "arbor.h"
+#include "visual/common.h"
+#include "visual/ui.h"
 #include <string.h>
 
 // An arena for doing global allocations, i.e. plugin factories, plugin wrapper types before the
@@ -214,10 +216,24 @@ void create_plugin_gui(Plugin* plugin, PluginGuiDesc desc) {
 
 static void _plugin_push_param_update(Plugin *p, ParamChange change);
 
-void toggle_button(PluginGui *gui, u32 param_id, UiBoxStyle style) {
+void toggle_button(PluginGui *gui, u32 param_id) {
     bool32 value, cache;
     value = cache = (bool32)get_gui_parameter(gui, param_id);
-    ui_toggle_button(gui->ui, &value, param_names[param_id], default_style);
+    ui_toggle_button(gui->ui, &value, param_names[param_id]);
+    if (value != cache) {
+        _plugin_push_param_update(plugin_from_gui(gui), (ParamChange){
+            .valid = TRUE,
+            .id = param_id,
+            .value = (f64)value,
+        });
+    }
+}
+
+void slider(PluginGui *gui, u32 param_id) {
+    f32 value, cache;
+    value = cache = get_gui_parameter(gui, param_id);
+    const ParameterInfo *info = get_parameter_info(plugin_from_gui(gui), param_id);
+    ui_slider(gui->ui, &value, info->min_value, info->max_value, param_names[param_id]);
     if (value != cache) {
         _plugin_push_param_update(plugin_from_gui(gui), (ParamChange){
             .valid = TRUE,
@@ -227,34 +243,48 @@ void toggle_button(PluginGui *gui, u32 param_id, UiBoxStyle style) {
     }
 }
 
-void slider(PluginGui *gui, u32 param_id, UiBoxStyle style) {
-    f32 value, cache;
-    value = cache = get_gui_parameter(gui, param_id);
-    const ParameterInfo *info = get_parameter_info(plugin_from_gui(gui), param_id);
-    ui_slider(gui->ui, &value, info->min_value, info->max_value, param_names[param_id], style);
+void combo_box(PluginGui *gui, u32 param_id, String choices[], int choice_count) {
+    int value, cache;
+    value = cache = (int)get_gui_parameter(gui, param_id);
+    ui_combo_box(gui->ui, &value, param_names[param_id], choices, choice_count);
     if (value != cache) {
         _plugin_push_param_update(plugin_from_gui(gui), (ParamChange){
             .valid = TRUE,
             .id = param_id,
-            .value = value,
+            .value = (f64)value,
         });
     }
 }
 
 void arbor_quick_ui(PluginGui *gui) {
     Plugin *p = plugin_from_gui(gui);
+    // ISSUE This doesn't do anything
+    ui_gap_y(gui->ui, 10);
     for (int i = 0; i < Param_Count; ++i) {
         const ParameterInfo *info = get_parameter_info(p, i);
         switch (info->type) {
         case ParameterType_Bool:
-            toggle_button(gui, i, default_style);
+            ui_border_width(gui->ui, 2.f);
+            toggle_button(gui, i);
+            ui_border_width_pop(gui->ui);
             break;
         case ParameterType_Float:
-            slider(gui, i, default_style);
+            ui_background_color(gui->ui, (av_Colorf){1, 1, 1, 1});
+            slider(gui, i);
+            ui_background_color_pop(gui->ui);
             break;
+        case ParameterType_Choice: {
+            combo_box(gui, i, info->choices.strings, info->choices.count);
+            // ui_popup_begin(gui->ui, Vertical, info->name);
+            // for (int c = 0; c < info->choices.count; ++c) {
+            //     ui_button(gui->ui, info->choices.strings[c]);
+            // }
+            // ui_popup_end(gui->ui);
+        } break;
         default: break;
         }
     }
+    ui_gap_y_pop(gui->ui);
 }
 
 // Internal functions
@@ -460,7 +490,7 @@ static void _on_pv_cleanup(pv_Context *pv) {
 
 static void _on_pv_render(pv_Context *pv) {
     Plugin *p = pv->desc.user_data;
-    UICtx *ui = p->gui.ui;
+    UiCtx *ui = p->gui.ui;
 
     // Set GUI parameter state
     if (mutex_lock(p->param_lock) == 0) {
