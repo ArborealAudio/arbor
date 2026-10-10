@@ -115,7 +115,8 @@ static Steinberg_tresult audio_processor_get_bus_arrangement (void* thisInterfac
 
 static Steinberg_tresult audio_processor_query_sample_size (void* thisInterface, Steinberg_int32 symbolicSampleSize) {
     dbg();
-    if (symbolicSampleSize == Steinberg_Vst_SymbolicSampleSizes_kSample32)
+    if (symbolicSampleSize == Steinberg_Vst_SymbolicSampleSizes_kSample32 ||
+        symbolicSampleSize == Steinberg_Vst_SymbolicSampleSizes_kSample64)
         return Steinberg_kResultTrue;
 
     return Steinberg_kResultFalse;
@@ -150,6 +151,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
     Plugin *plugin = vst3->plugin;
     u32 num_frames = data->numSamples;
+    bool32 is_double_precision = data->symbolicSampleSize == Steinberg_Vst_SymbolicSampleSizes_kSample64;
 
     // Sometimes we get crazy numbers of channels
     if (data->inputs)
@@ -211,25 +213,47 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         u32 frames_to_process = next_event_frame - i;
 
         if (_buffer_is_valid(data->inputs) && _buffer_is_valid(data->outputs)) {
-            AudioBuffer32 in_buf = {
-                .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-                .num_frames = frames_to_process,
-                .num_ch = data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
-            };
-            for (int ch = 0; ch < in_buf.num_ch; ++ch) {
-                in_buf.data[ch] += i;
-            }
+            if (!is_double_precision) {
+                AudioBuffer32 in_buf = {
+                    .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
+                    .num_frames = frames_to_process,
+                    .num_ch = data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+                };
+                for (int ch = 0; ch < in_buf.num_ch; ++ch) {
+                    in_buf.data[ch] += i;
+                }
 
-            AudioBuffer32 out_buf = {
-                .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-                .num_frames = frames_to_process,
-                .num_ch = data->outputs->numChannels,
-            };
-            for (int ch = 0; ch < out_buf.num_ch; ++ch) {
-                out_buf.data[ch] += i;
-            }
+                AudioBuffer32 out_buf = {
+                    .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
+                    .num_frames = frames_to_process,
+                    .num_ch = data->outputs->numChannels,
+                };
+                for (int ch = 0; ch < out_buf.num_ch; ++ch) {
+                    out_buf.data[ch] += i;
+                }
 
-            plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
+                plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
+            } else {
+                AudioBuffer64 in_buf = {
+                    .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
+                    .num_frames = frames_to_process,
+                    .num_ch = data->inputs->numChannels,
+                };
+                for (int ch = 0; ch < in_buf.num_ch; ++ch) {
+                    in_buf.data[ch] += i;
+                }
+
+                AudioBuffer64 out_buf = {
+                    .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
+                    .num_frames = frames_to_process,
+                    .num_ch = data->outputs->numChannels,
+                };
+                for (int ch = 0; ch < out_buf.num_ch; ++ch) {
+                    out_buf.data[ch] += i;
+                }
+
+                plugin->user_iface.process_double_cb(plugin, in_buf, out_buf, plugin->midi);
+            }
         }
 
         i += frames_to_process;

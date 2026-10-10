@@ -125,6 +125,7 @@ typedef void (*InitFn)(Plugin *);
 typedef void (*DeinitFn)(Plugin *);
 typedef void (*PrepareFn)(Plugin *, f64 sample_rate, u32 max_frames);
 typedef void (*ProcessFn)(Plugin *, const AudioBuffer32 in, AudioBuffer32 out, MidiBuffer midi);
+typedef void (*ProcessDoubleFn)(Plugin *, const AudioBuffer64 in, AudioBuffer64 out, MidiBuffer midi);
 typedef void (*GuiInitFn)(Plugin *);
 typedef void (*GuiDeinitFn)(PluginGui *);
 typedef void (*GuiRenderFn)(PluginGui *);
@@ -136,6 +137,7 @@ typedef struct {
     DeinitFn deinit_cb;
     PrepareFn prepare_cb;
     ProcessFn process_cb;
+    ProcessDoubleFn process_double_cb;
     GuiInitFn gui_init_cb;
     GuiDeinitFn gui_deinit_cb;
     GuiRenderFn gui_render_cb;
@@ -190,6 +192,7 @@ struct Plugin {
     u32 max_frames;
     f64 sample_rate;
     u32 latency;
+    bool32 supports_double_precision;
 
     Arena *main_arena;
 
@@ -275,7 +278,7 @@ void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src);
 #ifndef NDEBUG
 #define dbg(fmt, ...) println("%s(%d): " fmt, __func__, __LINE__, ##__VA_ARGS__)
 #else
-#define dbg
+#define dbg(...)
 #endif
 
 #endif

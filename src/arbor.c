@@ -98,7 +98,6 @@ static f32 _calc_smoothed_param(ParameterSmoother *sm, f32 value, u32 param_id) 
     return y;
 }
 
-// `param` is a pointer to the param field in `ParameterData` that you wish to obtain the smoothed value for
 f32 _get_parameter_smoothed(Plugin *p, u32 param_id, u32 ch) {
     if (param_id >= Param_Count) {
         err("Invalid param ID\n");
@@ -329,10 +328,13 @@ static bool32 _plugin_init(Plugin *p, void *wrapper_ptr, const void *host_ptr) {
         goto cleanup;
     }
     if (!p->user_iface.process_cb) {
-        err("Must provide a process callback function in plugin_create()\n");
+        err("Must provide single-precision process callback function in plugin_create()\n");
         ok = FALSE;
         goto cleanup;
     }
+
+    if (p->user_iface.process_double_cb)
+        p->supports_double_precision = TRUE;
 
     for (int i = 0; i < Param_Count; ++i) {
         ParameterInfo *pinfo = &parameter_layout[i];

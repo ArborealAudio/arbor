@@ -81,8 +81,8 @@ static void filter_set_reso(IIR_Filter *f, f32 reso);
 static void filter_set_gain(IIR_Filter *f, f32 gain);
 static void filter_set_type(IIR_Filter *f, IIR_FilterType type);
 static void filter_set_sample_rate(IIR_Filter *f, f64 sample_rate);
-static f32 filter_process_sample(IIR_Filter *f, f32 sample);
-static void filter_process(IIR_Filter *f, const f32 *in, f32 *out, u32 num_frames);
+static f32 filter_process_sample(IIR_Filter *f, f64 sample);
+static void filter_process(IIR_Filter *f, const f64 *in, f64 *out, u32 num_frames);
 
 #include "lr_filter.h"
 

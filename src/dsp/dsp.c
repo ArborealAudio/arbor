@@ -144,10 +144,10 @@ static void filter_set_sample_rate(IIR_Filter *f, f64 sample_rate) {
     filter_set_coeffs(f);
 }
 
-static f32 filter_process_sample(IIR_Filter *f, f32 sample) {
+static f32 filter_process_sample(IIR_Filter *f, f64 sample) {
     f64 b = f->b0 * sample + f->b1 * f->xn[0] + f->b2 * f->xn[1];
     f64 a = -f->a1 * f->yn[0] - f->a2 * f->yn[1];
-    f32 result = a + b;
+    f64 result = a + b;
     f->xn[1] = f->xn[0];
     f->xn[0] = sample;
     f->yn[1] = f->yn[0];
@@ -155,7 +155,7 @@ static f32 filter_process_sample(IIR_Filter *f, f32 sample) {
     return result;
 }
 
-static void filter_process(IIR_Filter *f, const f32 *in, f32 *out, u32 num_frames) {
+static void filter_process(IIR_Filter *f, const f64 *in, f64 *out, u32 num_frames) {
     for (u32 i = 0; i < num_frames; ++i) {
         out[i] = filter_process_sample(f, in[i]);
     }
