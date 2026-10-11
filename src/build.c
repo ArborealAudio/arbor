@@ -119,6 +119,13 @@ static void install_plugin(PluginBuild *build, String output_path) {
         file_close(pkginfo_fd);
     }
 
+    // Copy debug contents
+    String dbg_src = string_concat(_arena, (String[]){output_path, STR_LIT(".dSYM")}, 2);
+    String dbg_dst = string_concat(_arena, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
+    if (!file_copy_recursive(dbg_src, dbg_dst)) {
+        err("Copy debug info failed\n");
+    }
+
     // Codesign bundle
     {
         String bundle_dir = path_join(_arena, (String[]){
@@ -136,12 +143,6 @@ static void install_plugin(PluginBuild *build, String output_path) {
         }
     }
 
-    // Copy debug contents
-    String dbg_src = string_concat(_arena, (String[]){output_path, STR_LIT(".dSYM")}, 2);
-    String dbg_dst = string_concat(_arena, (String[]){plugin_dest, STR_LIT(".dSYM")}, 2);
-    if (!file_copy_recursive(dbg_src, dbg_dst)) {
-        err("Copy debug info failed\n");
-    }
 }
 
 typedef enum {
