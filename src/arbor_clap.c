@@ -38,8 +38,8 @@ static void _make_clap_desc() {
 static u32 audio_ports_count(const clap_plugin_t *plugin, bool is_input) {
     Plugin *p = plugin->plugin_data;
     if (is_input)
-        return p->audio_input_count > 0;
-    return p->audio_output_count > 0;
+        return plugin_config.audio_ports.inputs;
+    return plugin_config.audio_ports.outputs;
 }
 
 static bool get_audio_port(const clap_plugin_t *plugin, u32 index, bool is_input, clap_audio_port_info_t *info) {
@@ -191,6 +191,7 @@ static bool param_get_info(const clap_plugin_t *plugin, u32 param_idx, clap_para
         info->flags |= CLAP_PARAM_IS_BYPASS;
 
     // info->cookie = p;
+    memset(info->name, 0, sizeof(info->name));
     memcpy(info->name, p->name.data, p->name.len);
     return true;
 }
@@ -482,56 +483,29 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         u32 frames_to_process = next_event_frame - i;
 
         if (process->audio_inputs->data32) {
-            AudioBuffer32 in = {
-                .data = process->audio_inputs->data32,
-                .num_frames = frames_to_process,
-                .num_ch = process->audio_inputs->channel_count,
-            };
-
-            AudioBuffer32 out = {
-                .data = process->audio_outputs->data32,
-                .num_frames = frames_to_process,
-                .num_ch = process->audio_outputs->channel_count,
-            };
-
-            for (u32 ch = 0; ch < in.num_ch; ++ch) {
-                in.data[ch] += i;
-            }
-
-            for (u32 ch = 0; ch < out.num_ch; ++ch) {
-                out.data[ch] += i;
-            }
+            AudioBuffer32 in = audio_buffer32_from_data(process->audio_inputs->data32,
+                process->audio_inputs->channel_count, frames_to_process, i);
+            AudioBuffer32 out = audio_buffer32_from_data(process->audio_outputs->data32,
+                process->audio_inputs->channel_count, frames_to_process, i);
 
             p->user_iface.process_cb(p, in, out, p->midi);
+            audio_buffer_sanitize(out);
         } else {
             assert(process->audio_inputs->data64);
-            AudioBuffer64 in = {
-                .data = process->audio_inputs->data64,
-                .num_frames = frames_to_process,
-                .num_ch = process->audio_inputs->channel_count,
-            };
 
-            AudioBuffer64 out = {
-                .data = process->audio_outputs->data64,
-                .num_frames = frames_to_process,
-                .num_ch = process->audio_outputs->channel_count,
-            };
-
-            for (u32 ch = 0; ch < in.num_ch; ++ch) {
-                in.data[ch] += i;
-            }
-
-            for (u32 ch = 0; ch < out.num_ch; ++ch) {
-                out.data[ch] += i;
-            }
+            AudioBuffer64 in = audio_buffer64_from_data(process->audio_inputs->data64,
+                process->audio_inputs->channel_count, frames_to_process, i);
+            AudioBuffer64 out = audio_buffer64_from_data(process->audio_outputs->data64,
+                process->audio_inputs->channel_count, frames_to_process, i);
 
             assert(p->user_iface.process_double_cb);
             p->user_iface.process_double_cb(p, in, out, p->midi);
+            audio_buffer_sanitize(out);
         }
 
         i += frames_to_process;
-        _plugin_end_processing(p);
     }
+    _plugin_end_processing(p);
 
     _plugin_unlock_params(p);
 

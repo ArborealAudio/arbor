@@ -4,7 +4,6 @@
 #include "arbor.h"
 #include "visual/common.h"
 #include "visual/ui.h"
-#include <string.h>
 
 // An arena for doing global allocations, i.e. plugin factories, plugin wrapper types before the
 // main plugin data is allocated
@@ -196,15 +195,69 @@ AudioBuffer64 audio_buffer64_create(Plugin *p, u32 num_ch, u32 num_frames) {
     return buf;
 }
 
+AudioBuffer32 audio_buffer32_from_data(f32 **data, u32 num_ch, u32 num_frames, u32 offset) {
+    AudioBuffer32 res = (AudioBuffer32) {
+        .data = data,
+        .num_ch = num_ch,
+        .num_frames = num_frames,
+    };
+    for (u32 ch = 0; ch < num_ch; ++ch) {
+        res.data[ch] += offset;
+    }
+    return res;
+}
+
+AudioBuffer64 audio_buffer64_from_data(f64 **data, u32 num_ch, u32 num_frames, u32 offset) {
+    AudioBuffer64 res = (AudioBuffer64) {
+        .data = data,
+        .num_ch = num_ch,
+        .num_frames = num_frames,
+    };
+    for (u32 ch = 0; ch < num_ch; ++ch) {
+        res.data[ch] += offset;
+    }
+    return res;
+}
+
+AudioBuffer32 audio_buffer32_slice(AudioBuffer32 buf, u32 offset, u32 num_frames) {
+    AudioBuffer32 res = buf;
+    res.num_frames = num_frames;
+    for (u32 ch = 0; ch < buf.num_ch; ++ch) {
+        res.data[ch] += offset;
+    }
+    return res;
+}
+
+AudioBuffer64 audio_buffer64_slice(AudioBuffer64 buf, u32 offset, u32 num_frames) {
+    AudioBuffer64 res = buf;
+    res.num_frames = num_frames;
+    for (u32 ch = 0; ch < buf.num_ch; ++ch) {
+        res.data[ch] += offset;
+    }
+    return res;
+}
+
 void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src) {
-    assert(dst.num_ch == src.num_ch);
-    assert(dst.num_frames == src.num_frames);
+    assert(dst.num_ch >= src.num_ch);
+    assert(dst.num_frames >= src.num_frames);
 
     for (u32 ch = 0; ch < src.num_ch; ++ch) {
         for (u32 i = 0; i < src.num_frames; ++i) {
             dst.data[ch][i] = (f64)src.data[ch][i];
         }
     }
+}
+
+void audio_buffer32_copy_from_64(AudioBuffer32 dst, const AudioBuffer64 src) {
+    assert(dst.num_ch >= src.num_ch);
+    assert(dst.num_frames >= src.num_frames);
+
+    for (u32 ch = 0; ch < src.num_ch; ++ch) {
+        for (u32 i = 0; i < src.num_frames; ++i) {
+            dst.data[ch][i] = (f32)src.data[ch][i];
+        }
+    }
+
 }
 
 void create_plugin_gui(Plugin* plugin, PluginGuiDesc desc) {
@@ -427,7 +480,6 @@ static void _plugin_push_param_mod(Plugin *p, u32 param_id, f32 amount, u32 offs
         .value = clamp(current + amount, min, max),
         .offset = offset,
     });
-    _plugin_push_param_change_id(p, param_id);
 }
 
 static ParamChange _plugin_next_param_change(Plugin *p) {
@@ -545,6 +597,7 @@ static bool32 _visual_init(Plugin* p) {
 
 static void _visual_deinit(Plugin* p) {
     pv_deinit(p->gui.platform);
+	p->gui.platform = NULL;
 }
 
 static void _visual_set_parent(Plugin *p, pv_Window parent) {

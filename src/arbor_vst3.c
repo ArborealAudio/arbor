@@ -7,7 +7,7 @@ static inline bool32 tuid_match(const Steinberg_TUID a, const Steinberg_TUID b) 
 
 static const Steinberg_TUID class_tuid_base = SMTG_INLINE_UID('C' ^ 'A', 'l' ^ 'F', 'a' ^ 'V', 's' ^ '3');
 static const Steinberg_TUID component_tuid_base = SMTG_INLINE_UID('C' ^ 'A', 'o' ^ 'F', 'm' ^ 'V', 'p' ^ '3');
-static const Steinberg_TUID controller_tuid = SMTG_INLINE_UID('C' ^ 'A', 't' ^ 'F', 'r' ^ 'V', 'l' ^ '3');
+// static const Steinberg_TUID controller_tuid = SMTG_INLINE_UID('C' ^ 'A', 't' ^ 'F', 'r' ^ 'V', 'l' ^ '3');
 
 static const Steinberg_TUID vst3_class_id = SMTG_INLINE_UID(class_tuid_base[0] | PLUGIN_ID_HASH, class_tuid_base[1] | PLUGIN_ID_HASH, class_tuid_base[2] | PLUGIN_ID_HASH, class_tuid_base[3] | PLUGIN_ID_HASH);
 static const Steinberg_TUID vst3_comp_id = SMTG_INLINE_UID(component_tuid_base[0] | PLUGIN_ID_HASH, component_tuid_base[1] | PLUGIN_ID_HASH, component_tuid_base[2] | PLUGIN_ID_HASH, component_tuid_base[3] | PLUGIN_ID_HASH);
@@ -102,6 +102,34 @@ static Steinberg_uint32 audio_processor_release (void* thisInterface) {
 static Steinberg_tresult audio_processor_set_bus_arrangements (void* thisInterface,
     Steinberg_Vst_SpeakerArrangement* inputs, Steinberg_int32 numIns,
     Steinberg_Vst_SpeakerArrangement* outputs, Steinberg_int32 numOuts) {
+	Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
+	Plugin *plugin = vst3->plugin;
+	int num_inputs = plugin_config.audio_ports.inputs;
+	int num_outputs = plugin_config.audio_ports.outputs;
+	if (numIns > num_inputs || numOuts > num_outputs)
+		return Steinberg_kResultFalse;
+
+	// TODO Have a concept of different busses which can have different channel counts, so that
+	// we have to get the count of a specific bus, rather than assuming we have just one input and
+	// one output bus
+	for (int i = 0; i < num_inputs && i < numIns; ++i) {
+		if (inputs[i] == Steinberg_Vst_SpeakerArr_kMono)
+			plugin->audio_input_count = 1;
+		else if (inputs[i] == Steinberg_Vst_SpeakerArr_kStereo)
+			plugin->audio_input_count = 2;
+		else
+			return Steinberg_kResultFalse;
+	}
+
+	for (int i = 0; i < num_outputs && i < numOuts; ++i) {
+		if (inputs[i] == Steinberg_Vst_SpeakerArr_kMono)
+			plugin->audio_output_count = 1;
+		else if (inputs[i] == Steinberg_Vst_SpeakerArr_kStereo)
+			plugin->audio_output_count = 2;
+		else
+			return Steinberg_kResultFalse;
+	}
+
     dbg();
     return Steinberg_kResultOk;
 }
@@ -109,6 +137,9 @@ static Steinberg_tresult audio_processor_set_bus_arrangements (void* thisInterfa
 static Steinberg_tresult audio_processor_get_bus_arrangement (void* thisInterface,
     Steinberg_Vst_BusDirection dir, Steinberg_int32 index,
     Steinberg_Vst_SpeakerArrangement* arr) {
+	if (index != 0)
+		return Steinberg_kResultFalse;
+	*arr = Steinberg_Vst_SpeakerArr_kStereo;
     dbg();
     return Steinberg_kResultOk;
 }
@@ -214,51 +245,46 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
 
         if (_buffer_is_valid(data->inputs) && _buffer_is_valid(data->outputs)) {
             if (!is_double_precision) {
-                AudioBuffer32 in_buf = {
-                    .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-                    .num_frames = frames_to_process,
-                    .num_ch = data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
-                };
-                for (int ch = 0; ch < in_buf.num_ch; ++ch) {
-                    in_buf.data[ch] += i;
-                }
+                AudioBuffer32 in_buf = audio_buffer32_from_data(
+                    data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
+                    data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+                    frames_to_process,
+                    i
+                );
 
-                AudioBuffer32 out_buf = {
-                    .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-                    .num_frames = frames_to_process,
-                    .num_ch = data->outputs->numChannels,
-                };
-                for (int ch = 0; ch < out_buf.num_ch; ++ch) {
-                    out_buf.data[ch] += i;
-                }
+                AudioBuffer32 out_buf = audio_buffer32_from_data(
+                    data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
+                    data->outputs->numChannels,
+                    frames_to_process,
+                    i
+                );
 
                 plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
+                audio_buffer_sanitize(out_buf);
             } else {
-                AudioBuffer64 in_buf = {
-                    .data = data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
-                    .num_frames = frames_to_process,
-                    .num_ch = data->inputs->numChannels,
-                };
-                for (int ch = 0; ch < in_buf.num_ch; ++ch) {
-                    in_buf.data[ch] += i;
-                }
+                AudioBuffer64 in_buf = audio_buffer64_from_data(
+                    data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
+                    data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+                    frames_to_process,
+                    i
+                );
 
-                AudioBuffer64 out_buf = {
-                    .data = data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
-                    .num_frames = frames_to_process,
-                    .num_ch = data->outputs->numChannels,
-                };
-                for (int ch = 0; ch < out_buf.num_ch; ++ch) {
-                    out_buf.data[ch] += i;
-                }
+                AudioBuffer64 out_buf = audio_buffer64_from_data(
+                    data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
+                    data->outputs->numChannels,
+                    frames_to_process,
+                    i
+                );
 
+                assert(plugin->user_iface.process_double_cb);
                 plugin->user_iface.process_double_cb(plugin, in_buf, out_buf, plugin->midi);
+                audio_buffer_sanitize(out_buf);
             }
         }
 
         i += frames_to_process;
-        _plugin_end_processing(plugin);
     }
+    _plugin_end_processing(plugin);
 
     _plugin_unlock_params(plugin);
 
@@ -375,8 +401,9 @@ static Steinberg_tresult component_terminate (void* thisInterface) {
 
 static Steinberg_tresult component_get_controller_id (void* thisInterface, Steinberg_TUID classId) {
     dbg();
-    memcpy(classId, vst3_comp_id, sizeof(Steinberg_TUID));
-    return Steinberg_kResultOk;
+    // memcpy(classId, vst3_comp_id, sizeof(Steinberg_TUID));
+    // return Steinberg_kResultOk;
+	return Steinberg_kNotImplemented;
 }
 
 static Steinberg_tresult component_set_io_mode (void* thisInterface, Steinberg_Vst_IoMode mode) {
@@ -471,11 +498,25 @@ static Steinberg_tresult component_get_state (void* thisInterface, struct Steinb
 
 static Steinberg_tresult controller_query_interface (void* thisInterface, const Steinberg_TUID iid, void** obj) {
     Vst3Controller *ctrl = (Vst3Controller*)thisInterface;
-    if (tuid_match(iid, Steinberg_FUnknown_iid) || tuid_match(iid, Steinberg_Vst_IEditController_iid)) {
+    if (tuid_match(iid, Steinberg_FUnknown_iid) ||
+        tuid_match(iid, Steinberg_IPluginBase_iid) ||
+        tuid_match(iid, Steinberg_Vst_IEditController_iid)) {
         if (obj) {
             dbg("Controller: query OK");
             ctrl->ref_count++;
             *obj = ctrl;
+            return Steinberg_kResultOk;
+        }
+    }
+    if (tuid_match(iid, Steinberg_IPlugView_iid)) {
+        if (obj) {
+            dbg("Controller: query View OK");
+            Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, controller);
+            Vst3View *view = &vst3->view;
+            view->ref_count += 1;
+            if (!_visual_init(vst3->plugin))
+                *obj = NULL;
+            *obj = view;
             return Steinberg_kResultOk;
         }
     }
@@ -668,11 +709,15 @@ static Steinberg_tresult controller_set_component_handler (void* thisInterface, 
 }
 
 static struct Steinberg_IPlugView* controller_create_view (void* thisInterface, Steinberg_FIDString name) {
-    dbg();
+    dbg("name: %s", name);
+
+	if (!name || !string_match(string(name), STR_LIT("editor")))
+		return NULL;
 
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, controller);
     if (!_visual_init(vst3->plugin))
         return NULL;
+	vst3->view.ref_count = 1;
     return (Steinberg_IPlugView*)&vst3->view;
 }
 
@@ -772,6 +817,12 @@ static Steinberg_tresult view_on_key_up (void* thisInterface, Steinberg_char16 k
 // Size of platform view
 static Steinberg_tresult view_get_size (void* thisInterface, struct Steinberg_ViewRect* size) {
     dbg();
+	if (!size)
+		return Steinberg_kInvalidArgument;
+	Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, view);
+	Plugin *plugin = vst3->plugin;
+	size->right = size->left + plugin->gui.width;
+	size->bottom = size->top + plugin->gui.height;
     return Steinberg_kResultOk;
 }
 
@@ -988,7 +1039,8 @@ static Steinberg_tresult factory_create_instance (void* thisInterface, Steinberg
     if (tuid_match(cid, vst3_class_id) &&
         (tuid_match(iid, Steinberg_FUnknown_iid) ||
         tuid_match(iid, Steinberg_IPluginBase_iid) ||
-        tuid_match(iid, Steinberg_Vst_IComponent_iid))) {
+        tuid_match(iid, Steinberg_Vst_IComponent_iid) ||
+		tuid_match(iid, Steinberg_Vst_IEditController_iid))) {
         if (obj) {
             dbg("Factory: query Component OK\n");
             Vst3Plugin *plugin = vst3_plugin_create();

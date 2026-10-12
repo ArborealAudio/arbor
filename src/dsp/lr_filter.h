@@ -1,6 +1,8 @@
 // Fake Linkwitz-Riley filter implementation, created by cascading two 2nd-order biquad IIRs
 // TODO Implement a real LR filter, perhaps by cascading two 2nd-order Butterworth filters
 
+#include "dsp.h"
+
 typedef struct {
     f32 cutoff;
     f64 sample_rate;

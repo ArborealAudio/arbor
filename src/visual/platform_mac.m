@@ -252,7 +252,7 @@ pv_Context *pv_init_child_window(pv_Desc desc)
 }
 
 void pv_request_quit(pv_Context *ctx) {
-    printf("%s\n", __func__);
+	dbg();
     [NSApplication sharedApplication];
     [NSApp terminate:nil];
 }

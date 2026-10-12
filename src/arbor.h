@@ -267,8 +267,23 @@ void arbor_quick_ui(PluginGui *gui);
 
 AudioBuffer32 audio_buffer32_create(Plugin *p, u32 num_ch, u32 num_frames);
 AudioBuffer64 audio_buffer64_create(Plugin *p, u32 num_ch, u32 num_frames);
+AudioBuffer32 audio_buffer32_from_data(f32 **data, u32 num_ch, u32 num_frames, u32 offset);
+AudioBuffer64 audio_buffer64_from_data(f64 **data, u32 num_ch, u32 num_frames, u32 offset);
+AudioBuffer32 audio_buffer32_slice(AudioBuffer32 buf, u32 offset, u32 num_frames);
+AudioBuffer64 audio_buffer64_slice(AudioBuffer64 buf, u32 offset, u32 num_frames);
+
 // Copy a 32-bit buffer to a pre-allocated 64-bit buffer
+// Modifies `num_frames` in `dst` if necessary
 void audio_buffer64_copy_from_32(AudioBuffer64 dst, const AudioBuffer32 src);
+// Copy a 64-bit buffer to a pre-allocated 32-bit buffer
+// Modifies `num_frames` in `dst` if necessary
+void audio_buffer32_copy_from_64(AudioBuffer32 dst, const AudioBuffer64 src);
+
+#define audio_buffer_sanitize(buf) do { \
+    for (int ch = 0; ch < buf.num_ch; ++ch) \
+        for (int i = 0; i < buf.num_frames; ++i) \
+            assert(!isnan(buf.data[ch][i]) && !isinf(buf.data[ch][i]) && "Audio Buffer invalid"); \
+} while(0)
 
 
 #define XSTR(x) #x
