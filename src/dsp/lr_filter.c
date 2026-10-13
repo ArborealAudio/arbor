@@ -1,95 +1,56 @@
+#include "lr_filter.h"
 
-void lr_filter_init(LR_Filter *f) {
-    for (int i = 0; i < 2; ++i) {
-        f->lp[i].type = IIR_Filter_Lowpass;
-        f->lp[i].cutoff = f->cutoff;
-        f->hp[i].type = IIR_Filter_Highpass;
-        f->hp[i].cutoff = f->cutoff;
-    }
+const float _tpt_butterworth_q = SQRT1_2;
+const float _tpt_k = SQRT2;
+
+static void _tpt_init(TPTFilter *f, f32 cutoff, f64 sample_rate) {
+    float g = tanf(PI * cutoff / sample_rate);
+    f->a1 = 1.f / (1.f + g * (g + _tpt_k));
+    f->a2 = g * f->a1;
+    f->a3 = g * f->a2;
+
+    f->s1 = f->s2 = 0;
 }
 
-void lr_filter_update(LR_Filter *f) {
-    // const f64 fc = f->cutoff;
-    // const f64 wc = 2 * PI * fc;
-    // const f64 wc2 = wc * wc;
-    // const f64 wc3 = wc2 * wc;
-    // const f64 wc4 = wc2 * wc2;
-    // const f64 k = wc / tan(PI * fc / f->sample_rate);
-    // const f64 k2 = k * k;
-    // const f64 k3 = k2 * k;
-    // const f64 k4 = k2 * k2;
-    // const f64 sqrt2 = sqrt(2);
-    // const f64 sq_tmp1 = sqrt2 * wc3 * k;
-    // const f64 sq_tmp2 = sqrt2 * wc * k3;
-    // const f64 a_tmp = 4 * wc2 * k2 + 2 * sq_tmp1 + k4 + 2 * sq_tmp2 + wc4;
-
-    // f->b1 = (4 * (wc4 + sq_tmp1 - k4 - sq_tmp2)) / a_tmp;
-    // f->b2 = (6 * wc4 - 8 * wc2 * k2 + 6 * k4) / a_tmp;
-    // f->b3 = (4 * (wc4 - sq_tmp1 + sq_tmp2 - k4)) / a_tmp;
-    // f->b4 = (k4 - 2 * sq_tmp1 + wc4 - 2 * sq_tmp2 + 4 * wc2 * k2) / a_tmp;
-
-    // f->lp_a0 = wc4 / a_tmp;
-    // f->lp_a1 = 4 * wc4 / a_tmp;
-    // f->lp_a2 = 6 * wc4 / a_tmp;
-
-    // f->hp_a0 = k4 / a_tmp;
-    // f->hp_a1 = 4 * k4 / a_tmp;
-    // f->hp_a2 = 6 * k4 / a_tmp;
-
-    for (int i = 0; i < 2; ++i) {
-        filter_set_coeffs(&f->lp[i]);
-        filter_set_coeffs(&f->hp[i]);
-    }
-}
-
-void lr_filter_set_sample_rate(LR_Filter *f, f64 sample_rate) {
-    f->sample_rate = sample_rate;
-    for (int i = 0; i < 2; ++i) {
-        // f->lp[i].cutoff = f->cutoff;
-        // f->hp[i].cutoff = f->cutoff;
-        filter_set_sample_rate(&f->lp[i], sample_rate);
-        filter_set_sample_rate(&f->hp[i], sample_rate);
-    }
-    // lr_filter_update(f);
-}
-
-void lr_filter_set_cutoff(LR_Filter *f, f64 cutoff) {
+void lr_filter_init(LR_Filter *f, f32 cutoff, f64 sample_rate) {
     f->cutoff = cutoff;
-    for (int i = 0; i < 2; ++i) {
-        filter_set_cutoff(&f->lp[i], f->cutoff);
-        filter_set_cutoff(&f->hp[i], f->cutoff);
-    }
-    // lr_filter_update(f);
+    f->sample_rate = sample_rate;
+    _tpt_init(&f->stage[0], cutoff, sample_rate);
+    _tpt_init(&f->stage[1], cutoff, sample_rate);
+    _tpt_init(&f->stage[2], cutoff, sample_rate);
 }
 
-void lr_filter_process_sample(LR_Filter *f, f64 in, f64 *out_low, f64 *out_high) {
-    // f64 yl = f->lp_a0 * in + f->lp_a1 * f->xn[0] + f->lp_a2 * f->xn[1] + f->lp_a1 * f->xn[2] + f->lp_a0 * f->xn[3] -
-    //     f->b1 * f->ynl[0] - f->b2 * f->ynl[1] - f->b3 * f->ynl[2] - f->b4 * f->ynl[3];
-    // f64 yh = f->hp_a0 * in + f->hp_a1 * f->xn[0] + f->hp_a2 * f->xn[1] + f->hp_a1 * f->xn[2] + f->hp_a0 * f->xn[3] -
-    //     f->b1 * f->ynh[0] - f->b2 * f->ynh[1] - f->b3 * f->ynh[2] - f->b4 * f->ynh[3];
-    // *out_low = yl;
-    // *out_high = yh;
-    // f->xn[3] = f->xn[2];
-    // f->xn[2] = f->xn[1];
-    // f->xn[1] = f->xn[0];
-    // f->xn[0] = in;
+void lr_filter_set_cutoff(LR_Filter *f, f32 cutoff) {
+    lr_filter_init(f, cutoff, f->sample_rate);
+}
 
-    // f->ynl[3] = f->ynl[2];
-    // f->ynl[2] = f->ynl[1];
-    // f->ynl[1] = f->ynl[0];
-    // f->ynl[0] = yl;
+static void _tpt_filter_process_sample_2out(TPTFilter *f, f64 x, f64 *low, f64 *hi) {
+    f64 y = x - f->s2;
+    f64 y2 = f->a1 * f->s1 + f->a2 * y;
+    f64 y3 = f->s2 + f->a2 * f->s1 + f->a3 * y;
 
-    // f->ynh[3] = f->ynh[2];
-    // f->ynh[2] = f->ynh[1];
-    // f->ynh[1] = f->ynh[0];
-    // f->ynh[0] = yh;
+    f->s1 = 2.0 * y2 - f->s1;
+    f->s2 = 2.0 * y3 - f->s2;
 
-    f64 yl = filter_process_sample(&f->lp[0], in);
-    yl = filter_process_sample(&f->lp[1], yl);
+    *low = y3;
+    *hi = x - _tpt_k * y2 - y3;
+}
 
-    f64 yh = filter_process_sample(&f->hp[0], in);
-    yh = filter_process_sample(&f->hp[1], yh);
+static f64 _tpt_filter_process_sample(TPTFilter *f, f64 x, bool32 highpass) {
+    f64 y = x - f->s2;
+    f64 y2 = f->a1 * f->s1 + f->a2 * y;
+    f64 y3 = f->s2 + f->a2 * f->s1 + f->a3 * y;
 
-    *out_low = yl;
-    *out_high = yh;
+    f->s1 = 2.0 * y2 - f->s1;
+    f->s2 = 2.0 * y3 - f->s2;
+
+    return highpass ? x - _tpt_k * y2 - y3 : y3;
+}
+
+void lr_filter_process_sample(LR_Filter *f, f64 in, f64 *low, f64 *high) {
+    f64 yl, yh;
+    yl = yh = in;
+    _tpt_filter_process_sample_2out(&f->stage[0], in, &yl, &yh);
+    *low = _tpt_filter_process_sample(&f->stage[1], yl, FALSE);
+    *high = _tpt_filter_process_sample(&f->stage[2], yh, TRUE);
 }

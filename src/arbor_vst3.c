@@ -726,6 +726,8 @@ static struct Steinberg_IPlugView* controller_create_view (void* thisInterface, 
 
 #if __APPLE__
 #define VST3_GUI_PLATFORM "NSView"
+#else
+#error VST3_GUI_PLATFORM not defined for this platform
 #endif
 
 static Steinberg_tresult view_query_interface (void* thisInterface, const Steinberg_TUID iid, void** obj) {
@@ -784,6 +786,8 @@ static Steinberg_tresult view_is_platform_type_supported (void* thisInterface, S
 
 static Steinberg_tresult view_attached (void* thisInterface, void* parent, Steinberg_FIDString type) {
     dbg("Type: %s", type);
+    if (!parent || !type || !string_match(string(type), STR_LIT(VST3_GUI_PLATFORM)))
+        return Steinberg_kInvalidArgument;
 
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, view);
     // Set GUI parent
@@ -829,6 +833,13 @@ static Steinberg_tresult view_get_size (void* thisInterface, struct Steinberg_Vi
 // Resize the platform view
 static Steinberg_tresult view_on_size (void* thisInterface, struct Steinberg_ViewRect* newSize) {
     dbg();
+    Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, view);
+    Plugin *plugin = vst3->plugin;
+
+    pv_set_render_size(plugin->gui.platform, (av_Size){
+        .width = (float)(newSize->right - newSize->left),
+        .height = (float)(newSize->bottom - newSize->top),
+    });
     return Steinberg_kResultOk;
 }
 
@@ -840,7 +851,7 @@ static Steinberg_tresult view_on_focus (void* thisInterface, Steinberg_TBool sta
 // Attach a Frame interface to notify host about resizing
 static Steinberg_tresult view_set_frame (void* thisInterface, struct Steinberg_IPlugFrame* frame) {
     dbg();
-    return Steinberg_kResultOk;
+    return Steinberg_kResultFalse;
 }
 
 static Steinberg_tresult view_can_resize (void* thisInterface) {
@@ -849,6 +860,12 @@ static Steinberg_tresult view_can_resize (void* thisInterface) {
 
 static Steinberg_tresult view_check_size_constraint (void* thisInterface, struct Steinberg_ViewRect* rect) {
     dbg();
+    Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, view);
+    Plugin *plugin = vst3->plugin;
+
+    rect->top = rect->bottom = 0;
+    rect->right = plugin->gui.width;
+    rect->bottom = plugin->gui.height;
     return Steinberg_kResultOk;
 }
 

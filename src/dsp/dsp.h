@@ -6,6 +6,7 @@
 #define PI M_PI
 #define TWO_PI (2 * PI)
 #define EULER M_E
+#define SQRT2 M_SQRT2
 #define SQRT1_2 M_SQRT1_2
 
 static inline f64 db2lin(f64 db) {
