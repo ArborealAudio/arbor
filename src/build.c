@@ -153,20 +153,34 @@ typedef enum {
     ParseError_FilesystemError,
 } ParseError;
 
-static ParseError config_build(PluginBuild *build);
+static const String parse_error_msgs[] = {
+    [ParseError_None] = "None",
+    [ParseError_InvalidToken] = "Invalid Token",
+    [ParseError_ExpectedNewline] = "Expected Newline",
+    [ParseError_MaxNodesReached] = "Max Nodes Reached",
+    [ParseError_FilesystemError] = "Filesystem Error",
+};
+
+typedef struct {
+    ParseError error;
+    int err_line;
+    int err_col;
+} ParseStatus;
+
+static ParseStatus config_build(PluginBuild *build);
 
 static void build_plugin(PluginBuild *build) {
     _arena = arena_init();
 
     if (file_exists(STR_LIT("generated/user_code.c"))) {
         if (file_mtime(string(build->config_file)) > file_mtime(STR_LIT("generated/user_code.c"))) {
-            if (config_build(build) != ParseError_None) {
+            if (config_build(build).error != ParseError_None) {
                 err("Config parse failed\n");
                 goto cleanup;
             }
         }
     } else {
-        if (config_build(build) != ParseError_None) {
+        if (config_build(build).error != ParseError_None) {
             err("Config parse failed\n");
             goto cleanup;
         }
@@ -284,7 +298,9 @@ static const char *token_type_names[] = {
 
 typedef struct {
     TokenType type;
-    u32 offset;
+    String text;
+    u32 line;
+    u32 col;
 } Token;
 
 static Token tokens[1024];
@@ -406,9 +422,6 @@ static struct {
 	u32 parent_stack_head;
 } parser = {0};
 
-// Global reference to user config data
-static char *config_data;
-
 static Node *get_node(u32 id) {
 	if (id >= parser.head || id == 0)
 		return NULL;
@@ -487,9 +500,9 @@ static ParseError parser_push_node(NodeType node_type, u32 token_id) {
 		}
 	} break;
 	case Node_Invalid: {
-		Token t = tokens[node.token_id];
+		Token *t = &tokens[node.token_id];
 		// TODO Improve error messages
-		println("Error: invalid node @ byte %d", t.offset);
+		println("Invalid node @ Token \"%.*s\" (%d:%d)", t->text.len, t->text.data, t->line, t->col);
 		return ParseError_InvalidToken;
 	} break;
 	}
@@ -522,23 +535,23 @@ static bool32 is_alpha(const u8 c) {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 }
 
-// TODO Support printing string literals i.e. stuff w/ spaces in it
-// may necessitate a new kind of token that includes the quotes as its data, is treated a little differently
-static String get_identifier(const char *token_start) {
-	u32 len = 0, i = 0;
-	while (TRUE) {
-		const u8 c = token_start[i];
-		if (is_whitespace(c) || c == '\n') {
-			break;
-		}
-		++i, ++len;
-	}
-
-	return (String){.data = (char*)token_start, .len = len};
-}
-
+// // TODO Support printing string literals i.e. stuff w/ spaces in it
+// // may necessitate a new kind of token that includes the quotes as its data, is treated a little differently
+// static String get_identifier(const char *token_start) {
+// 	u32 len = 0, i = 0;
+// 	while (TRUE) {
+// 		const u8 c = token_start[i];
+// 		if (is_whitespace(c) || c == '\n') {
+// 			break;
+// 		}
+// 		++i, ++len;
+// 	}
+//
+// 	return (String){.data = (char*)token_start, .len = len};
+// }
+//
 static String node_get_identifier(Node *n) {
-    return get_identifier(config_data + tokens[n->token_id].offset);
+    return tokens[n->token_id].text;
 }
 
 static String node_get_parameter_name(Node *n) {
@@ -568,11 +581,16 @@ static String node_get_parameter_name(Node *n) {
 }
 
 static ParamType node_get_parameter_type(Node *n) {
-    assert(n->type == Node_ParamDecl);
+    // assert(n->type == Node_ParamDecl);
+    // Search children
     for (Node *child = get_node(n->first); child != NULL; child = get_node(child->next)) {
         if (child->type == Node_ParamProperty && child->param_field == ParamField_Type) {
             return get_node(child->first)->param_type;
         }
+    }
+
+    if (n->parent) {
+        return node_get_parameter_type(get_node(n->parent));
     }
 
     return ParamType_None;
@@ -656,7 +674,8 @@ static void print_parameter_info(File f, Arena *arena, Node *root) {
                 if (string_match(min_value, STR_LIT("false"))) {
                     min_value = STR_LIT("FALSE");
                 }
-    			file_printf(f, _arena, "\t\t.min_value = %.*s,\n", min_value.len, min_value.data);
+    			file_printf(f, _arena, "\t\t.min_value = %.*s_%.*s,\n", data.len, data.data,
+                    min_value.len, min_value.data);
 			}
 		}
 		if (!node_has_field(root, ParamField_Max)) {
@@ -666,7 +685,8 @@ static void print_parameter_info(File f, Arena *arena, Node *root) {
     			Node *choices = node_get_choices(root);
     			Node *max = get_node(choices->last);
     			String max_value = node_get_identifier(max);
-    			file_printf(f, _arena, "\t\t.max_value = %.*s,\n", max_value.len, max_value.data);
+    			file_printf(f, _arena, "\t\t.max_value = %.*s_%.*s,\n", data.len, data.data,
+                    max_value.len, max_value.data);
 			}
 		}
 		break;
@@ -713,7 +733,14 @@ static void print_parameter_info(File f, Arena *arena, Node *root) {
 		    } else if (string_match(data, STR_LIT("false"))) {
 		        file_printf(f, _arena, "FALSE,\n");
 		    } else {
-                file_printf(f, _arena, "%.*s,\n", data.len, data.data);
+				// This is essentially always the default value field
+				if (node_get_parameter_type(root) == ParamType_Choice) {
+				    String name = node_get_parameter_name(root);
+					file_printf(f, _arena, "%.*s_%.*s,\n", name.len, name.data,
+					    data.len, data.data);
+				} else {
+                    file_printf(f, _arena, "%.*s,\n", data.len, data.data);
+				}
 			}
 		    break;
 		}
@@ -741,13 +768,25 @@ static u32 hash_plugin_id(const char *plugin_id) {
     return hash;
 }
 
-static ParseError config_build(PluginBuild *build) {
-    File user_config_fd = file_open_opt(string(build->config_file), FileOpen_ReadOnly, 0755);
+static void _push_token(TokenType type, u32 line, u32 col, const char *config, u32 offset, u32 len) {
+    tokens[token_head] = (Token){
+        .type = type,
+        .line = line,
+        .col = col,
+        .text = (String){.data = config + offset, .len = len},
+    };
+    token_head += 1;
+}
+
+static ParseStatus config_build(PluginBuild *build) {
+    File user_config_fd = file_open_opt(string(build->config_file), FileOpen_ReadOnly, 0644);
     char *const data = file_read_full_alloc(user_config_fd, _arena);
-    config_data = data;
     file_close(user_config_fd);
 
     ParseError result = ParseError_None;
+    int num_lines = 0, src_line = 0, err_line = 0;
+    int src_col = 0, err_col = 0;
+    int tok_offset = 0, tok_len = 0;
 
     struct {
         enum {
@@ -756,7 +795,7 @@ static ParseError config_build(PluginBuild *build) {
         } state;
     } ts = {.state = TokenState_Normal};
 
-	#define push_token(Type) tokens[token_head++] = (Token){(Type), i}
+	#define push_token(T) _push_token((T), src_line, src_col, data, tok_offset, tok_len)
 
 	//
 	// TOKENIZATION
@@ -769,31 +808,47 @@ static ParseError config_build(PluginBuild *build) {
         if (is_numeric(c)) {
             if (ts.state != TokenState_Number) {
                 ts.state = TokenState_Number;
-                push_token(Token_Number);
             }
+            tok_offset = i;
             // consume remaining number
         	while (is_numeric(c))
         		c = data[++i];
+            tok_len = i - tok_offset;
+            push_token(Token_Number);
         } else if (is_alpha(c)) {
+            bool32 is_bool = FALSE;
+            tok_offset = i;
             if (string_match(STR_LIT("TRUE"), (String){data + i, 4})) {
+                is_bool = TRUE;
+                tok_len = 4;
                 push_token(Token_True);
             } else if (string_match(STR_LIT("FALSE"), (String){data + i, 5})) {
+                is_bool = TRUE;
+                tok_len = 5;
                 push_token(Token_False);
-            } else {
-                push_token(Token_Identifier);
             }
             // consume remaining identifier
-        	while (is_alpha(c))
+        	while (is_alpha(c) || c == '_')
         		c = data[++i];
+            if (!is_bool) {
+                tok_len = i - tok_offset;
+                push_token(Token_Identifier);
+            }
         }
+        tok_offset = i;
+        tok_len = 1;
         switch (c) {
         case '.': {
-            if (ts.state != TokenState_Number)
+            if (ts.state != TokenState_Number) {
                 push_token(Token_Invalid);
+                err_line = src_line;
+                err_col = i % (src_line - 1);
+            }
         } break;
         case '-': {
             if (is_numeric(data[i + 1])) {
-                push_token(Token_Number);
+                // push_token(Token_Number);
+                tok_offset = i;
                 ts.state = TokenState_Number;
             } else {
                 push_token(Token_Invalid);
@@ -815,28 +870,32 @@ static ParseError config_build(PluginBuild *build) {
             push_token(Token_CloseBracket);
         } break;
 		case '"': {
-			u32 j = i;
-			c = data[++j];
-			for (; is_alpha(c) || is_numeric(c) || c == ' '; c = data[++j]);
+			c = data[++i];
+			for (; (is_alpha(c) || is_numeric(c) || c == ' ' || c == '_') && i < user_config_fd.size; c = data[++i]);
 			if (c == '"') {
+			    tok_len = i - tok_offset;
 				push_token(Token_Identifier);
 			} else
 				push_token(Token_Invalid);
-			i = j;
 		} break;
         case '\n': {
             if (ts.state == TokenState_Number)
                 ts.state = TokenState_Normal;
         	push_token(Token_Newline);
+            num_lines += 1;
+            src_line += 1;
+            src_col = 0;
     	} break;
+        default: break;
         }
+        src_col += 1;
     }
 
     #if !defined(NDEBUG)
     for (u32 i = 0; i < token_head; ++i) {
 		Token *t = &tokens[i];
-    	dbg("%s @ %d: ", token_type_names[t->type], t->offset);
-    	string_println(get_identifier(data + t->offset));
+    	dbg("%.*s || %s (%d:%d)", t->text.len, t->text.data, token_type_names[t->type],
+            t->line, t->col);
     }
     #endif
 
@@ -850,9 +909,9 @@ static ParseError config_build(PluginBuild *build) {
 	Token *t = &tokens[0];
 	for (u32 i = 0; i < token_head; ++i) {
 		if (parser.state == Parse_Error) {
-			print("Parse error: %d", result);
-			string_println(get_identifier(data + t->offset));
-			return result;
+			println("Config error: %.*s", parse_error_msgs[result]);
+			println("(%d:%d) %.*s", t->line, t->col, t->text.len, t->text.data);
+			goto cleanup;
 		}
 		t = &tokens[i];
 		switch (t->type) {
@@ -967,13 +1026,14 @@ static ParseError config_build(PluginBuild *build) {
         if (!make_dir(STR_LIT("generated/"))) {
             err("Failed to make generated dir\n");
             result = ParseError_FilesystemError;
-            return result;
+            goto cleanup;
         }
 	}
 	File config_fd = file_open(STR_LIT("generated/user_code.c"));
 	if (!config_fd.fd) {
+	    err("Failed to open 'generated/user_code.c'\n");
         result = ParseError_FilesystemError;
-        return result;
+        goto config_fd_close;
 	}
 	file_write_string(config_fd, STR_LIT("//\n// Generated code, do not edit\n//\n\n"));
 	// Iterate all top-level parameter nodes & generate enum & param names table
@@ -982,8 +1042,8 @@ static ParseError config_build(PluginBuild *build) {
 		String header = STR_LIT("typedef enum {\n");
 		file_write_string(config_fd, header);
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
-			Token t = tokens[node->token_id];
-			String name = get_identifier(data + t.offset);
+			Token *t = &tokens[node->token_id];
+			String name = t->text;
 			file_printf(config_fd, _arena, "\tParam_%.*s,\n", name.len, name.data);
 		}
 		String param_count = STR_LIT("\tParam_Count,\n");
@@ -996,8 +1056,8 @@ static ParseError config_build(PluginBuild *build) {
 		String header = STR_LIT("static String param_names[Param_Count] = {\n");
 		file_write_string(config_fd, header);
 		for (Node *node = get_node(1); node != NULL; node = get_node(node->next)) {
-			Token t = tokens[node->token_id];
-			String name = get_identifier(data + t.offset);
+			Token *t = &tokens[node->token_id];
+			String name = t->text;
 			file_printf(config_fd, _arena, "\tSTR_LIT(\"%.*s\"),\n", name.len, name.data);
 		}
 		String footer = STR_LIT("};\n\n");
@@ -1020,7 +1080,8 @@ static ParseError config_build(PluginBuild *build) {
             for (Node *choice = get_node(choices->first); choice != NULL; choice = get_node(choice->next)) {
                 String identifier = node_get_identifier(choice);
                 array_append(stack_arena(), &names, identifier);
-                file_printf(config_fd, _arena, "\t%.*s,\n", identifier.len, identifier.data);
+                file_printf(config_fd, _arena, "\t%.*s_%.*s,\n", param_name.len, param_name.data,
+                    identifier.len, identifier.data);
             }
             file_printf(config_fd, _arena, "\t%.*s_Count,\n", param_name.len, param_name.data);
             file_printf(config_fd, _arena, "} %.*s;\n\n", param_name.len, param_name.data);
@@ -1104,7 +1165,13 @@ static ParseError config_build(PluginBuild *build) {
 
 	file_printf(config_fd, _arena, "#include \"../%s\"\n", build->src_file);
 
+config_fd_close:
 	file_close(config_fd);
 
-    return result;
+cleanup:
+    return (ParseStatus){
+        .error = result,
+        .err_line = err_line,
+        .err_col = err_col,
+    };
 }

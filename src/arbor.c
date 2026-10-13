@@ -325,6 +325,7 @@ void arbor_quick_ui(PluginGui *gui) {
             slider(gui, i);
             ui_background_color_pop(gui->ui);
             break;
+        // TODO Int parameter type
         case ParameterType_Choice: {
             combo_box(gui, i, info->choices.strings, info->choices.count);
             // ui_popup_begin(gui->ui, Vertical, info->name);
