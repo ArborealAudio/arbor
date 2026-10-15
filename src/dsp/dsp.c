@@ -1,4 +1,5 @@
 #include "dsp.h"
+#include "../simd.h"
 
 static void filter_reset(IIR_Filter *f) {
     f->xn[0] = f->xn[1] = f->yn[0] = f->yn[1] = 0;

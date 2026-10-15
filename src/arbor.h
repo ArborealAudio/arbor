@@ -6,6 +6,7 @@
 
 #include "../cbase/cbase.h"
 #include "dsp/dsp.h"
+#include "simd.h"
 #include "visual/visual.h"
 
 typedef struct {

@@ -624,5 +624,6 @@ static void _visual_close(Plugin *p) {
 
 // Other required impl
 #include "dsp/dsp.c"
+#include "simd.c"
 #include "../cbase/cbase.c"
 #include "visual/visual.c"
