@@ -144,7 +144,7 @@ static void filter_set_sample_rate(IIR_Filter *f, f64 sample_rate) {
     filter_set_coeffs(f);
 }
 
-static f32 filter_process_sample(IIR_Filter *f, f64 sample) {
+static f64 filter_process_sample(IIR_Filter *f, f64 sample) {
     f64 b = f->b0 * sample + f->b1 * f->xn[0] + f->b2 * f->xn[1];
     f64 a = -f->a1 * f->yn[0] - f->a2 * f->yn[1];
     f64 result = a + b;
@@ -159,6 +159,21 @@ static void filter_process(IIR_Filter *f, const f64 *in, f64 *out, u32 num_frame
     for (u32 i = 0; i < num_frames; ++i) {
         out[i] = filter_process_sample(f, in[i]);
     }
+}
+
+//
+// DC BLOCK
+//
+
+static DCBlock_Filter dc_block_create(f64 alpha) {
+    return (DCBlock_Filter){ .a = alpha };
+}
+
+static f64 dc_block_process_sample(DCBlock_Filter *f, f64 in) {
+    f64 y = in - f->xn + f->a * f->yn;
+    f->xn = in;
+    f->yn = y;
+    return y;
 }
 
 #include "lr_filter.c"

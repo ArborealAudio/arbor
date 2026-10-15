@@ -82,8 +82,19 @@ static void filter_set_reso(IIR_Filter *f, f32 reso);
 static void filter_set_gain(IIR_Filter *f, f32 gain);
 static void filter_set_type(IIR_Filter *f, IIR_FilterType type);
 static void filter_set_sample_rate(IIR_Filter *f, f64 sample_rate);
-static f32 filter_process_sample(IIR_Filter *f, f64 sample);
+static f64 filter_process_sample(IIR_Filter *f, f64 sample);
 static void filter_process(IIR_Filter *f, const f64 *in, f64 *out, u32 num_frames);
+
+typedef struct {
+    f32 a;
+    f64 xn;
+    f64 yn;
+} DCBlock_Filter;
+
+// Create a DC blocking filter, supply a float close to 1, e.g. 0.995
+// Lower values will attenuate varying DC levels faster, at the cost of greater LF attenuation
+static DCBlock_Filter dc_block_create(f64 alpha);
+static f64 dc_block_process_sample(DCBlock_Filter *f, f64 in);
 
 #include "lr_filter.h"
 
