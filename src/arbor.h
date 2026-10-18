@@ -170,17 +170,17 @@ struct PluginGui {
 };
 
 typedef struct {
-    bool32 valid;
     u32 id;
     u32 offset;
     f64 value;
 } ParamChange;
 
-#define PARAM_CHANGES_CAPACITY 128 // Initial capacity, may grow
+#define PARAM_CHANGES_CAPACITY 128
 
 typedef struct {
-    Array(ParamChange) data;
-    int read_head;
+    ParamChange *data;
+    int head;
+    int tail;
 } ParamChangeList;
 
 struct Plugin {
@@ -205,12 +205,15 @@ struct Plugin {
 
     PluginInterface user_iface;
 
-    Mutex param_lock;
+    // Mutex param_lock;
     InternalParameters *params;
     // An n-channel-sized array, manages smoothing of all parameter values
     ParameterSmoother *param_smoother;
     ParamChangeList param_changes;
+    // Bitmask corresponding to the parameter ID of the change. Used in for querying `parameter_changed()`
     u64 param_change_mask;
+    // Bitmask used for signalling to host a parameter was modified by the GUI (CLAP only)
+    u64 clap_gui_param_change_mask;
 
     PluginGui gui;
 };
@@ -268,8 +271,8 @@ void arbor_quick_ui(PluginGui *gui);
 
 AudioBuffer32 audio_buffer32_create(Plugin *p, u32 num_ch, u32 num_frames);
 AudioBuffer64 audio_buffer64_create(Plugin *p, u32 num_ch, u32 num_frames);
-AudioBuffer32 audio_buffer32_from_data(f32 **data, u32 num_ch, u32 num_frames, u32 offset);
-AudioBuffer64 audio_buffer64_from_data(f64 **data, u32 num_ch, u32 num_frames, u32 offset);
+AudioBuffer32 audio_buffer32_from_data(f32 **dst, f32 **src, u32 num_ch, u32 num_frames, u32 offset);
+AudioBuffer64 audio_buffer64_from_data(f64 **dst, f64 **src, u32 num_ch, u32 num_frames, u32 offset);
 AudioBuffer32 audio_buffer32_slice(AudioBuffer32 buf, u32 offset, u32 num_frames);
 AudioBuffer64 audio_buffer64_slice(AudioBuffer64 buf, u32 offset, u32 num_frames);
 

@@ -122,9 +122,9 @@ static Steinberg_tresult audio_processor_set_bus_arrangements (void* thisInterfa
 	}
 
 	for (int i = 0; i < num_outputs && i < numOuts; ++i) {
-		if (inputs[i] == Steinberg_Vst_SpeakerArr_kMono)
+		if (outputs[i] == Steinberg_Vst_SpeakerArr_kMono)
 			plugin->audio_output_count = 1;
-		else if (inputs[i] == Steinberg_Vst_SpeakerArr_kStereo)
+		else if (outputs[i] == Steinberg_Vst_SpeakerArr_kStereo)
 			plugin->audio_output_count = 2;
 		else
 			return Steinberg_kResultFalse;
@@ -137,10 +137,19 @@ static Steinberg_tresult audio_processor_set_bus_arrangements (void* thisInterfa
 static Steinberg_tresult audio_processor_get_bus_arrangement (void* thisInterface,
     Steinberg_Vst_BusDirection dir, Steinberg_int32 index,
     Steinberg_Vst_SpeakerArrangement* arr) {
-	if (index != 0)
-		return Steinberg_kResultFalse;
-	*arr = Steinberg_Vst_SpeakerArr_kStereo;
     dbg();
+    Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, processor);
+    Plugin *plugin = vst3->plugin;
+	if (!arr || index != 0)
+		return Steinberg_kResultFalse;
+	u32 ch_count = dir == Steinberg_Vst_BusDirections_kInput ?
+	    plugin->audio_input_count : plugin->audio_output_count;
+	if (ch_count >= 2)
+	    *arr = Steinberg_Vst_SpeakerArr_kStereo;
+	else if (ch_count == 1)
+	    *arr = Steinberg_Vst_SpeakerArr_kMono;
+	else
+        *arr = Steinberg_Vst_SpeakerArr_kEmpty;
     return Steinberg_kResultOk;
 }
 
@@ -190,10 +199,12 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     if (data->outputs)
         assert(data->outputs->numChannels <= plugin->audio_output_count);
 
-    int input_param_change_count = 0;
+    // bool32 locked = _plugin_lock_params(plugin);
+    // assert(locked);
+
     if (data->inputParameterChanges) {
-        input_param_change_count = data->inputParameterChanges->lpVtbl->getParameterCount(data->inputParameterChanges);
-        for (int i = 0; i < input_param_change_count; ++i) {
+        int changed_param_count = data->inputParameterChanges->lpVtbl->getParameterCount(data->inputParameterChanges);
+        for (int i = 0; i < changed_param_count; ++i) {
             struct Steinberg_Vst_IParamValueQueue *queue = data->inputParameterChanges->lpVtbl->getParameterData(data->inputParameterChanges, i);
             u32 id = queue->lpVtbl->getParameterId(queue);
             int point_count = queue->lpVtbl->getPointCount(queue);
@@ -201,12 +212,12 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
                 int offset;
                 double value;
                 if (queue->lpVtbl->getPoint(queue, p, &offset, &value) == Steinberg_kResultOk) {
-                    f32 normalized = get_parameter_from_normalized(plugin, id, (f32)value);
-                    _plugin_push_param_update(plugin, (ParamChange){
-                        .valid = TRUE,
+                    f32 denorm = get_parameter_from_normalized(plugin, id, (f32)value);
+                    _plugin_push_param_change(plugin, (ParamChange){
+                        // .valid = TRUE,
                         .id = id,
-                        .offset = offset,
-                        .value = normalized,
+                        .offset = (offset < 0) ? 0 : (u32)offset,
+                        .value = denorm,
                     });
                 }
             }
@@ -214,26 +225,24 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
     }
 
     u32 next_event_frame = num_frames;
-    ParamChange next_param_change = {0};
-    int total_param_change_count = plugin->param_changes.data.len;
-    if (total_param_change_count > 0) {
+    if (_plugin_has_param_changes(plugin)) {
         _sort_param_changes(plugin);
-        next_param_change = _plugin_next_param_change(plugin);
-        assert(next_param_change.valid);
-        next_event_frame = next_param_change.offset;
+        int next_param_change_frame = _plugin_next_param_change_offset(plugin);
+        if (next_param_change_frame >= 0)
+            next_event_frame = next_param_change_frame;
     }
 
+    stack_arena_begin(512);
+
     u32 i = 0;
-    bool32 locked = _plugin_lock_params(plugin);
-    assert(locked);
 
     while (i < num_frames) {
         while (next_event_frame == i) {
-            if (total_param_change_count > 0) {
-                _plugin_apply_next_param_update(plugin);
-                next_param_change = _plugin_next_param_change(plugin);
-                if (next_param_change.valid) {
-                    next_event_frame = next_param_change.offset;
+            if (_plugin_has_param_changes(plugin)) {
+                _plugin_apply_next_param_change(plugin);
+                int next_param_change_frame = _plugin_next_param_change_offset(plugin);
+                if (next_param_change_frame >= 0) {
+                    next_event_frame = next_param_change_frame;
                 } else {
                     next_event_frame = num_frames;
                 }
@@ -242,19 +251,26 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         }
 
         u32 frames_to_process = next_event_frame - i;
+        assert(frames_to_process <= num_frames);
 
         if (_buffer_is_valid(data->inputs) && _buffer_is_valid(data->outputs)) {
+            u32 in_ch = data->inputs->numChannels;
+            u32 out_ch = data->outputs->numChannels;
             if (!is_double_precision) {
+                f32 **in_data = arena_alloc(stack_arena(), sizeof(f32*) * in_ch);
                 AudioBuffer32 in_buf = audio_buffer32_from_data(
+                    in_data,
                     data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-                    data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+                    in_ch, // ISSUE sometimes we're getting absurd numbers here like 12??
                     frames_to_process,
                     i
                 );
 
+                f32 **out_data = arena_alloc(stack_arena(), sizeof(f32*) * out_ch);
                 AudioBuffer32 out_buf = audio_buffer32_from_data(
+                    out_data,
                     data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers32,
-                    data->outputs->numChannels,
+                    out_ch,
                     frames_to_process,
                     i
                 );
@@ -262,16 +278,20 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
                 plugin->user_iface.process_cb(plugin, in_buf, out_buf, plugin->midi);
                 audio_buffer_sanitize(out_buf);
             } else {
+                f64 **in_data = arena_alloc(stack_arena(), sizeof(f64*) * in_ch);
                 AudioBuffer64 in_buf = audio_buffer64_from_data(
+                    in_data,
                     data->inputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
-                    data->inputs->numChannels, // ISSUE sometimes we're getting absurd numbers here like 12??
+                    in_ch, // ISSUE sometimes we're getting absurd numbers here like 12??
                     frames_to_process,
                     i
                 );
 
+                f64 **out_data = arena_alloc(stack_arena(), sizeof(f64*) * out_ch);
                 AudioBuffer64 out_buf = audio_buffer64_from_data(
+                    out_data,
                     data->outputs->Steinberg_Vst_AudioBusBuffers_channelBuffers64,
-                    data->outputs->numChannels,
+                    out_ch,
                     frames_to_process,
                     i
                 );
@@ -285,8 +305,7 @@ static Steinberg_tresult audio_processor_process (void* thisInterface, struct St
         i += frames_to_process;
     }
     _plugin_end_processing(plugin);
-
-    _plugin_unlock_params(plugin);
+    // _plugin_unlock_params(plugin);
 
     return Steinberg_kResultOk;
 }
@@ -677,20 +696,15 @@ static Steinberg_Vst_ParamValue controller_get_param_normalized (void* thisInter
 
 static Steinberg_tresult controller_set_param_normalized (void* thisInterface, Steinberg_Vst_ParamID id,
                                                    Steinberg_Vst_ParamValue value) {
-    dbg();
+    dbg("%.*s: %.2f", param_names[id].len, param_names[id].data, value);
     Vst3Plugin *vst3 = vst3_from_ptr(thisInterface, controller);
     Plugin *plugin = vst3->plugin;
     if (id >= Param_Count) {
         err("Invalid param ID\n");
         return Steinberg_kInvalidArgument;
     }
-    f32 v = get_parameter_from_normalized(plugin, id, value);
-    // TODO Assert not audio thread & get mutex lock
-    _plugin_push_param_update(plugin, (ParamChange){
-        .valid = TRUE,
-        .id = id,
-        .value = v,
-    });
+    f32 v = get_parameter_from_normalized(plugin, id, (f32)value);
+    set_parameter(plugin, id, v);
     return Steinberg_kResultOk;
 }
 
@@ -719,6 +733,39 @@ static struct Steinberg_IPlugView* controller_create_view (void* thisInterface, 
         return NULL;
 	vst3->view.ref_count = 1;
     return (Steinberg_IPlugView*)&vst3->view;
+}
+
+// arbor Gui -> VST3 controller glue
+
+static void _begin_gui_param_edit(void *ctx, u32 param_id) {
+    Vst3Plugin *vst3 = (Vst3Plugin*)ctx;
+
+    if (!vst3->controller.handler)
+        return;
+    if (vst3->controller.handler->lpVtbl->beginEdit(vst3->controller.handler, param_id) != Steinberg_kResultOk) {
+        err("ComponentHandler->beginEdit failed\n");
+    }
+}
+
+static void _push_gui_param_edit(void *ctx, u32 param_id, f64 value) {
+    Vst3Plugin *vst3 = (Vst3Plugin*)ctx;
+
+    if (!vst3->controller.handler)
+        return;
+    f64 norm = get_parameter_normalized(vst3->plugin, param_id, (f32)value);
+    if (vst3->controller.handler->lpVtbl->performEdit(vst3->controller.handler, param_id, norm) != Steinberg_kResultOk) {
+        err("ComponentHandler->performEdit failed\n");
+    }
+}
+
+static void _end_gui_param_edit(void *ctx, u32 param_id) {
+    Vst3Plugin *vst3 = (Vst3Plugin*)ctx;
+
+    if (!vst3->controller.handler)
+        return;
+    if (vst3->controller.handler->lpVtbl->endEdit(vst3->controller.handler, param_id) != Steinberg_kResultOk) {
+        err("ComponentHandler->endEdit failed\n");
+    }
 }
 
 // VIEW:

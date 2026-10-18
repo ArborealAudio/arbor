@@ -121,6 +121,8 @@ static void filter_set_coeffs(IIR_Filter *f) {
 }
 
 static void filter_set_cutoff(IIR_Filter *f, f32 cutoff) {
+    if (cutoff >= f->sample_rate * 0.5)
+        cutoff = f->sample_rate * 0.5;
     f->cutoff = cutoff;
     filter_set_coeffs(f);
 }

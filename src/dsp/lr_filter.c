@@ -21,6 +21,8 @@ void lr_filter_init(LR_Filter *f, f32 cutoff, f64 sample_rate) {
 }
 
 void lr_filter_set_cutoff(LR_Filter *f, f32 cutoff) {
+    if (cutoff >= f->sample_rate * 0.5)
+        cutoff = f->sample_rate * 0.5;
     lr_filter_init(f, cutoff, f->sample_rate);
 }
 

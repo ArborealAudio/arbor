@@ -26,6 +26,7 @@ enum UiBoxMouseEvents {
     BoxMouseHold = 1 << 4,
     BoxMouseDrag = 1 << 5,
     BoxMouseScroll = 1 << 6,
+    BoxMouseUp = 1 << 7,
 };
 
 typedef struct {
@@ -207,7 +208,7 @@ bool32 ui_icon_button(UiCtx *ctx, pv_IconSlot icon, String id);
 void ui_popup_begin(UiCtx *ctx, UiAxis direction, String display);
 void ui_popup_end(UiCtx *ctx);
 void ui_combo_box(UiCtx *ctx, int *value, String display, String *choices, int choice_count);
-void ui_slider(UiCtx *ctx, float *value, float min, float max, String display);
+UiBoxEvent ui_slider(UiCtx *ctx, float *value, float min, float max, String display);
 
 void ui_pref_width(UiCtx *ctx, UiSize size);
 void ui_pref_width_pop(UiCtx *ctx);

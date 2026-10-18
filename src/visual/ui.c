@@ -134,6 +134,8 @@ UiBoxEvent _get_box_mouse_event(UiCtx *ctx, UiBox *box) {
     if (!mouse_down) {
         drag_continue = FALSE;
         mouse_hold = FALSE;
+        if (last_event.mouse_event & BoxMouseDown)
+            e.mouse_event |= BoxMouseUp;
     }
 
     if (mouse_hold)
@@ -519,7 +521,8 @@ bool32 ui_expander(UiCtx *ctx, String display) {
 
 // IDEA To provide us with different options for slider appearences, e.g. our current method of
 // filling a rectangle, or a single "thumb" that slides along the bounding box
-void ui_slider(UiCtx *ctx, float *value, float min, float max, String display) {
+UiBoxEvent ui_slider(UiCtx *ctx, float *value, float min, float max, String display) {
+    UiBoxEvent res = {0};
     ui_pref_width(ctx, ui_children_sum(1));
     ui_pref_height(ctx, ui_children_sum(1));
     UiBox *container = _build_box(ctx, 0, null_key);
@@ -536,6 +539,7 @@ void ui_slider(UiCtx *ctx, float *value, float min, float max, String display) {
         _push_parent(ctx, slider_frame);
         {
             UiBoxEvent e = _get_box_mouse_event(ctx, slider_frame);
+            res = e;
             float v = *value;
             float vnorm = (v - min) / (max - min);
             ui_pref_width(ctx, ui_pct(vnorm, 0));
@@ -561,6 +565,8 @@ void ui_slider(UiCtx *ctx, float *value, float min, float max, String display) {
     _pop_parent(ctx);
     ui_pref_height_pop(ctx);
     ui_pref_width_pop(ctx);
+
+    return res;
 }
 
 void ui_pref_width(UiCtx *ctx, UiSize size) {
